@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose product behavior without starting implementation.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Scope
+      options:
+        - Shared macOS application behavior
+        - Vaultwarden
+        - Proton CLI
+        - Local security/storage
+        - Future extension
+    validations:
+      required: true
+  - type: textarea
+    id: consequences
+    attributes:
+      label: Security, privacy, and compatibility consequences
+      description: Include new secret surfaces, persistence, network origins, permissions, or unsupported states.
+    validations:
+      required: true
+  - type: checkboxes
+    id: gate
+    attributes:
+      label: Planning status
+      options:
+        - label: I understand implementation remains blocked until the history-isolation gate is completed.
+          required: true

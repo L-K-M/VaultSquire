@@ -1,0 +1,39 @@
+name: Research question
+description: Propose a bounded protocol, platform, security, or compatibility investigation.
+title: "[Research]: "
+labels: [research]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Decision this research must unblock
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Scope and trust boundary
+      description: Identify provider, OS, versions, inputs, and what is explicitly out of scope.
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Allowed evidence sources
+      description: List public docs, immutable revisions, or synthetic black-box fixtures. Keyguard source is prohibited.
+    validations:
+      required: true
+  - type: textarea
+    id: oracle
+    attributes:
+      label: Test oracle and exit criteria
+      description: Define positive, negative, cancellation, ambiguity, and leakage observations where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Synthetic data plan
+      description: Explain how the work avoids real credentials, vault contents, tokens, and logs.
+    validations:
+      required: true

@@ -1,0 +1,51 @@
+name: Repository Hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-hygiene-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Documentation and governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Require governance files
+        run: |
+          set -euo pipefail
+          for file in \
+            AGENTS.md \
+            CONTRIBUTING.md \
+            PRIVACY.md \
+            SECURITY.md \
+            .claude/settings.json \
+            .github/dependabot.yml; do
+            test -f "$file" || { echo "::error::missing required file: $file"; exit 1; }
+          done
+
+      - name: Validate JSON
+        run: jq empty .claude/settings.json
+
+      - name: Reject local and secret files
+        run: |
+          set -euo pipefail
+          forbidden="$(git ls-files | grep -E '(^|/)(\.idea|\.vscode)(/|$)|(^|/)\.DS_Store$|workspace\.xml$|(^|/)\.env($|\.)|\.(p8|p12|mobileprovision|provisionprofile)$' || true)"
+          if test -n "$forbidden"; then
+            echo "::error::tracked local or sensitive files detected:"
+            printf '%s\n' "$forbidden"
+            exit 1
+          fi
+
+      - name: Check whitespace
+        run: git diff --check
