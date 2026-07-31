@@ -25,8 +25,9 @@
 
 ## Verification
 
-Describe documentation/link/consistency checks performed. There is no product
-build or test command yet.
+List the reproducible documentation, build, test, signing, and inspection
+commands applicable to this change, plus any environment-dependent gates that
+remain pending.
 
 ## External Review
 
