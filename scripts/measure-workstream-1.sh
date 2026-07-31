@@ -23,5 +23,23 @@ xcodebuild test \
     ONLY_ACTIVE_ARCH=NO \
     ENABLE_TESTABILITY=YES
 
-xcrun xcresulttool get test-results metrics --path "$result_bundle"
+metrics_directory="$DERIVED_DATA_PATH/PerformanceResults/Metrics-$(date +%Y%m%d%H%M%S)-$$"
+xcrun xcresulttool export metrics \
+    --path "$result_bundle" \
+    --output-path "$metrics_directory"
+
+shopt -s globstar nullglob
+metric_files=("$metrics_directory"/**/*.csv)
+if [[ "${#metric_files[@]}" -eq 0 ]]; then
+    printf 'The performance result contained no exported metric CSV files.\n' >&2
+    exit 1
+fi
+
+for metric_file in "${metric_files[@]}"; do
+    printf 'Performance metrics: %s\n' "${metric_file#"$metrics_directory"/}"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        printf '%s\n' "$line"
+    done <"$metric_file"
+done
+
 printf 'Performance result bundle: %s\n' "$result_bundle"
