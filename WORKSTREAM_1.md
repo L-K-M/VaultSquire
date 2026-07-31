@@ -37,15 +37,16 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 
 | Property | Required value | Observed value |
 |---|---|---|
-| Runner | GitHub-hosted Apple Silicon `macos-15` | Pending first product workflow |
-| Xcode | `26.3` at `/Applications/Xcode_26.3.app/Contents/Developer` | Pending first product workflow |
-| Swift compiler build | Emitted by `xcrun swiftc --version` | Pending first product workflow |
-| macOS SDK version/build | Emitted by `xcrun --sdk macosx` | Pending first product workflow |
+| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30667188260` |
+| Xcode | `26.3` at `/Applications/Xcode_26.3.app/Contents/Developer` | `26.3` build `17C529` |
+| Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.2.4` (`swiftlang-6.2.4.1.4`, Clang `1700.6.4.2`) |
+| macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.2` build `25C58` |
 | Deployment target | macOS `14.0` | Project setting recorded; build pending |
 | Product architecture | exactly `arm64` | Binary inspection pending |
 
-Marketing-version pinning alone is not the final toolchain record. Update this
-table from the immutable workflow log before merge; do not infer build numbers.
+The observed values come from the immutable first product-workflow log. A later
+toolchain change requires updating both the pin and this record; do not infer
+build numbers from marketing versions.
 
 ## Reproducible Commands
 

@@ -6,7 +6,7 @@ final class VaultSquireUITests: XCTestCase {
         let app = launchApp()
         defer { app.terminate() }
 
-        XCTAssertTrue(app.otherElements["locked-shell"].waitForExistence(timeout: 2))
+        XCTAssertTrue(element("locked-shell", in: app).waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["locked-shell-title"].exists)
         XCTAssertEqual(app.windows.count, 1)
     }
@@ -20,7 +20,7 @@ final class VaultSquireUITests: XCTestCase {
 
         let field = app.textFields["quick-search-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 2))
-        XCTAssertTrue(app.otherElements["quick-search-locked"].exists)
+        XCTAssertTrue(element("quick-search-locked", in: app).exists)
 
         field.typeText("synthetic-query")
         XCTAssertEqual(field.value as? String, "synthetic-query")
@@ -36,8 +36,8 @@ final class VaultSquireUITests: XCTestCase {
 
         app.buttons["open-settings"].click()
 
-        XCTAssertTrue(app.otherElements["settings-view"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.otherElements["locked-shell"].exists)
+        XCTAssertTrue(element("settings-view", in: app).waitForExistence(timeout: 2))
+        XCTAssertTrue(element("locked-shell", in: app).exists)
     }
 
     @MainActor
@@ -48,5 +48,10 @@ final class VaultSquireUITests: XCTestCase {
         app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)[identifier]
     }
 }
