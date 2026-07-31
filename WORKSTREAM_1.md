@@ -63,6 +63,11 @@ build numbers from marketing versions.
 Product commands require native Apple Silicon and Xcode 26.3. The current Linux
 host cannot substitute for them.
 
+The hosted performance fixtures execute their measured iterations and preserve
+an `.xcresult`, but Xcode 26.3 returned an empty machine-readable metrics array
+for the hosted run. That trend lane is useful for detecting crashes and hangs;
+it is not the named-hardware p95 evidence required below.
+
 ## Entitlement Allowlist
 
 The scripts reject any signed entitlement key outside the selected file and
