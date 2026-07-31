@@ -1,0 +1,35 @@
+# Pull Request Delivery Sequence
+
+`PLAN.md` controls scope and workstream order. This file records how that order
+maps to reviewable pull requests; it does not weaken any exit criterion.
+
+| Order | Pull request milestone | Merge condition |
+|---:|---|---|
+| 0A | History-isolated root and attestation | Merged as PR #2; exact root and reviewer recorded |
+| 0B | Workstream 0 governance and evidence | ADRs, evidence/dependency registers, fixture policy, license, icon provenance, and local hygiene pass |
+| 1 | Native shell and performance harness | Workstream 1 exit criteria measured on a real Apple Silicon Mac |
+| 2 | Domain, session, and provider contracts | Workstream 2 race/capability/identity tests pass |
+| 3 | Vaultwarden crypto harness | Workstream 3 vectors, malformed cases, bounds, cancellation, and fuzz gates pass |
+| 4 | Environment, transport, authentication, and 2FA | Workstream 4 contract/leakage matrix passes |
+| 5 | Encrypted persistence and offline unlock | Workstream 5 storage, Keychain, corruption, migration, and process-death gates pass |
+| 6 | Vaultwarden sync, decryption, and read models | Workstream 6 aggregate-sync, tolerant-decoding, organization, and permission gates pass |
+| 7 | Vault UI, search, clipboard, and URI handling | Workstream 7 accessibility, leakage, and release-performance gates pass |
+| 8 | Security hardening and private preview | Workstream 8 stop-ship, signing, notarization, support, and clean-Mac gates pass |
+| 9 | Safe Vaultwarden core writes | Workstream 9 cross-client, conflict, ambiguity, and unknown-field gates pass |
+| 10A | Proton process boundary and read provider | Workstream 10 read, cache, process, sandbox/direct, and leakage gates pass |
+| 10B+ | One PR per safe Proton write operation | Exact command/version protected-input and reconciliation gates pass |
+| 11+ | One PR per advanced feature | Separate threat model and feature-specific phase gate passes |
+
+Each PR is opened only after its predecessor merges. It waits for GitHub review
+or check failure, addresses all actionable feedback, and merges only at steady
+state. Security, provenance, licensing, contamination, or secret-bearing diffs
+must not receive the external `glm-review` label.
+
+## Current Infrastructure Limitation
+
+GitHub-hosted jobs cannot allocate a runner because the account's Actions budget
+is exhausted, and the current local host is Linux. Documentation hygiene can run
+locally, but Workstream 1 and later macOS/Xcode, Keychain, AppKit/SwiftUI,
+accessibility, signing, notarization, hardware, and performance gates cannot be
+claimed or merged on Linux-only evidence. A real Apple Silicon macOS environment
+is therefore a blocking Workstream 1 exit dependency.
