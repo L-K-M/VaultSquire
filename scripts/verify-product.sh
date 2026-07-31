@@ -59,7 +59,7 @@ if ! diff -u <(plist_keys "$EXPECTED_ENTITLEMENTS") <(plist_keys "$actual_entitl
     exit 1
 fi
 
-app_group="$(plutil -extract com.apple.security.application-groups.0 raw -o - "$actual_entitlements")"
+app_group="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$actual_entitlements")"
 if [[ "$app_group" != "group.ch.lkmc.VaultSquire" ]]; then
     printf 'Unexpected application group entitlement.\n' >&2
     exit 1
@@ -76,7 +76,7 @@ prohibited_entitlements=(
 )
 
 for entitlement in "${prohibited_entitlements[@]}"; do
-    if plutil -extract "$entitlement" raw -o - "$actual_entitlements" >/dev/null 2>&1; then
+    if /usr/libexec/PlistBuddy -c "Print :$entitlement" "$actual_entitlements" >/dev/null 2>&1; then
         printf 'Prohibited entitlement present: %s\n' "$entitlement" >&2
         exit 1
     fi
@@ -87,7 +87,7 @@ if [[ "$CONFIGURATION" == "SandboxProbe" ]]; then
         com.apple.security.app-sandbox \
         com.apple.security.files.user-selected.read-only \
         com.apple.security.network.client; do
-        if [[ "$(plutil -extract "$entitlement" raw -o - "$actual_entitlements")" != "true" ]]; then
+        if [[ "$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$actual_entitlements")" != "true" ]]; then
             printf 'Required sandbox probe entitlement is absent: %s\n' "$entitlement" >&2
             exit 1
         fi
