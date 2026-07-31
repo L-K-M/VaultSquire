@@ -1,6 +1,6 @@
 # Keyguard Rejection And Source-Isolation Decision
 
-- Status: accepted and final; history-isolation gate pending before implementation
+- Status: accepted and final; history-isolation gate satisfied for the attested implementation repository
 - Decision date: 2026-07-31
 - Applies to: all VaultSquire design, implementation, tests, assets, and releases
 
@@ -53,11 +53,10 @@ environment.
 
 ### History Isolation Before Implementation
 
-Earlier commits in this planning repository contained source-derived Keyguard
-research. Removing that text from the current tree does not remove it from Git
-history, so this repository history is not an approved implementation input.
-No application code may begin until the project records and verifies a
-history-isolated coding context that:
+Earlier commits in the planning repository contained source-derived Keyguard
+research. Removing that text from its current tree did not remove it from Git
+history, so that repository history is not an approved implementation input.
+A history-isolated coding context must:
 
 - contains only the current approved product requirements and governance record,
   not superseded Keyguard research or old checkouts;
@@ -69,9 +68,13 @@ history-isolated coding context that:
 - records reviewer attestation that no retained design depends on the superseded
   research.
 
-Creating a new repository or an explicitly approved history rewrite is a project
-operation outside this documentation change. Until one is completed, the
-clean-room implementation gate remains open and implementation is blocked.
+The project created the non-fork private repository
+`L-K-M/VaultSquire-Implementation` with one clean root and no inherited Git
+objects. [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md) records the
+procedure, exact attested root, checks, reviewer, and residual limitations. The
+gate is satisfied only for that root and its reviewed descendants. The planning
+repository and any context containing its superseded history remain blocked
+implementation inputs.
 
 ## 4. Permitted Inspiration
 

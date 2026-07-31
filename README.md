@@ -11,11 +11,13 @@ research and design stage. There is no application implementation yet.
 
 ## Implementation Context
 
-This is the candidate clean-history implementation repository exported from the
-approved planning tree. Its source-isolation review is still pending, so it
-contains no application code or build scaffolding. See
+This is the accepted clean-history implementation repository exported from the
+approved planning tree. The source-isolation attestation applies to root commit
+`81cfb67df4ab7e06bdd1961ef98168b6dcf1ca9c` and reviewed descendants. Workstream
+0 governance is still in progress, so the repository contains no application
+code or build scaffolding. See
 [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md) for the exact source
-tree, isolation procedure, exclusions, and required reviewer attestation.
+tree, isolation procedure, exclusions, and completed reviewer attestation.
 
 The intended product is small, fast, local-first, and explicit about its
 security boundaries:
