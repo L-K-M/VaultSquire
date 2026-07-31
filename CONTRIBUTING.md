@@ -1,9 +1,10 @@
 # Contributing
 
 VaultSquire is currently accepting documentation, research, governance, and
-repository-hygiene contributions only. Application implementation is blocked by
-the pending reviewer attestation in
-[IMPLEMENTATION_CONTEXT.md](IMPLEMENTATION_CONTEXT.md).
+repository-hygiene contributions only. The history-isolation attestation is
+accepted in [IMPLEMENTATION_CONTEXT.md](IMPLEMENTATION_CONTEXT.md), but
+application implementation remains blocked until Workstream 0's governance and
+evidence exit criteria pass.
 
 Contributions are released under the
 [Apache License 2.0](LICENSE).

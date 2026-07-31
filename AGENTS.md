@@ -2,9 +2,9 @@
 
 VaultSquire is a planned native macOS password-manager client for self-hosted
 Vaultwarden and, later, Proton Pass through the official user-installed CLI.
-This candidate history-isolated repository currently contains research,
-governance, and design only. There is no application implementation, build
-command, test suite, or release process.
+This history-isolated repository currently contains research, governance, and
+design only. There is no application implementation, build command, test suite,
+or release process.
 
 ## Read first
 
@@ -21,10 +21,11 @@ select the less restrictive rule.
 
 ## Implementation gate
 
-No application code, package manifest, Xcode project, project generator, build
-script, product CI, or release workflow may be added until
-`IMPLEMENTATION_CONTEXT.md` records the required reviewer attestation and has
-status `accepted`. Superseded planning history is not an approved coding input.
+`IMPLEMENTATION_CONTEXT.md` records the accepted history-isolation attestation.
+Application code, package manifests, Xcode projects, project generators, build
+scripts, product CI, and release workflows remain blocked until Workstream 0's
+governance and evidence exit criteria are recorded and reviewed. Superseded
+planning history is never an approved coding input.
 
 Do not inspect or use earlier Keyguard-derived commits as implementation context.
 Do not include a Keyguard checkout, source-derived notes, or source-level
