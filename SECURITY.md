@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-VaultSquire has no application implementation or supported release. This
-repository currently contains design and security research only.
+VaultSquire has an initial native-shell feasibility implementation but no
+supported release or provider integration. No version is currently supported.
 
 ## Reporting a vulnerability
 
@@ -27,6 +27,6 @@ Reportable concerns include:
 - unsafe dependency, signing, notarization, update, or release recommendations;
 - repository automation that exposes source, secrets, or security reports to an external service.
 
-Future implementation security requirements are normative in
+Implementation security requirements are normative in
 [SECURITY_AND_TESTING.md](SECURITY_AND_TESTING.md). The clean-room gate in
 [KEYGUARD_FORK_ASSESSMENT.md](KEYGUARD_FORK_ASSESSMENT.md) remains binding.

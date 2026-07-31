@@ -1,8 +1,9 @@
 # VaultSquire
 
 VaultSquire is a planned, completely new native macOS client for self-hosted
-Vaultwarden instances and Proton Pass accounts. The project is currently in the
-research and design stage. There is no application implementation yet.
+Vaultwarden instances and Proton Pass accounts. Workstream 1 now contains the
+initial native locked shell and feasibility harness; there is no supported
+release or provider implementation yet.
 
 > LLM Disclosure: VaultSquire's research and planning documents are being
 > developed with substantial assistance from large language models (AI coding
@@ -14,8 +15,8 @@ research and design stage. There is no application implementation yet.
 This is the accepted clean-history implementation repository exported from the
 approved planning tree. The source-isolation attestation applies to root commit
 `81cfb67df4ab7e06bdd1961ef98168b6dcf1ca9c` and reviewed descendants. Workstream
-0 governance is recorded, but the repository still contains no application code
-or build scaffolding. See
+0 governance is recorded and Workstream 1 application scaffolding is in progress.
+See
 [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md) for the exact source
 tree, isolation procedure, exclusions, and completed reviewer attestation.
 
@@ -88,7 +89,9 @@ Read the documents in this order:
 11. [`ICON_PROVENANCE.md`](ICON_PROVENANCE.md): canonical artwork attestation and
     technical review.
 12. [`DELIVERY.md`](DELIVERY.md): sequential pull-request milestones.
-13. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
+13. [`WORKSTREAM_1.md`](WORKSTREAM_1.md): native shell implementation and
+    outstanding macOS evidence gates.
+14. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and
@@ -98,6 +101,18 @@ reconciled; do not silently choose the less restrictive rule.
 `IMPLEMENTATION_REPORT.md` and the Proton report are subordinate evidence. The
 Keyguard decision is a binding rejection, source-isolation, and preimplementation
 history-isolation gate.
+
+## Build And Verification
+
+The project is pinned to Xcode 26.3 on native Apple Silicon. On a matching Mac,
+run `./scripts/ci.sh` for unit/UI tests plus direct and sandbox-feasibility
+artifacts. Run `./scripts/measure-workstream-1.sh` separately to capture launch
+and Quick Search metrics. Repository-only checks remain portable through
+`./scripts/check-repository.sh`.
+
+The generated app-icon catalog remains intentionally absent until the visual
+review in `ICON_PROVENANCE.md` passes. No application package dependency has
+been adopted.
 
 ## Research Baseline
 

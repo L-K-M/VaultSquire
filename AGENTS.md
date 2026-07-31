@@ -2,9 +2,9 @@
 
 VaultSquire is a planned native macOS password-manager client for self-hosted
 Vaultwarden and, later, Proton Pass through the official user-installed CLI.
-This history-isolated repository currently contains research, governance, and
-design only. There is no application implementation, build command, test suite,
-or release process.
+This history-isolated repository contains research, governance, and the
+Workstream 1 native-shell implementation. It has no supported release or
+provider implementation.
 
 ## Read first
 
@@ -59,17 +59,20 @@ comparisons in prompts, fixtures, reviews, or build environments.
 
 ## Current verification
 
-Only documentation and repository hygiene can be verified in the current
-Linux-only environment:
+The current Linux environment can verify only documentation and repository
+hygiene. A native Apple Silicon Mac with the pinned Xcode can additionally run
+the commands recorded in `WORKSTREAM_1.md`:
 
 - links and Markdown structure;
 - JSON/YAML syntax;
 - whitespace;
 - presence of governance files;
-- absence of tracked IDE state and secret material.
+- absence of tracked IDE state and secret material;
+- Swift build, XCTest, UI-test, signing, entitlement, and architecture checks on
+  the macOS environment only.
 
-Do not invent `swift test`, `xcodebuild`, signing, notarization, or release
-commands before a real project exists. Each future CI job must land with the
+Do not claim macOS, accessibility, hardware-performance, signing-identity,
+notarization, or process-sandbox results from Linux. Each CI job must have the
 reproducible local command it runs.
 
 ## Repository automation

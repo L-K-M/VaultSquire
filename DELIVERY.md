@@ -25,11 +25,15 @@ or check failure, addresses all actionable feedback, and merges only at steady
 state. Security, provenance, licensing, contamination, or secret-bearing diffs
 must not receive the external `glm-review` label.
 
-## Current Infrastructure Limitation
+## Current Infrastructure
 
-GitHub-hosted jobs cannot allocate a runner because the account's Actions budget
-is exhausted, and the current local host is Linux. Documentation hygiene can run
-locally, but Workstream 1 and later macOS/Xcode, Keychain, AppKit/SwiftUI,
-accessibility, signing, notarization, hardware, and performance gates cannot be
-claimed or merged on Linux-only evidence. A real Apple Silicon macOS environment
-is therefore a blocking Workstream 1 exit dependency.
+The account can allocate GitHub-hosted Apple Silicon `macos-15` jobs and the
+Workstream 1 workflow pins Xcode 26.3. Hosted CI can compile AppKit/SwiftUI, run
+automated tests, create ad-hoc Hardened Runtime artifacts, and inspect binaries
+and entitlements through the same scripts used locally.
+
+Hosted automation does not satisfy interactive VoiceOver, Full Keyboard Access,
+multiple-Spaces/full-screen focus, Developer ID/notarization, small-size icon,
+or real Proton CLI session/keyring checks. Workstream 1 remains blocked from
+merge until its required measurements and manual results are recorded on a named
+Apple Silicon Mac.
