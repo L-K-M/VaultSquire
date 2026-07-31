@@ -14,6 +14,7 @@ enum ProcessProbeError: Error, Equatable, Sendable {
 }
 
 actor ProcessProbe {
+    static let maximumOutputLimit = 1024 * 1024
     static let allowedEnvironment = [
         "LANG": "C",
         "LC_ALL": "C",
@@ -30,7 +31,7 @@ actor ProcessProbe {
               executableURL.path.hasPrefix("/") else {
             throw ProcessProbeError.executableMustBeAbsolute
         }
-        guard outputLimit > 0 else {
+        guard outputLimit > 0, outputLimit <= Self.maximumOutputLimit else {
             throw ProcessProbeError.invalidOutputLimit
         }
 
@@ -39,29 +40,49 @@ actor ProcessProbe {
             executableURL: executableURL,
             arguments: arguments,
             environment: Self.allowedEnvironment,
-            output: output
+            outputLimit: outputLimit
         )
+        let streams = await execution.byteCountStreams()
+        let standardOutputTask = Task {
+            await Self.drain(
+                streams.standardOutput,
+                from: .standardOutput,
+                into: output,
+                execution: execution
+            )
+        }
+        let standardErrorTask = Task {
+            await Self.drain(
+                streams.standardError,
+                from: .standardError,
+                into: output,
+                execution: execution
+            )
+        }
 
         PerformanceTrace.record(.processProbeStarted)
 
         return try await withTaskCancellationHandler {
-            try Task.checkCancellation()
-
             do {
+                try Task.checkCancellation()
                 try await execution.start()
             } catch {
                 await execution.stopReading()
+                await standardOutputTask.value
+                await standardErrorTask.value
                 throw error
             }
 
             let timeoutTask = Task {
                 try await Task.sleep(for: timeout)
-                return await execution.terminateForTimeout()
+                return await execution.terminateIfRunning()
             }
 
             let exitStatus = await execution.waitForTermination()
             timeoutTask.cancel()
             let didTimeOut = (try? await timeoutTask.value) ?? false
+            await standardOutputTask.value
+            await standardErrorTask.value
 
             do {
                 let byteCounts = try await output.waitForCompletion()
@@ -87,6 +108,25 @@ actor ProcessProbe {
                 await execution.cancel()
             }
         }
+    }
+
+    private nonisolated static func drain(
+        _ byteCounts: AsyncStream<Int>,
+        from stream: ProcessProbeStream,
+        into output: ProcessProbeOutput,
+        execution: ProcessProbeExecution
+    ) async {
+        for await byteCount in byteCounts {
+            let exceededLimit = await output.consume(
+                byteCount: byteCount,
+                from: stream
+            )
+            if exceededLimit {
+                _ = await execution.terminateIfRunning()
+            }
+        }
+
+        _ = await output.consume(byteCount: 0, from: stream)
     }
 }
 
@@ -171,7 +211,10 @@ private actor ProcessProbeExecution {
     private let process = Process()
     private let standardOutput = Pipe()
     private let standardError = Pipe()
-    private let output: ProcessProbeOutput
+    private let standardOutputBytes: AsyncStream<Int>
+    private let standardErrorBytes: AsyncStream<Int>
+    private let standardOutputContinuation: AsyncStream<Int>.Continuation
+    private let standardErrorContinuation: AsyncStream<Int>.Continuation
 
     private var cancellationRequested = false
     private var terminationStatus: Int32?
@@ -181,15 +224,32 @@ private actor ProcessProbeExecution {
         executableURL: URL,
         arguments: [String],
         environment: [String: String],
-        output: ProcessProbeOutput
+        outputLimit: Int
     ) {
-        self.output = output
+        let standardOutputSequence = AsyncStream<Int>.makeStream(
+            bufferingPolicy: .bufferingOldest(outputLimit + 1)
+        )
+        let standardErrorSequence = AsyncStream<Int>.makeStream(
+            bufferingPolicy: .bufferingOldest(outputLimit + 1)
+        )
+        standardOutputBytes = standardOutputSequence.stream
+        standardErrorBytes = standardErrorSequence.stream
+        standardOutputContinuation = standardOutputSequence.continuation
+        standardErrorContinuation = standardErrorSequence.continuation
+
         process.executableURL = executableURL
         process.arguments = arguments
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = standardOutput
         process.standardError = standardError
+    }
+
+    func byteCountStreams() -> (
+        standardOutput: AsyncStream<Int>,
+        standardError: AsyncStream<Int>
+    ) {
+        (standardOutputBytes, standardErrorBytes)
     }
 
     func start() throws {
@@ -199,11 +259,11 @@ private actor ProcessProbeExecution {
 
         installReadHandler(
             on: standardOutput.fileHandleForReading,
-            stream: .standardOutput
+            continuation: standardOutputContinuation
         )
         installReadHandler(
             on: standardError.fileHandleForReading,
-            stream: .standardError
+            continuation: standardErrorContinuation
         )
 
         process.terminationHandler = { [weak self] process in
@@ -233,7 +293,7 @@ private actor ProcessProbeExecution {
         }
     }
 
-    func terminateForTimeout() -> Bool {
+    func terminateIfRunning() -> Bool {
         guard process.isRunning else {
             return false
         }
@@ -252,23 +312,22 @@ private actor ProcessProbeExecution {
     func stopReading() {
         standardOutput.fileHandleForReading.readabilityHandler = nil
         standardError.fileHandleForReading.readabilityHandler = nil
+        standardOutputContinuation.finish()
+        standardErrorContinuation.finish()
         process.terminationHandler = nil
     }
 
     private func installReadHandler(
         on fileHandle: FileHandle,
-        stream: ProcessProbeStream
+        continuation: AsyncStream<Int>.Continuation
     ) {
-        fileHandle.readabilityHandler = { [weak self, output] fileHandle in
-            let byteCount = fileHandle.availableData.count
-            Task {
-                let exceededLimit = await output.consume(
-                    byteCount: byteCount,
-                    from: stream
-                )
-                if exceededLimit {
-                    _ = await self?.terminateForTimeout()
-                }
+        fileHandle.readabilityHandler = { fileHandle in
+            let data = fileHandle.availableData
+            if data.isEmpty {
+                fileHandle.readabilityHandler = nil
+                continuation.finish()
+            } else {
+                continuation.yield(data.count)
             }
         }
     }

@@ -26,6 +26,19 @@ final class ProcessProbeTests: XCTestCase {
         }
     }
 
+    func testRejectsOutputLimitAboveMaximum() async throws {
+        let probe = ProcessProbe()
+
+        await XCTAssertThrowsErrorAsync(
+            try await probe.run(
+                executableURL: try macOSExecutableURL(at: "/usr/bin/printf"),
+                outputLimit: ProcessProbe.maximumOutputLimit + 1
+            )
+        ) { error in
+            XCTAssertEqual(error as? ProcessProbeError, .invalidOutputLimit)
+        }
+    }
+
     func testUsesFixedEnvironmentAllowlist() {
         XCTAssertEqual(
             ProcessProbe.allowedEnvironment,
@@ -51,14 +64,16 @@ final class ProcessProbeTests: XCTestCase {
     func testTerminatesWhenOutputLimitIsExceeded() async throws {
         let probe = ProcessProbe()
 
-        await XCTAssertThrowsErrorAsync(
-            try await probe.run(
-                executableURL: try macOSExecutableURL(at: "/usr/bin/printf"),
-                arguments: ["synthetic"],
-                outputLimit: 8
-            )
-        ) { error in
-            XCTAssertEqual(error as? ProcessProbeError, .outputLimitExceeded)
+        for _ in 0..<20 {
+            await XCTAssertThrowsErrorAsync(
+                try await probe.run(
+                    executableURL: try macOSExecutableURL(at: "/usr/bin/printf"),
+                    arguments: ["synthetic"],
+                    outputLimit: 8
+                )
+            ) { error in
+                XCTAssertEqual(error as? ProcessProbeError, .outputLimitExceeded)
+            }
         }
     }
 
