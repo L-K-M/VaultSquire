@@ -23,4 +23,5 @@ xcodebuild test \
     ONLY_ACTIVE_ARCH=NO \
     ENABLE_TESTABILITY=YES
 
+xcrun xcresulttool get test-results metrics --path "$result_bundle"
 printf 'Performance result bundle: %s\n' "$result_bundle"

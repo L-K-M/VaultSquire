@@ -37,14 +37,14 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 
 | Property | Required value | Observed value |
 |---|---|---|
-| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30667188260` |
+| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30667545112` |
 | Xcode | `26.3` at `/Applications/Xcode_26.3.app/Contents/Developer` | `26.3` build `17C529` |
 | Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.2.4` (`swiftlang-6.2.4.1.4`, Clang `1700.6.4.2`) |
 | macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.2` build `25C58` |
-| Deployment target | macOS `14.0` | Project setting recorded; build pending |
-| Product architecture | exactly `arm64` | Binary inspection pending |
+| Deployment target | macOS `14.0` | Confirmed by the Release compiler target and binary build |
+| Product architecture | exactly `arm64` | Confirmed by post-signing `lipo` inspection |
 
-The observed values come from the immutable first product-workflow log. A later
+The observed values come from the immutable successful product-workflow log. A later
 toolchain change requires updating both the pin and this record; do not infer
 build numbers from marketing versions.
 
@@ -107,12 +107,12 @@ outside VaultSquire.
 
 | Gate | Result |
 |---|---|
-| Clean Release `arm64` build and ad-hoc signed artifact | Pending macOS workflow |
-| Release entitlement and linked-image inspection | Pending macOS workflow |
-| Unit, UI, cancellation, timeout, and output-bound tests | Pending macOS workflow |
+| Clean Release `arm64` build and ad-hoc signed artifact | Passed in workflow `30667545112`; archive SHA-256 `5ddfa7ef38e50ee9dc10d04cf859aea71193b1560940b0d091c6fd0e6fe29a55` |
+| Release entitlement and linked-image inspection | Passed in workflow `30667545112`; direct and sandbox probe allowlists also passed |
+| Unit, UI, cancellation, timeout, and output-bound tests | Passed 13 unit and 3 UI tests in workflow `30667545112` |
 | Cold launch p95 at or below 750 ms on named baseline hardware | Pending named-Mac measurement |
 | Warm Quick Search p95 at or below 100 ms on named baseline hardware | Pending named-Mac measurement |
-| Keyboard focus and Escape dismissal | Automated result pending; manual confirmation required |
+| Keyboard focus and Escape dismissal | Automated UI test passed; manual confirmation required |
 | VoiceOver and Full Keyboard Access | Pending interactive test |
 | Multiple Spaces and full-screen auxiliary presentation | Pending interactive test |
 | Direct versus sandbox executable/session/keyring behavior | Pending disposable-account test |
