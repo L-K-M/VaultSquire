@@ -37,7 +37,7 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 
 | Property | Required value | Observed value |
 |---|---|---|
-| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30667545112` |
+| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30668464126` |
 | Xcode | `26.3` at `/Applications/Xcode_26.3.app/Contents/Developer` | `26.3` build `17C529` |
 | Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.2.4` (`swiftlang-6.2.4.1.4`, Clang `1700.6.4.2`) |
 | macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.2` build `25C58` |
@@ -112,9 +112,9 @@ outside VaultSquire.
 
 | Gate | Result |
 |---|---|
-| Clean Release `arm64` build and ad-hoc signed artifact | Passed in workflow `30667545112`; archive SHA-256 `5ddfa7ef38e50ee9dc10d04cf859aea71193b1560940b0d091c6fd0e6fe29a55` |
-| Release entitlement and linked-image inspection | Passed in workflow `30667545112`; direct and sandbox probe allowlists also passed |
-| Unit, UI, cancellation, timeout, and output-bound tests | Passed 13 unit and 3 UI tests in workflow `30667545112` |
+| Clean Release `arm64` build and ad-hoc signed artifact | Passed in workflow `30668464126`; archive SHA-256 `85fae3abc1f83baab259f6c43b6efc6f2aca4b758c298ab203d14174b8e06734` |
+| Release entitlement and linked-image inspection | Passed in workflow `30668464126`; direct and sandbox probe allowlists also passed |
+| Unit, UI, cancellation, timeout, and output-bound tests | Passed 14 unit and 3 UI tests in workflow `30668464126` |
 | Cold launch p95 at or below 750 ms on named baseline hardware | Pending named-Mac measurement |
 | Warm Quick Search p95 at or below 100 ms on named baseline hardware | Pending named-Mac measurement |
 | Keyboard focus and Escape dismissal | Automated UI test passed; manual confirmation required |
