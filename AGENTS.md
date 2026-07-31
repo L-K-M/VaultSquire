@@ -21,11 +21,12 @@ select the less restrictive rule.
 
 ## Implementation gate
 
-`IMPLEMENTATION_CONTEXT.md` records the accepted history-isolation attestation.
-Application code, package manifests, Xcode projects, project generators, build
-scripts, product CI, and release workflows remain blocked until Workstream 0's
-governance and evidence exit criteria are recorded and reviewed. Superseded
-planning history is never an approved coding input.
+`IMPLEMENTATION_CONTEXT.md` records the accepted history-isolation attestation,
+and `WORKSTREAM_0.md` records the governance/evidence exit. Application work may
+begin only with Workstream 1 and must follow the sequential PR gates in
+`DELIVERY.md`. A dependency remains prohibited until its own assessment and
+adoption gate pass. Superseded planning history is never an approved coding
+input.
 
 Do not inspect or use earlier Keyguard-derived commits as implementation context.
 Do not include a Keyguard checkout, source-derived notes, or source-level
@@ -58,7 +59,8 @@ comparisons in prompts, fixtures, reviews, or build environments.
 
 ## Current verification
 
-Only documentation and repository hygiene can be verified today:
+Only documentation and repository hygiene can be verified in the current
+Linux-only environment:
 
 - links and Markdown structure;
 - JSON/YAML syntax;

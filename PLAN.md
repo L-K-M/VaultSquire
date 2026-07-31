@@ -38,7 +38,7 @@ plaintext file remains disabled. See
 |---|---|
 | Product codebase | New, history-isolated clean-room VaultSquire implementation |
 | Platform | Native macOS 14 or later |
-| Architectures | Universal `arm64` and `x86_64`, conditional on real Intel testing |
+| Architectures | Apple Silicon `arm64`; Intel requires a later ADR and native Intel testing |
 | Language | Swift 6 with strict concurrency |
 | UI | SwiftUI shell with focused AppKit integration |
 | Distribution | Developer ID signed, hardened, notarized direct download first |
@@ -365,14 +365,14 @@ longer matches. This prevents a late task from repopulating state after lock.
 | UI | SwiftUI plus focused AppKit | Search panel focus, Spaces, VoiceOver |
 | Concurrency | Swift 6 strict concurrency | No unchecked secret-bearing wrappers |
 | Network | Ephemeral `URLSession` plus isolated `Process` bridge | Vaultwarden transport and Proton CLI process tests |
-| Database | GRDB over SQLCipher | Universal build, cache-envelope, crash/WAL tests |
+| Database | GRDB over SQLCipher | Apple Silicon packaging, cache-envelope, crash/WAL tests |
 | Key storage | Data Protection Keychain | Device-only ACL and Touch ID invalidation |
 | Search | In-memory normalized projection | Leakage and 100,000-item benchmarks |
 | Shortcut | Native registered shortcut library | Conflict and accessibility behavior |
 | Updates | Manual signed beta, then Sparkle for direct distribution | Signing and sandbox installer design |
 
 The database choice remains provisional until a release-mode spike proves
-licensing, universal binary packaging, migrations, WAL behavior, backup,
+licensing, Apple Silicon packaging, migrations, WAL behavior, backup,
 and crash recovery. No local database library is a substitute for preserving
 Vaultwarden-native ciphertext, immediately wrapping lossy Proton CLI output, and
 enforcing Vaultwarden cryptography plus the external CLI command boundary
@@ -412,10 +412,10 @@ corpus sizes are recorded as trend data and do not block a release on their own.
 Search computation completes off the main actor; the separate
 keystroke-to-render gate includes result publication and rendering.
 
-Measure on a representative Apple Silicon Mac and, if Intel support is shipped,
-on the oldest supported Intel Mac, with generated vaults of 1,000, 10,000, and
-100,000 items. Record build mode, cache state, database state, KDF settings, and
-hardware with every result.
+Measure on a representative Apple Silicon Mac with generated vaults of 1,000,
+10,000, and 100,000 items. Record build mode, cache state, database state, KDF
+settings, and hardware with every result. Any later Intel-support ADR must add
+equivalent native Intel release measurements before changing the manifest.
 
 ## 6. Vaultwarden And Proton Provider Boundary
 
@@ -518,7 +518,7 @@ Deliverables:
 - Locked shell, settings, one-window lifecycle, and Quick Search panel spike.
 - Structured logging wrapper with an allowlist rather than best-effort redaction.
 - Signposts and XCTest performance fixtures for launch and search panel display.
-- Universal release build and minimal signed local artifact.
+- Apple Silicon release build and minimal signed local artifact.
 
 Exit criteria:
 
@@ -906,7 +906,6 @@ These are genuinely unresolved and may be decided either way:
 
 | Decision | Recommended default | Deadline |
 |---|---|---|
-| Intel support | Ship universal only with real Intel CI and release tests | Before public beta |
 | SQLCipher packaging | Supported XCFramework or reproducible pinned community build | Workstream 5 storage spike |
 | Default inactivity lock interval | Five minutes | UX prototype |
 | Clipboard expiry presentation | Countdown affordance and the shortest offered preference value | UX prototype |
@@ -923,6 +922,7 @@ its controlling document first:
 | Settled policy | Controlling text |
 |---|---|
 | Independent VaultSquire source uses Apache License 2.0 | `LICENSE` and Workstream 0 |
+| Initial releases support Apple Silicon `arm64` only | ADR 0001; Intel requires a later ADR and native test capability |
 | Clipboard default expiry of 30 seconds, shorter-only preference | `SECURITY_AND_TESTING.md` clipboard invariants |
 | Lock on inactivity, sleep, screen lock, and session resignation | `SECURITY_AND_TESTING.md` memory and lifecycle invariants |
 | Touch ID quick unlock only with a Keychain ACL bound to retrieval | `SECURITY_AND_TESTING.md` Keychain invariants and `ARCHITECTURE.md` |

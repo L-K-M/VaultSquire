@@ -14,8 +14,8 @@ research and design stage. There is no application implementation yet.
 This is the accepted clean-history implementation repository exported from the
 approved planning tree. The source-isolation attestation applies to root commit
 `81cfb67df4ab7e06bdd1961ef98168b6dcf1ca9c` and reviewed descendants. Workstream
-0 governance is still in progress, so the repository contains no application
-code or build scaffolding. See
+0 governance is recorded, but the repository still contains no application code
+or build scaffolding. See
 [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md) for the exact source
 tree, isolation procedure, exclusions, and completed reviewer attestation.
 
@@ -81,6 +81,14 @@ Read the documents in this order:
    integration, read/write capability rules, data model, and risks.
 7. [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md): clean-history
    bootstrap procedure and attestation status.
+8. [`WORKSTREAM_0.md`](WORKSTREAM_0.md): governance/evidence completion record
+   and deferred gates.
+9. [`DEPENDENCIES.md`](DEPENDENCIES.md): candidate inventory and adoption policy.
+10. [`EVIDENCE.md`](EVIDENCE.md): immutable protocol/container research pins.
+11. [`ICON_PROVENANCE.md`](ICON_PROVENANCE.md): canonical artwork attestation and
+    technical review.
+12. [`DELIVERY.md`](DELIVERY.md): sequential pull-request milestones.
+13. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and

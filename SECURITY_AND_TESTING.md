@@ -782,8 +782,10 @@ Accessibility APIs must not be disabled as an attempted security boundary.
 Test release builds with generated 1,000, 10,000, and 100,000-item vaults on:
 
 - representative Apple Silicon;
-- oldest supported Intel hardware if Intel is shipped;
 - every supported macOS major version for smoke coverage.
+
+Any future Intel-support ADR must add native Intel hardware to this blocking
+matrix before `x86_64` enters a release manifest.
 
 Measure:
 

@@ -124,7 +124,7 @@ VaultSquire to reproduce upstream implementation choices.
 | D7 | Ship read-first, with offline unlock/read but no offline mutation. A persisted known-rotation marker blocks offline unlock until full re-authentication. | Preserve normal offline availability without allowing a hierarchy known to be superseded; do not add an unsafe mutation queue before conflict semantics are understood. |
 | D8 | For the remote server provider, test capabilities through discovery and protocol probes rather than brand or version strings. The Proton CLI is deliberately the inverse under D14: an exact tested version/build allowlist that fails closed. | Vaultwarden compatibility changes independently from official clients, while a local executable's machine-output contract is only known for versions actually tested. |
 | D9 | Distribute a signed and notarized app directly first. | Keeps the first release independent from extension packaging and store review. |
-| D10 | Target macOS 14 or later with Swift 6 strict concurrency. | Provides a modern native baseline while retaining both Apple Silicon and testable Intel support. |
+| D10 | Target macOS 14 or later with Swift 6 strict concurrency on Apple Silicon `arm64`. | Provides a modern native baseline that can be tested on available hardware; Intel requires a later ADR and native test capability. |
 | D11 | Generalize provider identity, capabilities, cache envelopes, and display projections only. | Vaultwarden protocol state and Proton CLI snapshots differ materially. |
 | D12 | Permanently reject a Keyguard fork and exclude its source. | Its license does not grant the rights needed; VaultSquire must remain untainted and independently expressed. |
 | D13 | Integrate Proton through a user-installed official CLI process. | Delegates private authentication and crypto without copying or reverse engineering Proton code. |
@@ -437,7 +437,7 @@ created with:
   because the item's accessibility is already carried by the access-control
   object.
 - `.userPresence` on hardware without usable biometrics, which admits the login
-  password. This is the defined fallback for Intel Macs lacking Touch ID and its
+  password. This is the defined fallback for Macs without usable Touch ID and its
   weaker semantics are disclosed in the UI rather than silently substituted.
 - `kSecAttrSynchronizable` false.
 - `kSecUseAuthenticationContext` with a dedicated `LAContext` and an operation
@@ -1005,7 +1005,6 @@ Resolve these before scaffolding their affected phase:
 
 | Decision | Needed by |
 | --- | --- |
-| Whether universal Intel support has adequate hardware/CI coverage | Public beta |
 | Concrete Argon2 library and integration method | Phase 0 crypto proof |
 | SQLite wrapper and database-encryption mechanism | Phase 1 / Workstream 5 storage proof |
 | Whether debug builds permit explicitly configured loopback HTTP | Phase 1 login |

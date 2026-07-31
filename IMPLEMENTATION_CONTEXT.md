@@ -10,8 +10,9 @@
 - Source license: Apache License 2.0
 
 This acceptance applies only to work derived from the attested root and its
-reviewed descendants. Workstream 0 governance and evidence must still complete
-before application implementation begins.
+reviewed descendants. [`WORKSTREAM_0.md`](WORKSTREAM_0.md) records the completed
+governance/evidence gate; application implementation begins with Workstream 1
+and remains subject to every later exit criterion.
 
 ## Isolation Procedure
 
