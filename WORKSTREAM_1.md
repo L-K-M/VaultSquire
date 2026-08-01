@@ -1,6 +1,6 @@
 # Workstream 1 Native Shell And Performance Record
 
-- Status: implementation in progress; exit evidence incomplete
+- Status: code merged to `main`; exit evidence incomplete and still owed
 - Owner: `L-K-M`
 - Started: 2026-07-31
 - Scope: native shell, diagnostics, performance fixtures, and process/sandbox
@@ -168,5 +168,13 @@ outside VaultSquire.
 | Descendant holding the probe pipes open | Bounded and reported as `outputRemainedOpen`; covered by an automated fixture |
 | Generated 16/32/64 px icon review | Blocked; no derived icon is included |
 
-The Workstream 1 pull request must not merge, and Workstream 2 must not begin,
-while any controlling exit criterion remains pending.
+Workstream 1 merged into `main` as PR #5 on 2026-08-01 with the rows above still
+outstanding. That was a deliberate owner decision, recorded in
+[ADR 0006](docs/adr/0006-workstream-1-merge-with-outstanding-evidence.md), and
+not a waiver: every outstanding row is still owed.
+
+The gate moved rather than disappeared. No release, private preview, or
+distributed artifact may be produced while any row above is outstanding, and
+Workstream 2 does not begin until the criteria that gate it are recorded.
+Presence in `main` is not evidence that a criterion passed; a row is marked
+passed only when the evidence exists.

@@ -7,7 +7,7 @@ maps to reviewable pull requests; it does not weaken any exit criterion.
 |---:|---|---|
 | 0A | History-isolated root and attestation | Merged as PR #2; exact root and reviewer recorded |
 | 0B | Workstream 0 governance and evidence | ADRs, evidence/dependency registers, fixture policy, license, icon provenance, and local hygiene pass |
-| 1 | Native shell and performance harness | Workstream 1 exit criteria measured on a real Apple Silicon Mac |
+| 1 | Native shell and performance harness | Merged as PR #5 with exit criteria outstanding, by the decision in [ADR 0006](docs/adr/0006-workstream-1-merge-with-outstanding-evidence.md); the criteria are still owed and now gate release rather than merge |
 | 2 | Domain, session, and provider contracts | Workstream 2 race/capability/identity tests pass |
 | 3 | Vaultwarden crypto harness | Workstream 3 vectors, malformed cases, bounds, cancellation, and fuzz gates pass |
 | 4 | Environment, transport, authentication, and 2FA | Workstream 4 contract/leakage matrix passes |
@@ -34,6 +34,9 @@ and entitlements through the same scripts used locally.
 
 Hosted automation does not satisfy interactive VoiceOver, Full Keyboard Access,
 multiple-Spaces/full-screen focus, Developer ID/notarization, small-size icon,
-or real Proton CLI session/keyring checks. Workstream 1 remains blocked from
-merge until its required measurements and manual results are recorded on a named
-Apple Silicon Mac.
+or real Proton CLI session/keyring checks. Those measurements and manual results
+are still owed on a named Apple Silicon Mac. They no longer block the
+Workstream 1 merge, which has happened, but they do block any release or
+distributed artifact; see
+[ADR 0006](docs/adr/0006-workstream-1-merge-with-outstanding-evidence.md) and the
+Exit Evidence table in [`WORKSTREAM_1.md`](WORKSTREAM_1.md).
