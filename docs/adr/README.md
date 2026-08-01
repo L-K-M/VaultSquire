@@ -14,3 +14,4 @@ here.
 - [ADR 0003: Dependency Adoption Policy](0003-dependency-adoption.md)
 - [ADR 0004: Initial Compatibility Support](0004-support-policy.md)
 - [ADR 0005: Synthetic Fixtures And Source Hygiene](0005-fixture-provenance.md)
+- [ADR 0006: Workstream 1 Merged With Outstanding Exit Evidence](0006-workstream-1-merge-with-outstanding-evidence.md)

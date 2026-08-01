@@ -1,6 +1,6 @@
 # Workstream 1 Native Shell And Performance Record
 
-- Status: implementation in progress; exit evidence incomplete
+- Status: code merged to `main`; exit evidence incomplete and still owed
 - Owner: `L-K-M`
 - Started: 2026-07-31
 - Scope: native shell, diagnostics, performance fixtures, and process/sandbox
@@ -168,5 +168,28 @@ outside VaultSquire.
 | Descendant holding the probe pipes open | Bounded and reported as `outputRemainedOpen`; covered by an automated fixture |
 | Generated 16/32/64 px icon review | Blocked; no derived icon is included |
 
-The Workstream 1 pull request must not merge, and Workstream 2 must not begin,
-while any controlling exit criterion remains pending.
+Workstream 1 merged into `main` as PR #5 on 2026-08-01 with the rows above still
+outstanding. That was a deliberate owner decision, recorded in
+[ADR 0006](docs/adr/0006-workstream-1-merge-with-outstanding-evidence.md), and
+not a waiver: every outstanding row is still owed.
+
+The gate moved rather than disappeared. No release, private preview, or
+distributed artifact may be produced while any row above is outstanding, and the
+Phase 0 gate over Workstreams 0-3 cannot be certified as passed while any of them
+is outstanding.
+
+Certifying a phase and working inside it are separate things. Workstream 2 sits
+inside Phase 0, so the uncertified phase gate does not stop it starting or
+merging; what the outstanding rows prevent is Phase 0 being declared complete.
+Work inside the phase proceeds where it does not consume outstanding evidence,
+which is why what each row blocks is stated here rather than argued later.
+
+Workstream 2 consumes none of it: it models domain, session, and provider
+contracts against a fake provider facade and depends on no hardware measurement,
+accessibility result, or sandbox outcome from this workstream. The three rows
+recorded as not implemented block Workstream 10, the Proton CLI provider. The
+rest block the Phase 0 certification and any release.
+
+Presence in `main` is not evidence that a criterion passed; a row is marked
+passed only when the evidence exists. Every subsequent workstream record restates
+the rows still outstanding here until they are discharged.

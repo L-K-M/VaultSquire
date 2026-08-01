@@ -1,9 +1,12 @@
 # Contributing
 
 VaultSquire accepts work only in the numbered sequence recorded by
-[`DELIVERY.md`](DELIVERY.md). The history-isolation attestation and Workstream 0
-governance are recorded; application changes begin with Workstream 1 and cannot
-merge until that workstream's macOS exit criteria pass.
+[`DELIVERY.md`](DELIVERY.md). The history-isolation attestation, Workstream 0
+governance, and the Workstream 1 native shell are recorded. Workstream 1 merged
+with several macOS exit criteria still outstanding, by the decision in
+[ADR 0006](docs/adr/0006-workstream-1-merge-with-outstanding-evidence.md); those
+criteria are still owed and now gate any release rather than the merge. Merging
+into `main` is not evidence that a workstream's exit criteria passed.
 
 Contributions are released under the
 [Apache License 2.0](LICENSE).
