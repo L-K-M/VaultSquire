@@ -46,8 +46,15 @@ with an explicit later gate.
   project, tracked in the `WORKSTREAM_1.md` Exit Evidence table.
 - The merge gate moves rather than disappears. No VaultSquire release, private
   preview, or distributed artifact may be produced while any Workstream 1
-  criterion is outstanding, and Workstream 2 does not begin until the criteria
-  that gate it are recorded.
+  criterion is outstanding, and the Phase 0 gate over Workstreams 0-3 is not met
+  while any of them is outstanding, under the phase-gate rule in `PLAN.md`.
+- Which later work each outstanding row blocks is stated rather than left to be
+  argued at pull-request time. No outstanding row blocks Workstream 2: it models
+  domain, session, and provider contracts against a fake provider facade and
+  consumes no Workstream 1 hardware measurement, accessibility result, or
+  sandbox outcome. The three legs recorded as not implemented block
+  Workstream 10, the Proton CLI provider, which is the first work that depends on
+  them. The remaining rows block the Phase 0 gate and any release.
 - Merging code into `main` is therefore no longer evidence that a workstream's
   exit criteria passed. `main` is an integration branch, not a release branch,
   and nothing in it should be read as a claim about hardware, accessibility,
@@ -85,6 +92,14 @@ the outstanding rows stay in the Exit Evidence table until discharged.
 
 ## Verification
 
+This decision removes the structural pressure a blocked pull request applied, and
+it sets no date, because none can honestly be set while the blocking hardware,
+operator time, and disposable account are unavailable. Inventing one would be the
+same overclaim this repository exists to avoid. The substitute is visibility: the
+outstanding rows are restated in every subsequent workstream record and in any
+release-candidate checklist until they are discharged, so the debt is re-read at
+each gate rather than fading. A workstream record that omits them is incomplete.
+
 - Every outstanding row in the `WORKSTREAM_1.md` Exit Evidence table names what
   is missing and why, and is discharged only by recording the evidence.
 - The named-hardware p95 measurements, VoiceOver and Full Keyboard Access,
@@ -96,7 +111,7 @@ the outstanding rows stay in the Exit Evidence table until discharged.
 - The three legs recorded as not implemented (session and keyring discovery,
   security-scoped bookmark round trips, and signature and notarization recording
   at approval) are implemented, or explicitly withdrawn through a further ADR,
-  before the Proton provider workstream depends on them.
+  before Workstream 10, the Proton CLI provider, depends on them.
 
 ## Rollback or Revisit Trigger
 

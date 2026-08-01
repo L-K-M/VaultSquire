@@ -174,7 +174,16 @@ outstanding. That was a deliberate owner decision, recorded in
 not a waiver: every outstanding row is still owed.
 
 The gate moved rather than disappeared. No release, private preview, or
-distributed artifact may be produced while any row above is outstanding, and
-Workstream 2 does not begin until the criteria that gate it are recorded.
+distributed artifact may be produced while any row above is outstanding, and the
+Phase 0 gate over Workstreams 0-3 is not met while any of them is outstanding.
+
+What each outstanding row blocks is stated rather than left to be argued later.
+Workstream 2 is not blocked by any of them: it models domain, session, and
+provider contracts against a fake provider facade and consumes no hardware
+measurement, accessibility result, or sandbox outcome from this workstream. The
+three rows recorded as not implemented block Workstream 10, the Proton CLI
+provider. The rest block the Phase 0 gate and any release.
+
 Presence in `main` is not evidence that a criterion passed; a row is marked
-passed only when the evidence exists.
+passed only when the evidence exists. Every subsequent workstream record restates
+the rows still outstanding here until they are discharged.
