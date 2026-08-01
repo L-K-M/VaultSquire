@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct ProcessProbeResult: Equatable, Sendable {
@@ -10,11 +11,14 @@ enum ProcessProbeError: Error, Equatable, Sendable {
     case executableMustBeAbsolute
     case invalidOutputLimit
     case outputLimitExceeded
+    case outputRemainedOpen
     case timedOut
 }
 
 actor ProcessProbe {
     static let maximumOutputLimit = 1024 * 1024
+    static let terminationGracePeriod = Duration.seconds(2)
+    static let drainGracePeriod = Duration.seconds(2)
     static let allowedEnvironment = [
         "LANG": "C",
         "LC_ALL": "C",
@@ -73,16 +77,24 @@ actor ProcessProbe {
                 throw error
             }
 
-            let timeoutTask = Task {
+            let deadlineTask = Task {
                 try await Task.sleep(for: timeout)
-                return await execution.terminateIfRunning()
+                await execution.expireDeadline(
+                    escalatingAfter: Self.terminationGracePeriod
+                )
             }
 
             let exitStatus = await execution.waitForTermination()
-            timeoutTask.cancel()
-            let didTimeOut = (try? await timeoutTask.value) ?? false
-            await standardOutputTask.value
-            await standardErrorTask.value
+            deadlineTask.cancel()
+            _ = try? await deadlineTask.value
+
+            let didDrainCleanly = await Self.joinDrains(
+                standardOutputTask,
+                standardErrorTask,
+                execution: execution,
+                grace: Self.drainGracePeriod
+            )
+            let didTimeOut = await execution.deadlineExpired
 
             do {
                 let byteCounts = try await output.waitForCompletion()
@@ -91,6 +103,9 @@ actor ProcessProbe {
                 try Task.checkCancellation()
                 if didTimeOut {
                     throw ProcessProbeError.timedOut
+                }
+                if !didDrainCleanly {
+                    throw ProcessProbeError.outputRemainedOpen
                 }
 
                 PerformanceTrace.record(.processProbeFinished)
@@ -105,9 +120,40 @@ actor ProcessProbe {
             }
         } onCancel: {
             Task {
-                await execution.cancel()
+                await execution.cancel(escalatingAfter: Self.terminationGracePeriod)
             }
         }
+    }
+
+    /// Waits for both readers to observe end of file, then gives up.
+    ///
+    /// Child termination does not close a pipe whose write end a surviving
+    /// descendant still holds, so the readers are forced closed after `grace`
+    /// instead of blocking the probe indefinitely. Returns `false` when the readers
+    /// had to be forced, which the caller reports as `outputRemainedOpen`.
+    private nonisolated static func joinDrains(
+        _ standardOutputTask: Task<Void, Never>,
+        _ standardErrorTask: Task<Void, Never>,
+        execution: ProcessProbeExecution,
+        grace: Duration
+    ) async -> Bool {
+        let forceTask = Task { () -> Bool in
+            do {
+                try await Task.sleep(for: grace)
+            } catch {
+                return false
+            }
+
+            await execution.stopReading()
+            return true
+        }
+
+        await standardOutputTask.value
+        await standardErrorTask.value
+        forceTask.cancel()
+
+        let didForce = await forceTask.value
+        return !didForce
     }
 
     private nonisolated static func drain(
@@ -122,7 +168,9 @@ actor ProcessProbe {
                 from: stream
             )
             if exceededLimit {
-                _ = await execution.terminateIfRunning()
+                _ = await execution.terminateIfRunning(
+                    escalatingAfter: Self.terminationGracePeriod
+                )
             }
         }
 
@@ -217,6 +265,7 @@ private actor ProcessProbeExecution {
     private let standardErrorContinuation: AsyncStream<Int>.Continuation
 
     private var cancellationRequested = false
+    private var deadlineDidExpire = false
     private var terminationStatus: Int32?
     private var terminationWaiter: CheckedContinuation<Int32, Never>?
 
@@ -243,6 +292,10 @@ private actor ProcessProbeExecution {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = standardOutput
         process.standardError = standardError
+    }
+
+    var deadlineExpired: Bool {
+        deadlineDidExpire
     }
 
     func byteCountStreams() -> (
@@ -293,20 +346,34 @@ private actor ProcessProbeExecution {
         }
     }
 
-    func terminateIfRunning() -> Bool {
+    /// Records that the run deadline elapsed before termination was observed, then
+    /// terminates the child. The guard keeps a child that exited immediately before
+    /// the deadline from being reported as a timeout.
+    func expireDeadline(escalatingAfter grace: Duration) async {
+        guard terminationStatus == nil else {
+            return
+        }
+
+        deadlineDidExpire = true
+        _ = await terminateIfRunning(escalatingAfter: grace)
+    }
+
+    /// Sends `SIGTERM`, then escalates to `SIGKILL` when the child is still running
+    /// after `grace`, so a child that catches or ignores `SIGTERM` cannot outlive
+    /// the probe's stated bounds.
+    func terminateIfRunning(escalatingAfter grace: Duration) async -> Bool {
         guard process.isRunning else {
             return false
         }
 
         process.terminate()
+        await escalateIfStillRunning(after: grace)
         return true
     }
 
-    func cancel() {
+    func cancel(escalatingAfter grace: Duration) async {
         cancellationRequested = true
-        if process.isRunning {
-            process.terminate()
-        }
+        _ = await terminateIfRunning(escalatingAfter: grace)
     }
 
     func stopReading() {
@@ -315,6 +382,29 @@ private actor ProcessProbeExecution {
         standardOutputContinuation.finish()
         standardErrorContinuation.finish()
         process.terminationHandler = nil
+    }
+
+    /// Polls for the child's exit so a cooperative `SIGTERM` costs only the time it
+    /// actually takes, and escalates once `grace` elapses without one.
+    private func escalateIfStillRunning(after grace: Duration) async {
+        let step = Duration.milliseconds(20)
+        var waited = Duration.zero
+
+        while waited < grace {
+            if !process.isRunning {
+                return
+            }
+            do {
+                try await Task.sleep(for: step)
+            } catch {
+                return
+            }
+            waited += step
+        }
+
+        if process.isRunning {
+            _ = kill(process.processIdentifier, SIGKILL)
+        }
     }
 
     private func installReadHandler(

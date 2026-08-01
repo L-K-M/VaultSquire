@@ -15,7 +15,7 @@ struct VaultSquireApp: App {
                 .environmentObject(appModel)
                 .background(WindowRestorationDisabler())
                 .onAppear {
-                    PerformanceTrace.record(.lockedShellVisible)
+                    PerformanceTrace.recordLaunchCompleted()
                 }
         }
         .defaultSize(width: 820, height: 560)

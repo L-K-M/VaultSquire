@@ -17,7 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Restoration is disabled per window (`WindowRestorationDisabler`) and by
+    /// `NSQuitAlwaysKeepsWindows`. Returning `true` here does not re-enable it; it
+    /// selects the secure archiver for any state AppKit still encodes, which is the
+    /// safer of the two answers for a secret-bearing application.
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        false
+        true
     }
 }

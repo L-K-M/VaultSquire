@@ -15,6 +15,21 @@ enum PerformanceTrace {
         category: "performance"
     )
 
+    @MainActor private static var launchIntervalClosed = false
+
+    /// Closes the launch interval exactly once. SwiftUI can run `onAppear` again for
+    /// the same scene, and a repeated `.end` on an exclusive signpost would emit an
+    /// unmatched event.
+    @MainActor
+    static func recordLaunchCompleted() {
+        guard !launchIntervalClosed else {
+            return
+        }
+
+        launchIntervalClosed = true
+        record(.lockedShellVisible)
+    }
+
     static func record(_ event: PerformanceEvent) {
         switch event {
         case .applicationLaunchStarted:

@@ -11,12 +11,17 @@ APP_PATH="$1"
 CONFIGURATION="$2"
 BINARY="$APP_PATH/Contents/MacOS/VaultSquire"
 
+# The reviewed allowlist is written out here rather than read back from the file used
+# for signing. Comparing the signed blob only against its own source would accept any
+# capability someone added to that file.
 case "$CONFIGURATION" in
     Release | DirectProbe)
         EXPECTED_ENTITLEMENTS="$ROOT/VaultSquire/Resources/VaultSquire.entitlements"
+        REVIEWED_KEYS=$'com.apple.security.application-groups'
         ;;
     SandboxProbe)
         EXPECTED_ENTITLEMENTS="$ROOT/VaultSquire/Resources/VaultSquireSandbox.entitlements"
+        REVIEWED_KEYS=$'com.apple.security.app-sandbox\ncom.apple.security.application-groups\ncom.apple.security.files.user-selected.read-only\ncom.apple.security.network.client'
         ;;
     *)
         printf 'Unsupported product verification configuration: %s\n' "$CONFIGURATION" >&2
@@ -32,7 +37,8 @@ fi
 codesign --verify --strict --verbose=2 "$APP_PATH"
 
 signature_details="$(codesign --display --verbose=4 "$APP_PATH" 2>&1)"
-if [[ "$signature_details" != *runtime* ]]; then
+if ! printf '%s\n' "$signature_details" \
+    | /usr/bin/grep -qE '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*runtime[,)]'; then
     printf 'Hardened Runtime flag is missing from the application signature.\n' >&2
     exit 1
 fi
@@ -54,8 +60,14 @@ plist_keys() {
         | /usr/bin/sort
 }
 
-if ! diff -u <(plist_keys "$EXPECTED_ENTITLEMENTS") <(plist_keys "$actual_entitlements"); then
+if ! diff -u <(printf '%s\n' "$REVIEWED_KEYS" | /usr/bin/sort) <(plist_keys "$actual_entitlements"); then
     printf 'Signed entitlement keys do not match the reviewed allowlist.\n' >&2
+    exit 1
+fi
+
+if ! diff -u <(printf '%s\n' "$REVIEWED_KEYS" | /usr/bin/sort) <(plist_keys "$EXPECTED_ENTITLEMENTS"); then
+    printf 'Entitlement source file does not match the reviewed allowlist: %s\n' \
+        "$EXPECTED_ENTITLEMENTS" >&2
     exit 1
 fi
 
@@ -65,8 +77,18 @@ if [[ "$app_group" != "group.ch.lkmc.VaultSquire" ]]; then
     exit 1
 fi
 
+if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:1' "$actual_entitlements" >/dev/null 2>&1; then
+    printf 'Unexpected additional application group entitlement.\n' >&2
+    exit 1
+fi
+
+# `com.apple.security.cs.get-task-allow` is not a real entitlement name. The two keys
+# that actually make a signed binary debuggable are listed instead.
 prohibited_entitlements=(
-    com.apple.security.cs.get-task-allow
+    com.apple.security.get-task-allow
+    com.apple.security.cs.debugger
+    com.apple.security.temporary-exception.files.absolute-path.read-write
+    com.apple.security.temporary-exception.files.home-relative-path.read-write
     com.apple.security.cs.allow-dyld-environment-variables
     com.apple.security.cs.disable-library-validation
     com.apple.security.cs.disable-executable-page-protection

@@ -32,7 +32,24 @@ final class QuickSearchPanelTests: XCTestCase {
         controller.show()
         XCTAssertTrue(controller.windowForTesting.isVisible)
 
+        controller.modelForTesting.query = "synthetic query"
         controller.dismiss()
+
         XCTAssertFalse(controller.windowForTesting.isVisible)
+        XCTAssertEqual(controller.modelForTesting.query, "")
+    }
+
+    /// The warm Quick Search signpost interval is opened by the coordinator and
+    /// closed by the controller, so the coordinator hop is the measured path. This
+    /// keeps the two halves from drifting apart again.
+    @MainActor
+    func testCoordinatorPresentsAndDismissesTheSamePanel() {
+        ApplicationCoordinator.shared.showQuickSearch()
+        let panel = NSApp.windows.first { $0.title == "Quick Search" }
+        XCTAssertNotNil(panel)
+        XCTAssertEqual(panel?.isVisible, true)
+
+        ApplicationCoordinator.shared.dismissQuickSearch()
+        XCTAssertEqual(panel?.isVisible, false)
     }
 }

@@ -106,9 +106,11 @@ history-isolation gate.
 
 The project is pinned to Xcode 26.3 on native Apple Silicon. On a matching Mac,
 run `./scripts/ci.sh` for unit/UI tests plus direct and sandbox-feasibility
-artifacts. Run `./scripts/measure-workstream-1.sh` separately to capture launch
-and Quick Search metrics. Repository-only checks remain portable through
-`./scripts/check-repository.sh`.
+artifacts. Run `./scripts/measure-workstream-1.sh` separately to exercise the
+launch and Quick Search performance fixtures; that lane detects crashes and
+hangs, and the hosted runner has so far exported no machine-readable metrics
+from it, so it is not evidence that a performance budget was met.
+Repository-only checks remain portable through `./scripts/check-repository.sh`.
 
 The generated app-icon catalog remains intentionally absent until the visual
 review in `ICON_PROVENANCE.md` passes. No application package dependency has

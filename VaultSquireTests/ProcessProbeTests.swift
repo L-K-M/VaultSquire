@@ -15,12 +15,10 @@ final class ProcessProbeTests: XCTestCase {
 
     func testRejectsNonpositiveOutputLimit() async throws {
         let probe = ProcessProbe()
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/printf")
 
         await XCTAssertThrowsErrorAsync(
-            try await probe.run(
-                executableURL: try macOSExecutableURL(at: "/usr/bin/printf"),
-                outputLimit: 0
-            )
+            try await probe.run(executableURL: executableURL, outputLimit: 0)
         ) { error in
             XCTAssertEqual(error as? ProcessProbeError, .invalidOutputLimit)
         }
@@ -28,10 +26,11 @@ final class ProcessProbeTests: XCTestCase {
 
     func testRejectsOutputLimitAboveMaximum() async throws {
         let probe = ProcessProbe()
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/printf")
 
         await XCTAssertThrowsErrorAsync(
             try await probe.run(
-                executableURL: try macOSExecutableURL(at: "/usr/bin/printf"),
+                executableURL: executableURL,
                 outputLimit: ProcessProbe.maximumOutputLimit + 1
             )
         ) { error in
@@ -50,6 +49,24 @@ final class ProcessProbeTests: XCTestCase {
         )
     }
 
+    /// Covers the wiring rather than the constant: the child must receive the
+    /// allowlist and nothing else, so no `HOME`, `XDG_*`, token, or session path can
+    /// reach it. `env` prints one `KEY=VALUE` line per variable, so the exact stdout
+    /// byte count is a complete assertion over the child's environment without ever
+    /// retaining its output.
+    func testChildReceivesTheAllowlistAndNoOtherEnvironmentVariable() async throws {
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/env")
+        let expectedBytes = ProcessProbe.allowedEnvironment
+            .map { "\($0.key)=\($0.value)\n".utf8.count }
+            .reduce(0, +)
+
+        let result = try await ProcessProbe().run(executableURL: executableURL)
+
+        XCTAssertEqual(result.exitStatus, 0)
+        XCTAssertEqual(result.standardOutputBytes, expectedBytes)
+        XCTAssertEqual(result.standardErrorBytes, 0)
+    }
+
     func testCountsOutputWithoutReturningContent() async throws {
         let result = try await ProcessProbe().run(
             executableURL: try macOSExecutableURL(at: "/usr/bin/printf"),
@@ -63,11 +80,12 @@ final class ProcessProbeTests: XCTestCase {
 
     func testTerminatesWhenOutputLimitIsExceeded() async throws {
         let probe = ProcessProbe()
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/printf")
 
         for _ in 0..<20 {
             await XCTAssertThrowsErrorAsync(
                 try await probe.run(
-                    executableURL: try macOSExecutableURL(at: "/usr/bin/printf"),
+                    executableURL: executableURL,
                     arguments: ["synthetic"],
                     outputLimit: 8
                 )
@@ -77,12 +95,62 @@ final class ProcessProbeTests: XCTestCase {
         }
     }
 
+    /// `yes` never exits on its own, so reaching `.outputLimitExceeded` well inside
+    /// the deadline proves the probe terminated the child. Without limit-driven
+    /// termination this run would instead time out after 30 seconds.
+    func testTerminatesAProducerThatWouldOtherwiseNeverExit() async throws {
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/yes")
+        let started = ContinuousClock.now
+        var thrownError: (any Error)?
+
+        do {
+            _ = try await ProcessProbe().run(
+                executableURL: executableURL,
+                timeout: .seconds(30),
+                outputLimit: 8
+            )
+        } catch {
+            thrownError = error
+        }
+
+        let elapsed = ContinuousClock.now - started
+        XCTAssertEqual(thrownError as? ProcessProbeError, .outputLimitExceeded)
+        XCTAssertLessThan(elapsed, .seconds(10))
+    }
+
+    /// A descendant that inherits the pipe write ends keeps the readers open after
+    /// the direct child exits. The probe must give up on the readers instead of
+    /// blocking forever, and must say so rather than reporting a clean result.
+    func testReportsOutputThatRemainsOpenAfterTheChildExits() async throws {
+        let executableURL = try macOSExecutableURL(at: "/bin/sh")
+        let started = ContinuousClock.now
+        var thrownError: (any Error)?
+
+        // An adversarial fixture, not a probe code path: the probe itself never
+        // invokes a shell. `sh` exits immediately while the backgrounded `sleep`
+        // inherits stdout and stderr.
+        do {
+            _ = try await ProcessProbe().run(
+                executableURL: executableURL,
+                arguments: ["-c", "sleep 5 & exit 0"],
+                timeout: .seconds(20)
+            )
+        } catch {
+            thrownError = error
+        }
+
+        let elapsed = ContinuousClock.now - started
+        XCTAssertEqual(thrownError as? ProcessProbeError, .outputRemainedOpen)
+        XCTAssertLessThan(elapsed, .seconds(4))
+    }
+
     func testTerminatesAfterTimeout() async throws {
         let probe = ProcessProbe()
+        let executableURL = try macOSExecutableURL(at: "/bin/sleep")
 
         await XCTAssertThrowsErrorAsync(
             try await probe.run(
-                executableURL: try macOSExecutableURL(at: "/bin/sleep"),
+                executableURL: executableURL,
                 arguments: ["2"],
                 timeout: .milliseconds(20)
             )
@@ -93,9 +161,10 @@ final class ProcessProbeTests: XCTestCase {
 
     func testCancellationDoesNotPublishAResult() async throws {
         let probe = ProcessProbe()
+        let executableURL = try macOSExecutableURL(at: "/bin/sleep")
         let task = Task {
             try await probe.run(
-                executableURL: try macOSExecutableURL(at: "/bin/sleep"),
+                executableURL: executableURL,
                 arguments: ["2"]
             )
         }
@@ -111,6 +180,30 @@ final class ProcessProbeTests: XCTestCase {
         } catch {
             XCTFail("Unexpected cancellation error: \(type(of: error))")
         }
+    }
+
+    /// Returning promptly proves cancellation terminated the child. Without
+    /// cancellation-driven termination the call would block until the 25-second
+    /// deadline expired.
+    func testCancellationTerminatesTheChild() async throws {
+        let probe = ProcessProbe()
+        let executableURL = try macOSExecutableURL(at: "/bin/sleep")
+        let task = Task {
+            try await probe.run(
+                executableURL: executableURL,
+                arguments: ["30"],
+                timeout: .seconds(25)
+            )
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        let started = ContinuousClock.now
+        task.cancel()
+        _ = try? await task.value
+        let elapsed = ContinuousClock.now - started
+
+        XCTAssertLessThan(elapsed, .seconds(10))
     }
 }
 

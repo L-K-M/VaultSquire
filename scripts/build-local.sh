@@ -3,7 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REQUESTED_CONFIGURATION="${1:-Release}"
-DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$ROOT/DerivedData}"
+# Each configuration gets its own product tree. DirectProbe and SandboxProbe share a
+# build configuration and bundle identifier, so a shared path would leave one signed
+# artifact silently overwriting the other.
+DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$ROOT/DerivedData/${1:-Release}}"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode_26.3.app/Contents/Developer}"
 
 case "$REQUESTED_CONFIGURATION" in

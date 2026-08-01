@@ -29,15 +29,18 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         panel.delegate = self
 
         panel.contentViewController = NSHostingController(
-            rootView: QuickSearchView(model: model) { [weak panel, weak model] in
-                model?.clear()
-                panel?.orderOut(nil)
+            rootView: QuickSearchView(model: model) { [weak self] in
+                self?.dismiss()
             }
         )
     }
 
     var windowForTesting: NSPanel {
         panel
+    }
+
+    var modelForTesting: QuickSearchPanelModel {
+        model
     }
 
     func show() {
@@ -57,7 +60,11 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         AppLog.record(.quickSearchDismissed)
     }
 
+    /// Reached only through the panel's close button; Escape and the explicit lock
+    /// path both go through `dismiss()`. Both routes must record the dismissal so
+    /// the diagnostic event cannot be missing for one of them.
     func windowWillClose(_ notification: Notification) {
         model.clear()
+        AppLog.record(.quickSearchDismissed)
     }
 }

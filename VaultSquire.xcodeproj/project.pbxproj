@@ -25,9 +25,9 @@
 		C00000000000000000000012 /* DiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000012 /* DiagnosticsTests.swift */; };
 		C00000000000000000000013 /* ProcessProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000013 /* ProcessProbeTests.swift */; };
 		C00000000000000000000014 /* QuickSearchPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000014 /* QuickSearchPanelTests.swift */; };
-		C00000000000000000000015 /* WorkstreamOnePerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000015 /* WorkstreamOnePerformanceTests.swift */; };
 		C00000000000000000000016 /* VaultSquireUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000016 /* VaultSquireUITests.swift */; };
 		C00000000000000000000017 /* VaultSquireLaunchPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000017 /* VaultSquireLaunchPerformanceTests.swift */; };
+		C00000000000000000000018 /* VaultSquireQuickSearchPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001B /* VaultSquireQuickSearchPerformanceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,9 +68,9 @@
 		B00000000000000000000012 /* DiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000013 /* ProcessProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessProbeTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000014 /* QuickSearchPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchPanelTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000015 /* WorkstreamOnePerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstreamOnePerformanceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000016 /* VaultSquireUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSquireUITests.swift; sourceTree = "<group>"; };
 		B00000000000000000000017 /* VaultSquireLaunchPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSquireLaunchPerformanceTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000001B /* VaultSquireQuickSearchPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSquireQuickSearchPerformanceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000018 /* VaultSquire.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VaultSquire.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000019 /* VaultSquireTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VaultSquireTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0000000000000000000001A /* VaultSquireUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VaultSquireUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -223,7 +223,6 @@
 				B00000000000000000000012 /* DiagnosticsTests.swift */,
 				B00000000000000000000013 /* ProcessProbeTests.swift */,
 				B00000000000000000000014 /* QuickSearchPanelTests.swift */,
-				B00000000000000000000015 /* WorkstreamOnePerformanceTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -233,6 +232,7 @@
 			children = (
 				B00000000000000000000016 /* VaultSquireUITests.swift */,
 				B00000000000000000000017 /* VaultSquireLaunchPerformanceTests.swift */,
+				B0000000000000000000001B /* VaultSquireQuickSearchPerformanceTests.swift */,
 			);
 			path = VaultSquireUITests;
 			sourceTree = "<group>";
@@ -390,7 +390,6 @@
 				C00000000000000000000012 /* DiagnosticsTests.swift in Sources */,
 				C00000000000000000000013 /* ProcessProbeTests.swift in Sources */,
 				C00000000000000000000014 /* QuickSearchPanelTests.swift in Sources */,
-				C00000000000000000000015 /* WorkstreamOnePerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -400,6 +399,7 @@
 			files = (
 				C00000000000000000000016 /* VaultSquireUITests.swift in Sources */,
 				C00000000000000000000017 /* VaultSquireLaunchPerformanceTests.swift in Sources */,
+				C00000000000000000000018 /* VaultSquireQuickSearchPerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

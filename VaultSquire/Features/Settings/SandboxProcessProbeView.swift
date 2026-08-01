@@ -11,6 +11,7 @@ private final class SandboxProcessProbeModel: ObservableObject {
     }
 
     @Published private(set) var executableName: String?
+    @Published private(set) var executablePathWasResolved = false
     @Published private(set) var sessionDirectoryName: String?
     @Published private(set) var state: ProbeState = .idle
 
@@ -33,6 +34,10 @@ private final class SandboxProcessProbeModel: ObservableObject {
     }
 
     func selectExecutable() {
+        guard state != .running else {
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.title = "Select the user-installed pass-cli executable"
         panel.prompt = "Select"
@@ -44,12 +49,20 @@ private final class SandboxProcessProbeModel: ObservableObject {
             return
         }
 
-        executableURL = selectedURL
-        executableName = selectedURL.lastPathComponent
+        // Resolve before approval so a package-manager shim cannot make a denial on
+        // the real binary look like a sandbox failure.
+        let resolvedURL = selectedURL.resolvingSymlinksInPath()
+        executableURL = resolvedURL
+        executableName = resolvedURL.lastPathComponent
+        executablePathWasResolved = resolvedURL.path != selectedURL.path
         state = .idle
     }
 
     func selectSessionDirectory() {
+        guard state != .running else {
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.title = "Select the existing CLI session directory"
         panel.prompt = "Select"
@@ -61,8 +74,8 @@ private final class SandboxProcessProbeModel: ObservableObject {
             return
         }
 
-        sessionDirectoryURL = selectedURL
-        sessionDirectoryName = selectedURL.lastPathComponent
+        sessionDirectoryURL = selectedURL.resolvingSymlinksInPath()
+        sessionDirectoryName = sessionDirectoryURL?.lastPathComponent
         state = .idle
     }
 
@@ -70,12 +83,12 @@ private final class SandboxProcessProbeModel: ObservableObject {
         run(arguments: [])
     }
 
-    func runSessionProbe() {
+    func runStatusProbe() {
         run(arguments: ["info"])
     }
 
     private func run(arguments: [String]) {
-        guard let executableURL else {
+        guard let executableURL, state != .running else {
             return
         }
 
@@ -117,9 +130,11 @@ private final class SandboxProcessProbeModel: ObservableObject {
         case .invalidOutputLimit:
             "The probe output bound was invalid."
         case .outputLimitExceeded:
-            "The CLI exceeded the probe output bound."
+            "The CLI exceeded the probe output bound and was terminated."
+        case .outputRemainedOpen:
+            "The CLI exited but a surviving descendant kept its output open; the probe stopped reading and reported no counts."
         case .timedOut:
-            "The CLI did not finish before the probe timeout."
+            "The CLI did not finish before the probe timeout and was terminated."
         }
     }
 }
@@ -131,6 +146,11 @@ struct SandboxProcessProbeView: View {
         Form {
             Section("Selected resources") {
                 LabeledContent("Executable", value: model.executableName ?? "Not selected")
+                if model.executablePathWasResolved {
+                    Text("The selection resolved to a different path; the resolved target is used.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button("Select executable...", action: model.selectExecutable)
 
                 LabeledContent(
@@ -143,7 +163,7 @@ struct SandboxProcessProbeView: View {
             Section("Feasibility checks") {
                 HStack {
                     Button("Probe startup", action: model.runStartupProbe)
-                    Button("Probe session and keyring", action: model.runSessionProbe)
+                    Button("Probe status command", action: model.runStatusProbe)
                 }
                 .disabled(!model.canRun)
 
@@ -152,7 +172,11 @@ struct SandboxProcessProbeView: View {
                     .textSelection(.disabled)
             }
 
-            Text("The session probe invokes the documented non-interactive `info` command. It never starts login, displays raw CLI output, changes HOME or XDG variables, or persists selected paths.")
+            Text("The status probe runs the candidate non-interactive `info` subcommand, which is not yet pinned in PROTON_PASS_RESEARCH.md. It never starts login, displays raw CLI output, changes HOME or XDG variables, or persists selected paths.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            Text("Selecting a session directory only grants read-only sandbox access to it. The path is deliberately not passed to the CLI, because the environment channel is prohibited and no session-path argument is pinned yet. Until one is, this harness does not exercise session or keyring discovery.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }

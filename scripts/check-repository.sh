@@ -14,6 +14,8 @@ required_files=(
     .github/dependabot.yml
     VaultSquire.xcodeproj/project.pbxproj
     VaultSquire.xcodeproj/xcshareddata/xcschemes/VaultSquire.xcscheme
+    VaultSquire.xcodeproj/xcshareddata/xcschemes/VaultSquire-Performance.xcscheme
+    VaultSquire.xcodeproj/xcshareddata/xcschemes/VaultSquire-SandboxProbe.xcscheme
 )
 
 for file in "${required_files[@]}"; do
@@ -59,6 +61,34 @@ fi
 
 if [[ "$actual_icon_hash" != "$expected_icon_hash" ]]; then
     printf 'Canonical icon hash mismatch.\n' >&2
+    exit 1
+fi
+
+# `git diff --check` inspects unstaged changes only, so on a clean CI checkout it can
+# never fail. These checks read the committed tree instead. Markdown is exempt from
+# the trailing-whitespace rule to match `.editorconfig`.
+trailing_whitespace="$(git grep -nI -E '[ '$'\t'']+$' -- . ':(exclude)*.md' || true)"
+if [[ -n "$trailing_whitespace" ]]; then
+    printf 'Tracked files contain trailing whitespace:\n%s\n' "$trailing_whitespace" >&2
+    exit 1
+fi
+
+carriage_returns="$(git grep -lI --fixed-strings -- $'\r' -- . || true)"
+if [[ -n "$carriage_returns" ]]; then
+    printf 'Tracked text files contain carriage returns:\n%s\n' "$carriage_returns" >&2
+    exit 1
+fi
+
+missing_final_newline=""
+while IFS= read -r file; do
+    [[ -s "$file" ]] || continue
+    if [[ -n "$(tail -c 1 "$file")" ]]; then
+        missing_final_newline+="$file"$'\n'
+    fi
+done < <({ git ls-files -- . ':(exclude)*.png' ':(exclude)*.icns' ':(exclude)*.pdf' || true; })
+
+if [[ -n "$missing_final_newline" ]]; then
+    printf 'Tracked text files lack a final newline:\n%s\n' "$missing_final_newline" >&2
     exit 1
 fi
 

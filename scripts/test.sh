@@ -17,8 +17,8 @@ xcodebuild test \
     -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$DERIVED_DATA_PATH" \
     -resultBundlePath "$result_bundle" \
-    -skip-testing:VaultSquireTests/WorkstreamOnePerformanceTests \
     -skip-testing:VaultSquireUITests/VaultSquireLaunchPerformanceTests \
+    -skip-testing:VaultSquireUITests/VaultSquireQuickSearchPerformanceTests \
     ARCHS=arm64 \
     ONLY_ACTIVE_ARCH=NO
 

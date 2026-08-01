@@ -37,7 +37,10 @@ final class VaultSquireUITests: XCTestCase {
         app.buttons["open-settings"].click()
 
         XCTAssertTrue(element("settings-view", in: app).waitForExistence(timeout: 2))
-        XCTAssertTrue(element("locked-shell", in: app).exists)
+        XCTAssertEqual(
+            app.descendants(matching: .any).matching(identifier: "locked-shell").count,
+            1
+        )
     }
 
     @MainActor
