@@ -46,7 +46,7 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 
 | Property | Required value | Observed value |
 |---|---|---|
-| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30696185498` |
+| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30696406614` |
 | Xcode | `26.3` at `/Applications/Xcode_26.3.app/Contents/Developer` | `26.3` build `17C529` |
 | Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.2.4` (`swiftlang-6.2.4.1.4`, Clang `1700.6.4.2`) |
 | macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.2` build `25C58` |
@@ -79,7 +79,7 @@ and attributed it to Xcode 26.3. That attribution was wrong for the Quick Search
 fixture: it measured a signpost interval whose `.begin` is emitted by
 `ApplicationCoordinator.showQuickSearch()`, which the fixture bypassed, so every
 iteration emitted an unmatched `.end` and no sample could exist. With the
-fixture driving the real presentation path, workflow `30696185498` exports the
+fixture driving the real presentation path, workflow `30696406614` exports the
 interval. `XCTApplicationLaunchMetric` still exports nothing from the hosted run
 and that remains unexplained; re-check it on the named Mac.
 
@@ -153,11 +153,11 @@ outside VaultSquire.
 
 | Gate | Result |
 |---|---|
-| Clean Release `arm64` build and ad-hoc signed artifact | Passed in workflow `30696185498`. The run prints a SHA-256 for each configuration's archive; `ditto` archives are not byte-reproducible, so a digest identifies that run's artifact and cannot be re-derived from a later build |
-| Release entitlement and linked-image inspection | Passed in workflow `30696185498`; direct and sandbox probe allowlists also passed |
-| Unit, UI, cancellation, timeout, and output-bound tests | Passed 19 unit and 3 UI tests in workflow `30696185498` |
+| Clean Release `arm64` build and ad-hoc signed artifact | Passed in workflow `30696406614`. The run prints a SHA-256 for each configuration's archive; `ditto` archives are not byte-reproducible, so a digest identifies that run's artifact and cannot be re-derived from a later build |
+| Release entitlement and linked-image inspection | Passed in workflow `30696406614`; direct and sandbox probe allowlists also passed |
+| Unit, UI, cancellation, timeout, and output-bound tests | Passed in workflow `30696406614`. The lane runs 19 unit and 3 UI test methods; the two performance fixtures are skipped there and run in the performance lane |
 | Cold launch p95 at or below 750 ms on named baseline hardware | Pending named-Mac measurement. The fixture runs, but `XCTApplicationLaunchMetric` still exports no machine-readable metric from the hosted run and that remains unexplained |
-| Warm Quick Search p95 at or below 100 ms on named baseline hardware | Pending named-Mac measurement. The fixture now produces samples: workflow `30696185498` recorded `[5.6, 9.5, 4.9, 4.8, 4.0] ms` on the hosted runner. That is a hosted trend figure with five samples, not a p95 on named baseline hardware |
+| Warm Quick Search p95 at or below 100 ms on named baseline hardware | Pending named-Mac measurement. The fixture now produces samples: workflow `30696406614` recorded `[5.2, 5.9, 4.8, 7.1, 3.6] ms` on the hosted runner. That is a hosted trend figure with five samples, not a p95 on named baseline hardware |
 | Keyboard focus and Escape dismissal | Automated UI test passed; manual confirmation required |
 | VoiceOver and Full Keyboard Access | Pending interactive test |
 | Multiple Spaces and full-screen auxiliary presentation | Pending interactive test |
