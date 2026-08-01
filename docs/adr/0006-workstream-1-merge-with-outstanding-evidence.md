@@ -46,15 +46,21 @@ with an explicit later gate.
   project, tracked in the `WORKSTREAM_1.md` Exit Evidence table.
 - The merge gate moves rather than disappears. No VaultSquire release, private
   preview, or distributed artifact may be produced while any Workstream 1
-  criterion is outstanding, and the Phase 0 gate over Workstreams 0-3 is not met
-  while any of them is outstanding, under the phase-gate rule in `PLAN.md`.
-- Which later work each outstanding row blocks is stated rather than left to be
-  argued at pull-request time. No outstanding row blocks Workstream 2: it models
-  domain, session, and provider contracts against a fake provider facade and
-  consumes no Workstream 1 hardware measurement, accessibility result, or
-  sandbox outcome. The three legs recorded as not implemented block
-  Workstream 10, the Proton CLI provider, which is the first work that depends on
-  them. The remaining rows block the Phase 0 gate and any release.
+  criterion is outstanding, and the Phase 0 gate over Workstreams 0-3 cannot be
+  certified as passed while any of them is outstanding, under the phase-gate rule
+  in `PLAN.md`.
+- Certifying a phase and working inside it are separate. An uncertified Phase 0
+  does not halt the workstreams within it; it withholds the declaration that the
+  phase is complete. Work inside the phase proceeds where it does not consume
+  outstanding evidence.
+- Which later work each outstanding row blocks is therefore stated rather than
+  left to be argued at pull-request time. No outstanding row blocks Workstream 2,
+  which is inside Phase 0: it models domain, session, and provider contracts
+  against a fake provider facade and consumes no Workstream 1 hardware
+  measurement, accessibility result, or sandbox outcome. The three legs recorded
+  as not implemented block Workstream 10, the Proton CLI provider, which is the
+  first work that depends on them. The remaining rows block Phase 0 certification
+  and any release.
 - Merging code into `main` is therefore no longer evidence that a workstream's
   exit criteria passed. `main` is an integration branch, not a release branch,
   and nothing in it should be read as a claim about hardware, accessibility,

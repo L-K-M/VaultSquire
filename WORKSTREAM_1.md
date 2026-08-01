@@ -175,14 +175,20 @@ not a waiver: every outstanding row is still owed.
 
 The gate moved rather than disappeared. No release, private preview, or
 distributed artifact may be produced while any row above is outstanding, and the
-Phase 0 gate over Workstreams 0-3 is not met while any of them is outstanding.
+Phase 0 gate over Workstreams 0-3 cannot be certified as passed while any of them
+is outstanding.
 
-What each outstanding row blocks is stated rather than left to be argued later.
-Workstream 2 is not blocked by any of them: it models domain, session, and
-provider contracts against a fake provider facade and consumes no hardware
-measurement, accessibility result, or sandbox outcome from this workstream. The
-three rows recorded as not implemented block Workstream 10, the Proton CLI
-provider. The rest block the Phase 0 gate and any release.
+Certifying a phase and working inside it are separate things. Workstream 2 sits
+inside Phase 0, so the uncertified phase gate does not stop it starting or
+merging; what the outstanding rows prevent is Phase 0 being declared complete.
+Work inside the phase proceeds where it does not consume outstanding evidence,
+which is why what each row blocks is stated here rather than argued later.
+
+Workstream 2 consumes none of it: it models domain, session, and provider
+contracts against a fake provider facade and depends on no hardware measurement,
+accessibility result, or sandbox outcome from this workstream. The three rows
+recorded as not implemented block Workstream 10, the Proton CLI provider. The
+rest block the Phase 0 certification and any release.
 
 Presence in `main` is not evidence that a criterion passed; a row is marked
 passed only when the evidence exists. Every subsequent workstream record restates
