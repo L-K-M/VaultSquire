@@ -45,7 +45,10 @@ final class QuickSearchPanelTests: XCTestCase {
     @MainActor
     func testCoordinatorPresentsAndDismissesTheSamePanel() {
         ApplicationCoordinator.shared.showQuickSearch()
-        let panel = NSApp.windows.first { $0.title == "Quick Search" }
+
+        let panel = ApplicationCoordinator.shared
+            .quickSearchControllerForTesting?
+            .windowForTesting
         XCTAssertNotNil(panel)
         XCTAssertEqual(panel?.isVisible, true)
 

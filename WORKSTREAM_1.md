@@ -46,7 +46,7 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 
 | Property | Required value | Observed value |
 |---|---|---|
-| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30668464126` |
+| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30696185498` |
 | Xcode | `26.3` at `/Applications/Xcode_26.3.app/Contents/Developer` | `26.3` build `17C529` |
 | Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.2.4` (`swiftlang-6.2.4.1.4`, Clang `1700.6.4.2`) |
 | macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.2` build `25C58` |
@@ -74,15 +74,18 @@ The hosted job runs `./scripts/ci.sh` and then
 performance lane. Product commands require native Apple Silicon and Xcode 26.3.
 The current Linux host cannot substitute for them.
 
-The hosted performance fixtures execute their measured iterations, but
-`xcresulttool` returned an empty machine-readable metrics array for the hosted
-run and the runner retains no `.xcresult` afterwards, because the workflow
-uploads no artifact. Two separate causes were in play and only one is fixed
-here: the warm Quick Search fixture used to bypass the code that opens the
-signpost interval, so it could never have produced a sample, and that is
-corrected. Why the launch metric also exported nothing is still unexplained and
-must be re-checked on the named Mac. Until then this lane detects crashes and
-hangs only; it is not the named-hardware p95 evidence required below, and
+An earlier revision recorded that `xcresulttool` returned an empty metrics array
+and attributed it to Xcode 26.3. That attribution was wrong for the Quick Search
+fixture: it measured a signpost interval whose `.begin` is emitted by
+`ApplicationCoordinator.showQuickSearch()`, which the fixture bypassed, so every
+iteration emitted an unmatched `.end` and no sample could exist. With the
+fixture driving the real presentation path, workflow `30696185498` exports the
+interval. `XCTApplicationLaunchMetric` still exports nothing from the hosted run
+and that remains unexplained; re-check it on the named Mac.
+
+The runner also retains no `.xcresult`, because the workflow uploads no
+artifact. Until the named-hardware measurements exist this lane is trend and
+crash/hang detection only, not the p95 evidence required below, and
 `measure-workstream-1.sh` prints an explicit warning when the array is empty so
 an empty result cannot be mistaken for a pass.
 
@@ -150,11 +153,11 @@ outside VaultSquire.
 
 | Gate | Result |
 |---|---|
-| Clean Release `arm64` build and ad-hoc signed artifact | Passed in workflow `30668464126`; archive SHA-256 `85fae3abc1f83baab259f6c43b6efc6f2aca4b758c298ab203d14174b8e06734` |
-| Release entitlement and linked-image inspection | Passed in workflow `30668464126`; direct and sandbox probe allowlists also passed |
-| Unit, UI, cancellation, timeout, and output-bound tests | Passed 14 unit and 3 UI tests in workflow `30668464126` |
-| Cold launch p95 at or below 750 ms on named baseline hardware | Pending named-Mac measurement; the hosted lane exports no metrics |
-| Warm Quick Search p95 at or below 100 ms on named baseline hardware | Pending named-Mac measurement. The fixture previously measured a signpost interval it never opened and could not have produced a sample; that is fixed, but no sample has been observed yet |
+| Clean Release `arm64` build and ad-hoc signed artifact | Passed in workflow `30696185498`. The run prints a SHA-256 for each configuration's archive; `ditto` archives are not byte-reproducible, so a digest identifies that run's artifact and cannot be re-derived from a later build |
+| Release entitlement and linked-image inspection | Passed in workflow `30696185498`; direct and sandbox probe allowlists also passed |
+| Unit, UI, cancellation, timeout, and output-bound tests | Passed 19 unit and 3 UI tests in workflow `30696185498` |
+| Cold launch p95 at or below 750 ms on named baseline hardware | Pending named-Mac measurement. The fixture runs, but `XCTApplicationLaunchMetric` still exports no machine-readable metric from the hosted run and that remains unexplained |
+| Warm Quick Search p95 at or below 100 ms on named baseline hardware | Pending named-Mac measurement. The fixture now produces samples: workflow `30696185498` recorded `[5.6, 9.5, 4.9, 4.8, 4.0] ms` on the hosted runner. That is a hosted trend figure with five samples, not a p95 on named baseline hardware |
 | Keyboard focus and Escape dismissal | Automated UI test passed; manual confirmation required |
 | VoiceOver and Full Keyboard Access | Pending interactive test |
 | Multiple Spaces and full-screen auxiliary presentation | Pending interactive test |

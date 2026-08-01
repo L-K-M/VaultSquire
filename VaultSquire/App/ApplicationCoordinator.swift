@@ -8,6 +8,10 @@ final class ApplicationCoordinator {
 
     private init() {}
 
+    var quickSearchControllerForTesting: QuickSearchPanelController? {
+        quickSearchController
+    }
+
     func showQuickSearch() {
         PerformanceTrace.record(.quickSearchRequested)
 
