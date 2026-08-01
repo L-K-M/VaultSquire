@@ -1,7 +1,10 @@
 # Privacy
 
-VaultSquire is currently documentation only. There is no application, account
-service, telemetry, analytics, local vault database, or runtime network traffic.
+VaultSquire currently has a pre-release locked shell and process-feasibility
+harness. It has no account service, telemetry, analytics, local vault database,
+or provider network implementation. The sandbox probe can run only a
+user-selected executable and records byte counts and exit status without
+retaining stdout or stderr.
 
 ## Planned application posture
 
@@ -17,7 +20,7 @@ Device-only keys and reusable tokens belong in non-synchronizing Keychain
 records. Decrypted projections and search indexes remain memory-only and are
 destroyed on lock as far as the runtime permits.
 
-These are design requirements, not claims about an implemented product.
+These remain requirements for provider work, not claims about the current shell.
 
 ## Repository automation
 

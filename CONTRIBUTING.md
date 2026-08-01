@@ -35,9 +35,14 @@ unsanitized URLs. Security and contamination concerns must be reported privately
 
 ## Verification
 
-There is no product build or test command yet. Verify documentation links,
-formatting, cited revisions, internal consistency, and repository hygiene. Do
-not add placeholder product CI or fictional commands.
+Verify documentation links, formatting, cited revisions, internal consistency,
+and repository hygiene with `./scripts/check-repository.sh`, which runs on any
+host. On a native Apple Silicon Mac with the pinned Xcode, also run the build,
+test, signing, and inspection commands recorded in
+[`WORKSTREAM_1.md`](WORKSTREAM_1.md). Do not add placeholder product CI or
+fictional commands, and do not claim a macOS, accessibility, hardware
+performance, signing, notarization, or process-sandbox result that was not
+actually produced on such a Mac.
 
 GLM review is optional and external. Add the `glm-review` label only when the
 entire diff is suitable for submission to Z.ai. Human security and provenance

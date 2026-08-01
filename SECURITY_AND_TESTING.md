@@ -464,7 +464,8 @@ VaultSquire necessarily trusts:
 - Inspect the final app recursively for unexpected dynamic libraries, writable
   executable paths, debug entitlements, JIT, unsigned memory, Apple Events,
   Accessibility, or network-server capability. The release target must not
-  contain `com.apple.security.cs.get-task-allow`,
+  contain `com.apple.security.get-task-allow`,
+  `com.apple.security.cs.debugger`,
   `com.apple.security.cs.allow-dyld-environment-variables`,
   `com.apple.security.cs.disable-library-validation`,
   `com.apple.security.cs.disable-executable-page-protection`,

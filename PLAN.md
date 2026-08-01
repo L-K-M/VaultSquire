@@ -1,6 +1,6 @@
 # VaultSquire Comprehensive Product And Implementation Plan
 
-- Status: proposed, no implementation started
+- Status: implementation in progress; Workstream 1
 - Last updated: 2026-07-31
 - Product: clean-room native macOS client named VaultSquire
 - Providers: self-hosted Vaultwarden and Proton Pass through the official CLI
