@@ -63,6 +63,15 @@
 		C00000000000000000000039 /* VaultwardenAuthenticatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003C /* VaultwardenAuthenticatorTests.swift */; };
 		C0000000000000000000003A /* VaultwardenTokenRefresherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003D /* VaultwardenTokenRefresherTests.swift */; };
 		C0000000000000000000003B /* VaultwardenLeakageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003E /* VaultwardenLeakageTests.swift */; };
+		C0000000000000000000003C /* VaultwardenCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003F /* VaultwardenCredentialStore.swift */; };
+		C0000000000000000000003D /* KeychainCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000040 /* KeychainCredentialStore.swift */; };
+		C0000000000000000000003E /* VaultwardenDeviceIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000041 /* VaultwardenDeviceIdentityStore.swift */; };
+		C0000000000000000000003F /* AddAccountModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000042 /* AddAccountModel.swift */; };
+		C00000000000000000000040 /* AddAccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000043 /* AddAccountView.swift */; };
+		C00000000000000000000041 /* TwoFactorChallengeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000044 /* TwoFactorChallengeView.swift */; };
+		C00000000000000000000042 /* VaultwardenCredentialStoreSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000045 /* VaultwardenCredentialStoreSupport.swift */; };
+		C00000000000000000000043 /* VaultwardenCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000046 /* VaultwardenCredentialStoreTests.swift */; };
+		C00000000000000000000044 /* AddAccountModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000047 /* AddAccountModelTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -144,6 +153,15 @@
 		B0000000000000000000003C /* VaultwardenAuthenticatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenAuthenticatorTests.swift; sourceTree = "<group>"; };
 		B0000000000000000000003D /* VaultwardenTokenRefresherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTokenRefresherTests.swift; sourceTree = "<group>"; };
 		B0000000000000000000003E /* VaultwardenLeakageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenLeakageTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000003F /* VaultwardenCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCredentialStore.swift; sourceTree = "<group>"; };
+		B00000000000000000000040 /* KeychainCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainCredentialStore.swift; sourceTree = "<group>"; };
+		B00000000000000000000041 /* VaultwardenDeviceIdentityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenDeviceIdentityStore.swift; sourceTree = "<group>"; };
+		B00000000000000000000042 /* AddAccountModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAccountModel.swift; sourceTree = "<group>"; };
+		B00000000000000000000043 /* AddAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAccountView.swift; sourceTree = "<group>"; };
+		B00000000000000000000044 /* TwoFactorChallengeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFactorChallengeView.swift; sourceTree = "<group>"; };
+		B00000000000000000000045 /* VaultwardenCredentialStoreSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCredentialStoreSupport.swift; sourceTree = "<group>"; };
+		B00000000000000000000046 /* VaultwardenCredentialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCredentialStoreTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000047 /* AddAccountModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAccountModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -171,6 +189,26 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A00000000000000000000015 /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000003F /* VaultwardenCredentialStore.swift */,
+				B00000000000000000000040 /* KeychainCredentialStore.swift */,
+				B00000000000000000000041 /* VaultwardenDeviceIdentityStore.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000016 /* AddAccount */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000042 /* AddAccountModel.swift */,
+				B00000000000000000000043 /* AddAccountView.swift */,
+				B00000000000000000000044 /* TwoFactorChallengeView.swift */,
+			);
+			path = AddAccount;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000011 /* Providers */ = {
 			isa = PBXGroup;
 			children = (
@@ -184,6 +222,7 @@
 			children = (
 				A00000000000000000000013 /* Crypto */,
 				A00000000000000000000014 /* Network */,
+				A00000000000000000000015 /* Storage */,
 			);
 			path = Vaultwarden;
 			sourceTree = "<group>";
@@ -278,6 +317,7 @@
 				A00000000000000000000007 /* LockedShell */,
 				A00000000000000000000008 /* QuickSearch */,
 				A00000000000000000000009 /* Settings */,
+				A00000000000000000000016 /* AddAccount */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -368,6 +408,9 @@
 				B0000000000000000000003C /* VaultwardenAuthenticatorTests.swift */,
 				B0000000000000000000003D /* VaultwardenTokenRefresherTests.swift */,
 				B0000000000000000000003E /* VaultwardenLeakageTests.swift */,
+				B00000000000000000000045 /* VaultwardenCredentialStoreSupport.swift */,
+				B00000000000000000000046 /* VaultwardenCredentialStoreTests.swift */,
+				B00000000000000000000047 /* AddAccountModelTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -535,6 +578,12 @@
 				C00000000000000000000032 /* VaultwardenTransport.swift in Sources */,
 				C00000000000000000000033 /* VaultwardenAuthenticator.swift in Sources */,
 				C00000000000000000000034 /* VaultwardenTokenRefresher.swift in Sources */,
+				C0000000000000000000003C /* VaultwardenCredentialStore.swift in Sources */,
+				C0000000000000000000003D /* KeychainCredentialStore.swift in Sources */,
+				C0000000000000000000003E /* VaultwardenDeviceIdentityStore.swift in Sources */,
+				C0000000000000000000003F /* AddAccountModel.swift in Sources */,
+				C00000000000000000000040 /* AddAccountView.swift in Sources */,
+				C00000000000000000000041 /* TwoFactorChallengeView.swift in Sources */,
 				C00000000000000000000019 /* ProviderIdentity.swift in Sources */,
 				C0000000000000000000001A /* SessionState.swift in Sources */,
 				C0000000000000000000001B /* ProviderCapability.swift in Sources */,
@@ -565,6 +614,9 @@
 				C00000000000000000000039 /* VaultwardenAuthenticatorTests.swift in Sources */,
 				C0000000000000000000003A /* VaultwardenTokenRefresherTests.swift in Sources */,
 				C0000000000000000000003B /* VaultwardenLeakageTests.swift in Sources */,
+				C00000000000000000000042 /* VaultwardenCredentialStoreSupport.swift in Sources */,
+				C00000000000000000000043 /* VaultwardenCredentialStoreTests.swift in Sources */,
+				C00000000000000000000044 /* AddAccountModelTests.swift in Sources */,
 				C00000000000000000000023 /* ProviderCacheEnvelopeTests.swift in Sources */,
 				C00000000000000000000022 /* ProviderCapabilityTests.swift in Sources */,
 				C00000000000000000000021 /* ProviderIdentityTests.swift in Sources */,
