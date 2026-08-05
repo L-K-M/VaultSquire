@@ -40,6 +40,15 @@
 		C00000000000000000000022 /* ProviderCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000025 /* ProviderCapabilityTests.swift */; };
 		C00000000000000000000023 /* ProviderCacheEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000026 /* ProviderCacheEnvelopeTests.swift */; };
 		C00000000000000000000024 /* VaultSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000027 /* VaultSessionTests.swift */; };
+		C00000000000000000000025 /* VaultwardenCryptoError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000028 /* VaultwardenCryptoError.swift */; };
+		C00000000000000000000026 /* VaultwardenKeyDerivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000029 /* VaultwardenKeyDerivation.swift */; };
+		C00000000000000000000027 /* VaultwardenEncString.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002A /* VaultwardenEncString.swift */; };
+		C00000000000000000000028 /* VaultwardenKeyUnwrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002B /* VaultwardenKeyUnwrap.swift */; };
+		C00000000000000000000029 /* VaultwardenCryptoFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002C /* VaultwardenCryptoFixtures.swift */; };
+		C0000000000000000000002A /* VaultwardenKeyDerivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002D /* VaultwardenKeyDerivationTests.swift */; };
+		C0000000000000000000002B /* VaultwardenEncStringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002E /* VaultwardenEncStringTests.swift */; };
+		C0000000000000000000002C /* VaultwardenKeyUnwrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002F /* VaultwardenKeyUnwrapTests.swift */; };
+		C0000000000000000000002D /* VaultwardenCryptoFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000030 /* VaultwardenCryptoFuzzTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,6 +107,15 @@
 		B00000000000000000000025 /* ProviderCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderCapabilityTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000026 /* ProviderCacheEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderCacheEnvelopeTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000027 /* VaultSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000028 /* VaultwardenCryptoError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCryptoError.swift; sourceTree = "<group>"; };
+		B00000000000000000000029 /* VaultwardenKeyDerivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenKeyDerivation.swift; sourceTree = "<group>"; };
+		B0000000000000000000002A /* VaultwardenEncString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenEncString.swift; sourceTree = "<group>"; };
+		B0000000000000000000002B /* VaultwardenKeyUnwrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenKeyUnwrap.swift; sourceTree = "<group>"; };
+		B0000000000000000000002C /* VaultwardenCryptoFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCryptoFixtures.swift; sourceTree = "<group>"; };
+		B0000000000000000000002D /* VaultwardenKeyDerivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenKeyDerivationTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000002E /* VaultwardenEncStringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenEncStringTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000002F /* VaultwardenKeyUnwrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenKeyUnwrapTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000030 /* VaultwardenCryptoFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCryptoFuzzTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,6 +143,33 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A00000000000000000000011 /* Providers */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000012 /* Vaultwarden */,
+			);
+			path = Providers;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000012 /* Vaultwarden */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000013 /* Crypto */,
+			);
+			path = Vaultwarden;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000013 /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000028 /* VaultwardenCryptoError.swift */,
+				B00000000000000000000029 /* VaultwardenKeyDerivation.swift */,
+				B0000000000000000000002A /* VaultwardenEncString.swift */,
+				B0000000000000000000002B /* VaultwardenKeyUnwrap.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
@@ -150,6 +195,7 @@
 			children = (
 				A00000000000000000000005 /* App */,
 				A00000000000000000000010 /* Domain */,
+				A00000000000000000000011 /* Providers */,
 				A00000000000000000000006 /* Features */,
 				A0000000000000000000000A /* Infrastructure */,
 				A0000000000000000000000D /* Resources */,
@@ -267,6 +313,11 @@
 				B00000000000000000000024 /* ProviderIdentityTests.swift */,
 				B00000000000000000000014 /* QuickSearchPanelTests.swift */,
 				B00000000000000000000027 /* VaultSessionTests.swift */,
+				B0000000000000000000002C /* VaultwardenCryptoFixtures.swift */,
+				B0000000000000000000002E /* VaultwardenEncStringTests.swift */,
+				B0000000000000000000002D /* VaultwardenKeyDerivationTests.swift */,
+				B0000000000000000000002F /* VaultwardenKeyUnwrapTests.swift */,
+				B00000000000000000000030 /* VaultwardenCryptoFuzzTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -423,6 +474,10 @@
 				C0000000000000000000000C /* AppLog.swift in Sources */,
 				C0000000000000000000000D /* PerformanceTrace.swift in Sources */,
 				C0000000000000000000000E /* ProcessProbe.swift in Sources */,
+				C00000000000000000000025 /* VaultwardenCryptoError.swift in Sources */,
+				C00000000000000000000026 /* VaultwardenKeyDerivation.swift in Sources */,
+				C00000000000000000000027 /* VaultwardenEncString.swift in Sources */,
+				C00000000000000000000028 /* VaultwardenKeyUnwrap.swift in Sources */,
 				C00000000000000000000019 /* ProviderIdentity.swift in Sources */,
 				C0000000000000000000001A /* SessionState.swift in Sources */,
 				C0000000000000000000001B /* ProviderCapability.swift in Sources */,
@@ -441,6 +496,11 @@
 				C00000000000000000000012 /* DiagnosticsTests.swift in Sources */,
 				C00000000000000000000020 /* FakeVaultProvider.swift in Sources */,
 				C00000000000000000000013 /* ProcessProbeTests.swift in Sources */,
+				C00000000000000000000029 /* VaultwardenCryptoFixtures.swift in Sources */,
+				C0000000000000000000002A /* VaultwardenKeyDerivationTests.swift in Sources */,
+				C0000000000000000000002B /* VaultwardenEncStringTests.swift in Sources */,
+				C0000000000000000000002C /* VaultwardenKeyUnwrapTests.swift in Sources */,
+				C0000000000000000000002D /* VaultwardenCryptoFuzzTests.swift in Sources */,
 				C00000000000000000000023 /* ProviderCacheEnvelopeTests.swift in Sources */,
 				C00000000000000000000022 /* ProviderCapabilityTests.swift in Sources */,
 				C00000000000000000000021 /* ProviderIdentityTests.swift in Sources */,
