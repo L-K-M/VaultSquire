@@ -13,6 +13,9 @@ result_bundle="$DERIVED_DATA_PATH/PerformanceResults/WorkstreamOne-$(date +%Y%m%
 # The performance scheme deliberately excludes VaultSquireTests. That target uses a
 # testable import, which would force ENABLE_TESTABILITY onto the measured product and
 # make these numbers something other than Release numbers.
+# The project's automatic Apple Development signing needs a certificate and
+# provisioning profile that hosted CI runners do not have. This lane ad-hoc
+# signs instead, like the product lane in build-local.sh.
 xcodebuild test \
     -project "$ROOT/VaultSquire.xcodeproj" \
     -scheme VaultSquire-Performance \
@@ -23,7 +26,11 @@ xcodebuild test \
     -only-testing:VaultSquireUITests/VaultSquireLaunchPerformanceTests \
     -only-testing:VaultSquireUITests/VaultSquireQuickSearchPerformanceTests \
     ARCHS=arm64 \
-    ONLY_ACTIVE_ARCH=NO
+    ONLY_ACTIVE_ARCH=NO \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY=- \
+    DEVELOPMENT_TEAM= \
+    PROVISIONING_PROFILE_SPECIFIER=
 
 printf 'Exportable hosted-run metrics (trend data only):\n'
 metrics="$(xcrun xcresulttool get test-results metrics --path "$result_bundle")"

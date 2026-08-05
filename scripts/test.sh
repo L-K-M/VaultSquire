@@ -10,6 +10,9 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode_26.3.app/Contents/Dev
 mkdir -p "$DERIVED_DATA_PATH/TestResults"
 result_bundle="$DERIVED_DATA_PATH/TestResults/VaultSquire-$(date +%Y%m%d%H%M%S)-$$.xcresult"
 
+# The project's automatic Apple Development signing needs a certificate and
+# provisioning profile that hosted CI runners do not have. The test lane ad-hoc
+# signs instead, like the product lane in build-local.sh.
 xcodebuild test \
     -project "$ROOT/VaultSquire.xcodeproj" \
     -scheme VaultSquire \
@@ -20,6 +23,10 @@ xcodebuild test \
     -skip-testing:VaultSquireUITests/VaultSquireLaunchPerformanceTests \
     -skip-testing:VaultSquireUITests/VaultSquireQuickSearchPerformanceTests \
     ARCHS=arm64 \
-    ONLY_ACTIVE_ARCH=NO
+    ONLY_ACTIVE_ARCH=NO \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY=- \
+    DEVELOPMENT_TEAM= \
+    PROVISIONING_PROFILE_SPECIFIER=
 
 printf 'Test result bundle: %s\n' "$result_bundle"
