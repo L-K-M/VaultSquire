@@ -167,6 +167,8 @@ final class AddAccountModelTests: XCTestCase {
             "/accounts/prelogin/password",
             respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
         )
+        // Two /connect/token responses served in FIFO order: the 2FA challenge
+        // first, then the success.
         StubServer.shared.on(
             "/connect/token",
             respond: .json(400, "{\"TwoFactorProviders2\":{\"0\":{}}}")
@@ -207,6 +209,8 @@ final class AddAccountModelTests: XCTestCase {
             "/accounts/prelogin/password",
             respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
         )
+        // Two /connect/token responses served in FIFO order: challenge first,
+        // then success.
         StubServer.shared.on(
             "/connect/token",
             respond: .json(400, "{\"TwoFactorProviders2\":{\"0\":{}}}")

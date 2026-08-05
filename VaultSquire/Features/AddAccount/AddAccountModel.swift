@@ -79,6 +79,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
     private var pending: VaultwardenPendingTwoFactor?
     private var authenticator: VaultwardenAuthenticator?
     private var environment: VaultwardenEnvironment?
+    private var activeTask: Task<Void, Never>?
 
     init(
         credentialStore: any VaultwardenCredentialStore,
@@ -97,6 +98,24 @@ final class AddAccountModel: ObservableObject, Identifiable {
             && !email.trimmingCharacters(in: .whitespaces).isEmpty
             && !masterPassword.isEmpty
             && phase != .connecting
+    }
+
+    /// Starts the sign-in transaction in a tracked task the view can cancel on
+    /// dismissal, so a dismissed flow never persists credentials.
+    func beginSignIn() {
+        activeTask = Task { await signIn() }
+    }
+
+    /// Starts the second-factor submission in the same tracked task.
+    func beginSubmitTwoFactor() {
+        activeTask = Task { await submitTwoFactor() }
+    }
+
+    /// Cancels any in-flight sign-in or two-factor task. Called when the sheet
+    /// is dismissed.
+    func cancel() {
+        activeTask?.cancel()
+        activeTask = nil
     }
 
     /// Validates the URL and runs the login transaction. On a 2FA challenge the
@@ -133,6 +152,8 @@ final class AddAccountModel: ObservableObject, Identifiable {
                 device: deviceIdentity,
                 lastAcceptedKDF: nil
             )
+            // If the sheet was dismissed mid-request, do not persist or advance.
+            guard !Task.isCancelled else { return }
             switch outcome {
             case .authenticated(let session):
                 try store(session)
@@ -190,6 +211,8 @@ final class AddAccountModel: ObservableObject, Identifiable {
         )
         do {
             let session = try await authenticator.completeTwoFactor(pending, proof: proof)
+            // If the sheet was dismissed mid-request, do not persist or advance.
+            guard !Task.isCancelled else { return }
             try store(session)
             // Clear the code only once storage has succeeded, so a save failure
             // does not also blank the field.
@@ -210,8 +233,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
             phase = .challenged
             self.failureMessage = error.safeDisplayMessage
         } catch {
+            // A non-API failure (timeout, cancellation, decode) is not a
+            // rejected code, so avoid implying the entered code was wrong.
             phase = .challenged
-            self.failureMessage = "The verification code was not accepted."
+            self.failureMessage = "Verification could not be completed. Please try again."
         }
     }
 

@@ -74,7 +74,7 @@ struct TwoFactorChallengeView: View {
                     .accessibilityIdentifier("two-factor-back")
                 Spacer()
                 Button {
-                    Task { await model.submitTwoFactor() }
+                    model.beginSubmitTwoFactor()
                 } label: {
                     if model.phase == .connecting {
                         ProgressView().controlSize(.small)

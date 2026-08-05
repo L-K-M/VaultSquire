@@ -20,6 +20,9 @@ struct AddAccountView: View {
         }
         .padding(24)
         .frame(width: 420)
+        // Cancel any in-flight sign-in or two-factor work when the sheet is
+        // dismissed, so a cancelled flow never persists credentials.
+        .onDisappear { model.cancel() }
         // Keep this a named container that still exposes its children as
         // individual accessibility elements; applying an identifier alone
         // collapses the subtree into one element under macOS SwiftUI.
@@ -67,7 +70,7 @@ struct AddAccountView: View {
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button {
-                    Task { await model.signIn() }
+                    model.beginSignIn()
                 } label: {
                     if model.phase == .connecting {
                         ProgressView().controlSize(.small)
