@@ -31,6 +31,7 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
         let updated = try store.load(for: account)
         XCTAssertEqual(updated?.refreshToken, "new")
         XCTAssertEqual(updated?.rememberedTwoFactorToken, "VSQ-Canary-2fa")
+        XCTAssertEqual(updated?.version, VaultwardenStoredCredentials.currentVersion)
     }
 
     func testDeleteRemovesTheRecord() throws {
@@ -92,8 +93,9 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
         // Every Keychain operation converts a store-unavailable status into a
         // skip, so a host that loses Keychain access partway through skips
         // rather than fails.
-        try skippingIfUnavailable { try store.save(credentials, for: keychainAccount) }
+        // Register cleanup before the first write so a record is never leaked.
         addTeardownBlock { try? store.delete(for: keychainAccount) }
+        try skippingIfUnavailable { try store.save(credentials, for: keychainAccount) }
 
         XCTAssertEqual(
             try skippingIfUnavailable { try store.load(for: keychainAccount) }, credentials

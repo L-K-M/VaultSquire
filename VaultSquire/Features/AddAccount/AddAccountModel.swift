@@ -115,8 +115,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
     }
 
     /// Starts the emailed-code request in the same tracked task so dismissal
-    /// cancels it too.
+    /// cancels it too. Guards on the challenge phase before cancelling anything,
+    /// so it can never interrupt an in-flight verification.
     func beginSendEmailChallenge() {
+        guard phase == .challenged else { return }
         activeTask?.cancel()
         activeTask = Task { await sendEmailChallengeIfNeeded() }
     }
