@@ -28,6 +28,18 @@
 		C00000000000000000000016 /* VaultSquireUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000016 /* VaultSquireUITests.swift */; };
 		C00000000000000000000017 /* VaultSquireLaunchPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000017 /* VaultSquireLaunchPerformanceTests.swift */; };
 		C00000000000000000000018 /* VaultSquireQuickSearchPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001B /* VaultSquireQuickSearchPerformanceTests.swift */; };
+		C00000000000000000000019 /* ProviderIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001C /* ProviderIdentity.swift */; };
+		C0000000000000000000001A /* SessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* SessionState.swift */; };
+		C0000000000000000000001B /* ProviderCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* ProviderCapability.swift */; };
+		C0000000000000000000001C /* ProviderCacheEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* ProviderCacheEnvelope.swift */; };
+		C0000000000000000000001D /* VaultItemProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000020 /* VaultItemProjection.swift */; };
+		C0000000000000000000001E /* VaultProviderFacade.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000021 /* VaultProviderFacade.swift */; };
+		C0000000000000000000001F /* VaultSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* VaultSession.swift */; };
+		C00000000000000000000020 /* FakeVaultProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000023 /* FakeVaultProvider.swift */; };
+		C00000000000000000000021 /* ProviderIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000024 /* ProviderIdentityTests.swift */; };
+		C00000000000000000000022 /* ProviderCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000025 /* ProviderCapabilityTests.swift */; };
+		C00000000000000000000023 /* ProviderCacheEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000026 /* ProviderCacheEnvelopeTests.swift */; };
+		C00000000000000000000024 /* VaultSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000027 /* VaultSessionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,6 +86,18 @@
 		B00000000000000000000019 /* VaultSquireTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VaultSquireTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0000000000000000000001A /* VaultSquireUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VaultSquireUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0000000000000000000001B /* VaultSquireQuickSearchPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSquireQuickSearchPerformanceTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000001C /* ProviderIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderIdentity.swift; sourceTree = "<group>"; };
+		B0000000000000000000001D /* SessionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionState.swift; sourceTree = "<group>"; };
+		B0000000000000000000001E /* ProviderCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderCapability.swift; sourceTree = "<group>"; };
+		B0000000000000000000001F /* ProviderCacheEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderCacheEnvelope.swift; sourceTree = "<group>"; };
+		B00000000000000000000020 /* VaultItemProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultItemProjection.swift; sourceTree = "<group>"; };
+		B00000000000000000000021 /* VaultProviderFacade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultProviderFacade.swift; sourceTree = "<group>"; };
+		B00000000000000000000022 /* VaultSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSession.swift; sourceTree = "<group>"; };
+		B00000000000000000000023 /* FakeVaultProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeVaultProvider.swift; sourceTree = "<group>"; };
+		B00000000000000000000024 /* ProviderIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderIdentityTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000025 /* ProviderCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderCapabilityTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000026 /* ProviderCacheEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderCacheEnvelopeTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000027 /* VaultSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,11 +149,26 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000005 /* App */,
+				A00000000000000000000010 /* Domain */,
 				A00000000000000000000006 /* Features */,
 				A0000000000000000000000A /* Infrastructure */,
 				A0000000000000000000000D /* Resources */,
 			);
 			path = VaultSquire;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000010 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000001C /* ProviderIdentity.swift */,
+				B0000000000000000000001D /* SessionState.swift */,
+				B0000000000000000000001E /* ProviderCapability.swift */,
+				B0000000000000000000001F /* ProviderCacheEnvelope.swift */,
+				B00000000000000000000020 /* VaultItemProjection.swift */,
+				B00000000000000000000021 /* VaultProviderFacade.swift */,
+				B00000000000000000000022 /* VaultSession.swift */,
+			);
+			path = Domain;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000005 /* App */ = {
@@ -221,8 +260,13 @@
 			children = (
 				B00000000000000000000011 /* AppModelTests.swift */,
 				B00000000000000000000012 /* DiagnosticsTests.swift */,
+				B00000000000000000000023 /* FakeVaultProvider.swift */,
 				B00000000000000000000013 /* ProcessProbeTests.swift */,
+				B00000000000000000000026 /* ProviderCacheEnvelopeTests.swift */,
+				B00000000000000000000025 /* ProviderCapabilityTests.swift */,
+				B00000000000000000000024 /* ProviderIdentityTests.swift */,
 				B00000000000000000000014 /* QuickSearchPanelTests.swift */,
+				B00000000000000000000027 /* VaultSessionTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -379,6 +423,13 @@
 				C0000000000000000000000C /* AppLog.swift in Sources */,
 				C0000000000000000000000D /* PerformanceTrace.swift in Sources */,
 				C0000000000000000000000E /* ProcessProbe.swift in Sources */,
+				C00000000000000000000019 /* ProviderIdentity.swift in Sources */,
+				C0000000000000000000001A /* SessionState.swift in Sources */,
+				C0000000000000000000001B /* ProviderCapability.swift in Sources */,
+				C0000000000000000000001C /* ProviderCacheEnvelope.swift in Sources */,
+				C0000000000000000000001D /* VaultItemProjection.swift in Sources */,
+				C0000000000000000000001E /* VaultProviderFacade.swift in Sources */,
+				C0000000000000000000001F /* VaultSession.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -388,8 +439,13 @@
 			files = (
 				C00000000000000000000011 /* AppModelTests.swift in Sources */,
 				C00000000000000000000012 /* DiagnosticsTests.swift in Sources */,
+				C00000000000000000000020 /* FakeVaultProvider.swift in Sources */,
 				C00000000000000000000013 /* ProcessProbeTests.swift in Sources */,
+				C00000000000000000000023 /* ProviderCacheEnvelopeTests.swift in Sources */,
+				C00000000000000000000022 /* ProviderCapabilityTests.swift in Sources */,
+				C00000000000000000000021 /* ProviderIdentityTests.swift in Sources */,
 				C00000000000000000000014 /* QuickSearchPanelTests.swift in Sources */,
+				C00000000000000000000024 /* VaultSessionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
