@@ -33,8 +33,11 @@ struct RecordedRequest: Sendable {
         for pair in bodyString.split(separator: "&") {
             let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
-            let key = parts[0].removingPercentEncoding ?? parts[0]
-            let value = parts[1].removingPercentEncoding ?? parts[1]
+            // In application/x-www-form-urlencoded, "+" encodes a space.
+            let key = parts[0].replacingOccurrences(of: "+", with: " ")
+                .removingPercentEncoding ?? parts[0]
+            let value = parts[1].replacingOccurrences(of: "+", with: " ")
+                .removingPercentEncoding ?? parts[1]
             fields[key] = value
         }
         return fields

@@ -185,8 +185,10 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
             )
             XCTFail("expected failure")
         } catch let error as VaultwardenAPIError {
-            // invalid_grant on the initial password grant is session/credential
-            // failure, mapped to sessionExpired category by the classifier.
+            // invalid_grant on the initial password grant means the master
+            // password was rejected, mapped to badCredentials by the classifier
+            // (a refresh-time invalid_grant maps to sessionExpired instead).
+            XCTAssertEqual(error.category, .badCredentials)
             XCTAssertEqual(error.machineCode, "invalid_grant")
         }
     }
@@ -272,7 +274,7 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
             )
             XCTFail("unapproved cross-origin must abort before prelogin")
         } catch let error as VaultwardenAPIError {
-            XCTAssertEqual(error.category, .badCredentials)
+            XCTAssertEqual(error.category, .unexpected)
         }
         // Prelogin (which carries the email) was never sent.
         XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password"))

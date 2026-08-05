@@ -177,7 +177,7 @@ struct VaultwardenAuthenticator: Sendable {
         let response = try await transport.send(
             .post,
             url: url,
-            body: .json(Data("{\"email\":\"\(pending.normalizedEmail)\"}".utf8))
+            body: .json(try Self.emailBody(pending.normalizedEmail))
         )
         guard (200..<300).contains(response.status) else {
             throw Self.error(from: response)
@@ -222,8 +222,11 @@ struct VaultwardenAuthenticator: Sendable {
                 effectiveAPI: effectiveAPI
             )
             guard approved else {
+                // A declined approval is a user choice, not rejected
+                // credentials; classify it as unexpected so credential-retry
+                // UI is not offered.
                 throw VaultwardenAPIError(
-                    category: .badCredentials,
+                    category: .unexpected,
                     safeDisplayMessage: "The server's effective origin was not approved."
                 )
             }
@@ -236,7 +239,7 @@ struct VaultwardenAuthenticator: Sendable {
         email: String,
         identityBase: URL
     ) async throws -> VaultwardenPrelogin {
-        let body = Data("{\"email\":\"\(email)\"}".utf8)
+        let body = try Self.emailBody(email)
         let currentURL = identityBase.appendingPathComponent("accounts/prelogin/password")
         var response = try await transport.send(.post, url: currentURL, body: .json(body))
 
@@ -335,6 +338,12 @@ struct VaultwardenAuthenticator: Sendable {
         }
     }
 
+    /// Builds a JSON body for a single email field with proper escaping, so an
+    /// address containing a quote or backslash cannot break the request shape.
+    private static func emailBody(_ email: String) throws -> Data {
+        try JSONEncoder().encode(["email": email])
+    }
+
     private func mapKDF(_ prelogin: VaultwardenPrelogin) throws -> VaultwardenKDFConfiguration {
         do {
             let configuration = try prelogin.configuration()
@@ -363,7 +372,9 @@ struct VaultwardenAuthenticator: Sendable {
     private func baseURL(from urlString: String?, fallback: URL) -> URL {
         guard let urlString, !urlString.isEmpty,
               let url = URL(string: urlString),
-              url.scheme != nil, url.host != nil else {
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host != nil else {
             return fallback
         }
 

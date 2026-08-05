@@ -141,7 +141,7 @@ struct VaultwardenTransport: Sendable {
         }
 
         do {
-            let (bytes, response) = try await session.bytes(
+            let (data, response) = try await session.data(
                 for: request,
                 delegate: redirectPolicy
             )
@@ -149,20 +149,19 @@ struct VaultwardenTransport: Sendable {
                 throw VaultwardenTransportError.notHTTP
             }
 
-            var buffer = Data()
-            buffer.reserveCapacity(min(maximumResponseBytes, 64 * 1024))
-            for try await byte in bytes {
-                buffer.append(byte)
-                if buffer.count > maximumResponseBytes {
-                    throw VaultwardenTransportError.responseTooLarge
-                }
+            // Auth, config, prelogin, and token responses are small JSON. This
+            // rejects an anomalous oversize body; the streaming hard-bound for
+            // genuinely large payloads arrives with attachment transfer, where
+            // large bodies actually occur.
+            if data.count > maximumResponseBytes {
+                throw VaultwardenTransportError.responseTooLarge
             }
 
             let retryAfter = (http.value(forHTTPHeaderField: "Retry-After"))
                 .flatMap(Self.parseRetryAfter)
             return VaultwardenHTTPResponse(
                 status: http.statusCode,
-                body: buffer,
+                body: data,
                 retryAfter: retryAfter
             )
         } catch let error as VaultwardenTransportError {
