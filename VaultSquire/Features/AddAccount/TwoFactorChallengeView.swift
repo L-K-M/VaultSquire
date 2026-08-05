@@ -55,6 +55,7 @@ struct TwoFactorChallengeView: View {
                 Button("Send Code") {
                     Task { await model.sendEmailChallengeIfNeeded() }
                 }
+                .disabled(model.isSendingEmailChallenge)
                 .accessibilityIdentifier("two-factor-send-email")
             }
 

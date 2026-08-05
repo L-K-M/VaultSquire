@@ -56,11 +56,10 @@ final class VaultSquireUITests: XCTestCase {
         XCTAssertTrue(app.textFields["add-account-url"].exists)
         XCTAssertTrue(app.secureTextFields["add-account-password"].exists)
         // The flow is a sheet over the single main window, so the locked shell
-        // is never duplicated.
-        XCTAssertEqual(
-            app.descendants(matching: .any).matching(identifier: "locked-shell").count,
-            1
-        )
+        // is never duplicated. Wait for it to settle before counting.
+        let shells = app.descendants(matching: .any).matching(identifier: "locked-shell")
+        XCTAssertTrue(shells.firstMatch.waitForExistence(timeout: 2))
+        XCTAssertEqual(shells.count, 1)
     }
 
     @MainActor

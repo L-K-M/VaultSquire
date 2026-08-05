@@ -49,6 +49,16 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
         XCTAssertNil(try store.load(for: account))
     }
 
+    func testReplaceRefreshTokenOnMissingRecordThrows() {
+        let store = InMemoryCredentialStore()
+        XCTAssertThrowsError(try store.replaceRefreshToken("new", for: account)) { error in
+            guard let storeError = error as? VaultwardenCredentialStoreError else {
+                return XCTFail("expected a VaultwardenCredentialStoreError")
+            }
+            XCTAssertEqual(storeError, .recordNotFound)
+        }
+    }
+
     func testStoredCredentialsCarryTheLayoutVersion() {
         let credentials = VaultwardenStoredCredentials(refreshToken: "r")
         XCTAssertEqual(credentials.version, VaultwardenStoredCredentials.currentVersion)

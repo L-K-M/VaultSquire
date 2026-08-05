@@ -84,15 +84,36 @@ struct KeychainCredentialStore: VaultwardenCredentialStore {
         _ token: String,
         for account: VaultwardenAccountKey
     ) throws {
-        // Preserve the remembered second-factor token; only the refresh token
-        // changes. The single SecItemUpdate below is the atomic write.
-        let existing = try load(for: account)
+        // Update an existing record only; do not create one. The remembered
+        // second-factor token and layout version are preserved. The
+        // SecItemUpdate writes the whole record in one operation (no torn
+        // token); the load-then-update is not atomic across threads, so callers
+        // serialize concurrent writes for one account.
+        guard let existing = try load(for: account) else {
+            throw VaultwardenCredentialStoreError.recordNotFound
+        }
         let updated = VaultwardenStoredCredentials(
             refreshToken: token,
-            rememberedTwoFactorToken: existing?.rememberedTwoFactorToken,
-            version: existing?.version ?? VaultwardenStoredCredentials.currentVersion
+            rememberedTwoFactorToken: existing.rememberedTwoFactorToken,
+            version: existing.version
         )
-        try save(updated, for: account)
+        let value = try JSONEncoder().encode(updated)
+        let attributes: [CFString: Any] = [
+            kSecValueData: value,
+            kSecAttrDescription: recordDescription,
+        ]
+        let status = SecItemUpdate(
+            baseQuery(for: account) as CFDictionary,
+            attributes as CFDictionary
+        )
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            throw VaultwardenCredentialStoreError.recordNotFound
+        default:
+            throw Self.mapWriteError(status)
+        }
     }
 
     func delete(for account: VaultwardenAccountKey) throws {

@@ -58,19 +58,26 @@ enum VaultwardenCredentialStoreError: Error, Equatable, Sendable {
     case storeUnavailable(OSStatus)
     /// The stored record could not be decoded.
     case malformedRecord
+    /// A refresh-token replacement was requested for an account that has no
+    /// stored record. Replacement updates an existing record; it does not
+    /// create one.
+    case recordNotFound
     /// An unexpected platform failure with its status code.
     case unexpected(OSStatus)
 }
 
 /// Persists and retrieves one account's network-session credentials. The real
 /// implementation is Keychain-backed; an in-memory implementation supports
-/// logic tests. Refresh-token replacement is atomic: a torn write can never
-/// leave a partial token.
+/// logic tests. Each write is atomic: a torn write can never leave a partial
+/// token.
 protocol VaultwardenCredentialStore: Sendable {
     func save(_ credentials: VaultwardenStoredCredentials, for account: VaultwardenAccountKey) throws
     func load(for account: VaultwardenAccountKey) throws -> VaultwardenStoredCredentials?
-    /// Atomically replaces only the refresh token, preserving any remembered
-    /// second-factor token already stored.
+    /// Replaces only the refresh token of an existing record, preserving any
+    /// remembered second-factor token, and throws `recordNotFound` when no
+    /// record exists. The write itself is atomic (no torn token), but the
+    /// read-then-write is not atomic across threads, so callers must serialize
+    /// concurrent writes for one account.
     func replaceRefreshToken(_ token: String, for account: VaultwardenAccountKey) throws
     func delete(for account: VaultwardenAccountKey) throws
 }

@@ -2,8 +2,9 @@ import Foundation
 import Security
 @testable import VaultSquire
 
-/// In-memory credential store for logic tests. Mirrors the atomic
-/// refresh-token replacement semantics of the Keychain implementation.
+/// In-memory credential store for logic tests. Mirrors the refresh-token
+/// replacement semantics of the Keychain implementation, including throwing
+/// `recordNotFound` when no record exists.
 final class InMemoryCredentialStore: VaultwardenCredentialStore, @unchecked Sendable {
     private let lock = NSLock()
     private var records: [String: VaultwardenStoredCredentials] = [:]
@@ -26,11 +27,13 @@ final class InMemoryCredentialStore: VaultwardenCredentialStore, @unchecked Send
         for account: VaultwardenAccountKey
     ) throws {
         lock.lock(); defer { lock.unlock() }
-        let existing = records[account.rawValue]
+        guard let existing = records[account.rawValue] else {
+            throw VaultwardenCredentialStoreError.recordNotFound
+        }
         records[account.rawValue] = VaultwardenStoredCredentials(
             refreshToken: token,
-            rememberedTwoFactorToken: existing?.rememberedTwoFactorToken,
-            version: existing?.version ?? VaultwardenStoredCredentials.currentVersion
+            rememberedTwoFactorToken: existing.rememberedTwoFactorToken,
+            version: existing.version
         )
     }
 

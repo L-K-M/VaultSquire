@@ -67,6 +67,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// A non-blocking failure message shown on the challenge screen without
     /// leaving it.
     @Published private(set) var failureMessage: String?
+    /// True while an emailed-code request is in flight, so the challenge screen
+    /// can disable its send control and avoid duplicate sends from double taps.
+    @Published private(set) var isSendingEmailChallenge = false
 
     private let makeTransport: @Sendable (VaultwardenEnvironment) -> VaultwardenTransport
     private let credentialStore: any VaultwardenCredentialStore
@@ -75,6 +78,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
 
     private var pending: VaultwardenPendingTwoFactor?
     private var authenticator: VaultwardenAuthenticator?
+    private var environment: VaultwardenEnvironment?
 
     init(
         credentialStore: any VaultwardenCredentialStore,
@@ -114,6 +118,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
             originApprovalPolicy: RejectDifferingOriginPolicy()
         )
         self.authenticator = authenticator
+        self.environment = environment
 
         // Copy the password bytes and clear the stored String promptly.
         let passwordBytes = Data(masterPassword.utf8)
@@ -151,10 +156,13 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// Requests the email second-factor challenge for the selected provider.
     func sendEmailChallengeIfNeeded() async {
         guard let authenticator, let pending,
-              selectedProvider?.requiresChallengeDispatch == true else {
+              selectedProvider?.requiresChallengeDispatch == true,
+              !isSendingEmailChallenge else {
             return
         }
 
+        isSendingEmailChallenge = true
+        defer { isSendingEmailChallenge = false }
         do {
             try await authenticator.sendEmailChallenge(pending: pending)
         } catch let error as VaultwardenAPIError {
@@ -183,7 +191,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
             // does not also blank the field.
             twoFactorCode = ""
             phase = .succeeded
-            if let environment = try? VaultwardenEnvironment(configuredURL: serverURL) {
+            if let environment {
                 onAccountConfigured(environment.base)
             }
         } catch AddAccountError.missingRefreshToken {

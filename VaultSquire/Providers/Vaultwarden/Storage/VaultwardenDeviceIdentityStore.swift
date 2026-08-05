@@ -7,6 +7,10 @@ import Foundation
 enum VaultwardenDeviceIdentityStore {
     static let identifierKey = "ch.lkmc.VaultSquire.vaultwarden.deviceIdentifier"
 
+    /// Main-actor isolated so the check-generate-store of the persistent
+    /// identifier cannot race a concurrent caller into a lost write. The only
+    /// call site is the main-actor add-account entry point.
+    @MainActor
     static func current(
         defaults: UserDefaults = .standard,
         deviceName: String = defaultDeviceName()
