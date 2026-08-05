@@ -68,6 +68,20 @@ final class VaultwardenTokenRefresherTests: XCTestCase {
         XCTAssertEqual(grant.url.host, "identity.other.com")
     }
 
+    func testNonInvalidGrant400RefreshIsSessionEndingNotRetried() async throws {
+        // A permanent client error (e.g. invalid_request) must not be retried
+        // forever; it ends the session like invalid_grant.
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        StubServer.shared.on("/connect/token", respond: .json(400, "{\"error\":\"invalid_request\"}"))
+        let refresher = VaultwardenTokenRefresher(transport: transport, refreshToken: "x")
+
+        let outcome = await refresher.refresh()
+
+        guard case .sessionExpired = outcome else {
+            return XCTFail("a permanent 400 must end the session, not retry")
+        }
+    }
+
     func testRateLimitedRefreshIsTransientNotSessionEnding() async throws {
         let transport = try VaultwardenTestFactory.stubbedTransport()
         StubServer.shared.on("/connect/token", respond: .json(429, "{\"error\":\"too_many_requests\"}"))

@@ -197,8 +197,12 @@ struct VaultwardenTransport: Sendable {
     }
 
     static func encodeForm(_ fields: [String: String]) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
+        // RFC 3986 unreserved characters only. CharacterSet.alphanumerics would
+        // also leave non-ASCII letters (e.g. in a device name) unencoded, which
+        // is invalid in application/x-www-form-urlencoded.
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
         return fields
             .sorted { $0.key < $1.key }
             .map { key, value in

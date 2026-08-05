@@ -153,6 +153,21 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
         XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
     }
 
+    func testFirstLoginIsNotRoutedThroughTheKDFChangePolicy() async throws {
+        stubConfig()
+        stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)
+        StubServer.shared.on("/connect/token", respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r\"}"))
+
+        // A reject-all policy would abort if consulted; first login (no baseline)
+        // must not consult it.
+        let outcome = try await makeAuthenticator(kdf: RejectAllKDFChangePolicy()).login(
+            email: email, masterPasswordBytes: passwordBytes, device: device, lastAcceptedKDF: nil
+        )
+        guard case .authenticated = outcome else {
+            return XCTFail("first login should authenticate without KDF approval")
+        }
+    }
+
     func testUnchangedKDFDoesNotRequireApproval() async throws {
         stubConfig()
         stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)

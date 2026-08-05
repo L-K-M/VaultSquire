@@ -105,6 +105,9 @@ struct VaultwardenEnvironment: Hashable, Sendable {
         }
         components.path = path
         components.scheme = scheme
+        // Normalize the host to lowercase so the stored base URL and its derived
+        // service URLs match the origin (and each other) under any input casing.
+        components.host = lowerHost
 
         guard let normalized = components.url else {
             throw VaultwardenEnvironmentError.invalidURL
@@ -113,7 +116,7 @@ struct VaultwardenEnvironment: Hashable, Sendable {
         let port = components.port ?? (scheme == "https" ? 443 : 80)
         self.base = normalized
         self.basePathPrefix = path
-        self.origin = VaultwardenOrigin(scheme: scheme, host: host.lowercased(), port: port)
+        self.origin = VaultwardenOrigin(scheme: scheme, host: lowerHost, port: port)
     }
 
     private func appending(_ service: String) -> URL {

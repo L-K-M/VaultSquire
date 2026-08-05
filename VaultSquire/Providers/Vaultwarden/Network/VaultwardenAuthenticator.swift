@@ -54,8 +54,10 @@ enum VaultwardenKDFChangeDecision: Sendable {
     case reject
 }
 
-/// Confirms a KDF algorithm/parameter change before derivation. First login
-/// passes `last == nil`; unchanged settings are not routed here.
+/// Confirms a KDF algorithm/parameter change before derivation. It is
+/// consulted only when a prior accepted configuration exists and differs from
+/// the server's; first login (no baseline) and an unchanged configuration are
+/// not routed here.
 protocol VaultwardenKDFChangePolicy: Sendable {
     func confirmChange(
         from last: VaultwardenKDFConfiguration?,
@@ -103,7 +105,11 @@ struct VaultwardenAuthenticator: Sendable {
         )
         let kdfConfiguration = try mapKDF(prelogin)
 
-        if !kdfMatches(kdfConfiguration, lastAcceptedKDF) {
+        // Confirmation is required only when a prior configuration exists and
+        // differs. First login has no baseline, so it is not routed through the
+        // change policy; a below-floor configuration is still refused by
+        // validation regardless.
+        if let lastAcceptedKDF, lastAcceptedKDF != kdfConfiguration {
             let decision = await kdfChangePolicy.confirmChange(
                 from: lastAcceptedKDF,
                 to: kdfConfiguration
@@ -161,17 +167,18 @@ struct VaultwardenAuthenticator: Sendable {
         }
 
         let outcome = try await submitGrant(pending: pending, proof: proof)
-        switch outcome {
-        case .authenticated(let session):
-            return session
-        case .twoFactorRequired:
-            // A resubmitted proof that still returns a challenge is a failed
-            // proof, reported as bad credentials for the factor.
+        guard case .authenticated(let session) = outcome else {
+            // submitGrant only returns .twoFactorRequired for the initial grant
+            // (proof == nil); a still-challenged resubmission is already
+            // classified as bad credentials by submitGrant, so this is a
+            // defensive fallback.
             throw VaultwardenAPIError(
                 category: .badCredentials,
                 safeDisplayMessage: "The two-factor code was not accepted."
             )
         }
+
+        return session
     }
 
     /// Sends the email-provider challenge so the user can receive a code. The
@@ -360,17 +367,6 @@ struct VaultwardenAuthenticator: Sendable {
         } catch let error as VaultwardenCryptoError {
             throw Self.mapCryptoError(error)
         }
-    }
-
-    private func kdfMatches(
-        _ lhs: VaultwardenKDFConfiguration,
-        _ rhs: VaultwardenKDFConfiguration?
-    ) -> Bool {
-        guard let rhs else {
-            return false
-        }
-
-        return lhs == rhs
     }
 
     /// Resolves a config-advertised service URL to a usable base URL. A value

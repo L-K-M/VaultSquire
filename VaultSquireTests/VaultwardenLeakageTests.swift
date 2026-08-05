@@ -65,6 +65,8 @@ final class VaultwardenLeakageTests: XCTestCase {
         } catch let error as VaultwardenTransportError {
             XCTAssertEqual(error, .transportFailure)
             XCTAssertFalse("\(error)".contains("secret-host"))
+        } catch {
+            XCTFail("Expected VaultwardenTransportError.transportFailure, got: \(error)")
         }
     }
 
@@ -81,23 +83,26 @@ final class VaultwardenLeakageTests: XCTestCase {
         XCTAssertFalse(message.contains("leaked-token"))
     }
 
-    func testAccessTokenIsNotWrittenToAnyCookieOrCache() async throws {
-        // Drive a request that would set a cookie; the ephemeral no-cookie
-        // session must retain nothing.
+    func testEphemeralSessionDoesNotPersistCookiesAcrossRequests() async throws {
+        // The first response sets a cookie; the ephemeral no-cookie session must
+        // not echo it back on a second request to the same origin.
         let transport = try VaultwardenTestFactory.stubbedTransport()
+        let configURL = transport.environment.apiURL.appendingPathComponent("config")
         StubServer.shared.on(
             "/api/config",
             respond: .json(200, "{}", headers: ["Set-Cookie": "session=VSQ-Canary-secret; Path=/"])
         )
 
-        _ = try await transport.send(
-            .get,
-            url: transport.environment.apiURL.appendingPathComponent("config"),
-            bearer: "VSQ-Canary-access"
-        )
+        _ = try await transport.send(.get, url: configURL, bearer: "VSQ-Canary-access")
+        _ = try await transport.send(.get, url: configURL, bearer: "VSQ-Canary-access")
 
-        XCTAssertNil(HTTPCookieStorage.shared.cookies(for: transport.environment.base)?.first {
-            $0.value.contains("VSQ-Canary-secret")
-        })
+        let configRequests = StubServer.shared.requests.filter {
+            $0.url.path.hasSuffix("/api/config")
+        }
+        XCTAssertEqual(configRequests.count, 2)
+        XCTAssertNil(
+            configRequests.last?.headers["Cookie"],
+            "ephemeral session must not persist cookies across requests"
+        )
     }
 }

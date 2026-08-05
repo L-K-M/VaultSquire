@@ -115,11 +115,11 @@ actor VaultwardenTokenRefresher {
             return .transientFailure
         }
 
-        // An explicit rejected grant ends the session; a rate limit or server
-        // error is transient.
-        let body = try? JSONDecoder().decode(VaultwardenErrorBody.self, from: response.body)
-        if response.status == 401
-            || (response.status == 400 && body?.error == "invalid_grant") {
+        // A rejected refresh grant (400/401) is permanent: the token is no
+        // longer usable, so end the session and reauthenticate rather than
+        // retrying a request that can never succeed. A rate limit (429) or
+        // server error (5xx) is transient.
+        if response.status == 400 || response.status == 401 {
             return .sessionExpired
         }
 
