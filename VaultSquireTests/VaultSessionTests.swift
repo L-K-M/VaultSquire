@@ -168,7 +168,7 @@ final class VaultSessionTests: XCTestCase {
         let session = try await makeAuthenticatedSession()
 
         let work = Task {
-            try? await Task.sleep(for: .milliseconds(10))
+            _ = try? await Task.sleep(for: .milliseconds(10))
         }
         let token = await session.register(work)
         await session.unregister(token)
