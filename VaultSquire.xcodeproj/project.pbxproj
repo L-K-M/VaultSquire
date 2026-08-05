@@ -72,6 +72,13 @@
 		C00000000000000000000042 /* VaultwardenCredentialStoreSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000045 /* VaultwardenCredentialStoreSupport.swift */; };
 		C00000000000000000000043 /* VaultwardenCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000046 /* VaultwardenCredentialStoreTests.swift */; };
 		C00000000000000000000044 /* AddAccountModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000047 /* AddAccountModelTests.swift */; };
+		C00000000000000000000045 /* EncryptedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000048 /* EncryptedStore.swift */; };
+		C00000000000000000000046 /* EncryptedStoreSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000049 /* EncryptedStoreSchema.swift */; };
+		C00000000000000000000047 /* CacheEnvelopeCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004A /* CacheEnvelopeCipher.swift */; };
+		C00000000000000000000048 /* EncryptedStoreSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004B /* EncryptedStoreSupport.swift */; };
+		C00000000000000000000049 /* EncryptedStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004C /* EncryptedStoreTests.swift */; };
+		C0000000000000000000004A /* MigrationRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004D /* MigrationRegistryTests.swift */; };
+		C0000000000000000000004B /* CacheEnvelopeCipherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004E /* CacheEnvelopeCipherTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -162,6 +169,13 @@
 		B00000000000000000000045 /* VaultwardenCredentialStoreSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCredentialStoreSupport.swift; sourceTree = "<group>"; };
 		B00000000000000000000046 /* VaultwardenCredentialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCredentialStoreTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000047 /* AddAccountModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAccountModelTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000048 /* EncryptedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedStore.swift; sourceTree = "<group>"; };
+		B00000000000000000000049 /* EncryptedStoreSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedStoreSchema.swift; sourceTree = "<group>"; };
+		B0000000000000000000004A /* CacheEnvelopeCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheEnvelopeCipher.swift; sourceTree = "<group>"; };
+		B0000000000000000000004B /* EncryptedStoreSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedStoreSupport.swift; sourceTree = "<group>"; };
+		B0000000000000000000004C /* EncryptedStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedStoreTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000004D /* MigrationRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationRegistryTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000004E /* CacheEnvelopeCipherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheEnvelopeCipherTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,6 +203,16 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A00000000000000000000017 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000048 /* EncryptedStore.swift */,
+				B00000000000000000000049 /* EncryptedStoreSchema.swift */,
+				B0000000000000000000004A /* CacheEnvelopeCipher.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000015 /* Storage */ = {
 			isa = PBXGroup;
 			children = (
@@ -277,6 +301,7 @@
 			children = (
 				A00000000000000000000005 /* App */,
 				A00000000000000000000010 /* Domain */,
+				A00000000000000000000017 /* Persistence */,
 				A00000000000000000000011 /* Providers */,
 				A00000000000000000000006 /* Features */,
 				A0000000000000000000000A /* Infrastructure */,
@@ -411,6 +436,10 @@
 				B00000000000000000000045 /* VaultwardenCredentialStoreSupport.swift */,
 				B00000000000000000000046 /* VaultwardenCredentialStoreTests.swift */,
 				B00000000000000000000047 /* AddAccountModelTests.swift */,
+				B0000000000000000000004B /* EncryptedStoreSupport.swift */,
+				B0000000000000000000004C /* EncryptedStoreTests.swift */,
+				B0000000000000000000004D /* MigrationRegistryTests.swift */,
+				B0000000000000000000004E /* CacheEnvelopeCipherTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -591,6 +620,9 @@
 				C0000000000000000000001D /* VaultItemProjection.swift in Sources */,
 				C0000000000000000000001E /* VaultProviderFacade.swift in Sources */,
 				C0000000000000000000001F /* VaultSession.swift in Sources */,
+				C00000000000000000000045 /* EncryptedStore.swift in Sources */,
+				C00000000000000000000046 /* EncryptedStoreSchema.swift in Sources */,
+				C00000000000000000000047 /* CacheEnvelopeCipher.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -622,6 +654,10 @@
 				C00000000000000000000021 /* ProviderIdentityTests.swift in Sources */,
 				C00000000000000000000014 /* QuickSearchPanelTests.swift in Sources */,
 				C00000000000000000000024 /* VaultSessionTests.swift in Sources */,
+				C00000000000000000000048 /* EncryptedStoreSupport.swift in Sources */,
+				C00000000000000000000049 /* EncryptedStoreTests.swift in Sources */,
+				C0000000000000000000004A /* MigrationRegistryTests.swift in Sources */,
+				C0000000000000000000004B /* CacheEnvelopeCipherTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
