@@ -59,7 +59,10 @@ final class ProviderCacheEnvelopeTests: XCTestCase {
         XCTAssertEqual(returned.account, account)
     }
 
-    func testSyncStateIsOpaqueAndRoundTrips() async throws {
+    // The fake provider records received states and returns a configured
+    // outcome; this proves the state is stored and handed back untouched, not
+    // that any provider processes it.
+    func testSyncStateIsOpaqueAndPreserved() async throws {
         let provider = FakeVaultProvider()
         let opaque = Data([0x01, 0x02, 0xFE])
         let outcome = ProviderSyncOutcome(

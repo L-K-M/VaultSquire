@@ -80,7 +80,10 @@ actor VaultSession {
 
     /// Logout cancels all sync, unlike a plain lock, which lets
     /// ciphertext-only sync continue. Registered sync work is cancelled here,
-    /// in addition to the plaintext work the lock below cancels.
+    /// in addition to the plaintext work the lock below cancels. The session
+    /// owns the sync dimension across logout: it is force-reset to idle, and
+    /// a cancelled sync worker must unregister and stop without calling sync
+    /// state-machine methods, which would report an invalid transition.
     func beginLogout() throws {
         switch state.account {
         case .authenticated, .reauthenticationRequired:

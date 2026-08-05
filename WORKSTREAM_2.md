@@ -59,6 +59,9 @@ test target and never ships. No real vault or account data is valid test input.
 
 The envelope contract performs no cryptography; the AEAD arrives with
 Workstream 5 and the envelope payload is already-protected bytes by contract.
+The envelope types deliberately do not adopt `Codable`: their at-rest
+serialization is the Workstream 5 persistence schema's decision, and an early
+synthesized encoding would become an accidental format commitment.
 No new logging events are added, so the fixed-enum allowlist is unchanged.
 No dependency is added.
 

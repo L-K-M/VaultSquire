@@ -204,16 +204,19 @@ final class VaultSessionTests: XCTestCase {
     func testUnregisteredWorkIsNotCancelledByLock() async throws {
         let session = try await makeAuthenticatedSession()
 
+        // The sleep is long enough that the task is still in flight when the
+        // lock runs; a completed task would make the assertion vacuous.
         let work = Task {
-            _ = try? await Task.sleep(for: .milliseconds(10))
+            _ = try? await Task.sleep(for: .seconds(60))
         }
         let token = await session.register(work)
         await session.unregister(token)
 
         await session.lock()
-        await work.value
 
         XCTAssertFalse(work.isCancelled)
+        work.cancel()
+        await work.value
     }
 
     // MARK: Transition validity

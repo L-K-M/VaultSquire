@@ -58,8 +58,13 @@ actor FakeVaultProvider: VaultProvider {
 
     /// Suspends until at least one `listItems` caller is parked on the hold,
     /// so a test can deterministically act while the read is in flight.
+    /// Returns immediately when no hold is active, because no reader could
+    /// ever park and waiting would deadlock the test.
     func waitUntilListItemsHeld() async {
         guard heldListContinuations.isEmpty else {
+            return
+        }
+        guard holdListItems else {
             return
         }
 
