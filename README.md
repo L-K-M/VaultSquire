@@ -101,10 +101,14 @@ Read the documents in this order:
     proven against a test-only provider facade.
 15. [`WORKSTREAM_3.md`](WORKSTREAM_3.md): Vaultwarden cryptographic harness and
     the cross-client differential still owed.
-16. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
-17. [`CICD.md`](CICD.md): local build/version commands and guarded future release
+16. [`WORKSTREAM_4.md`](WORKSTREAM_4.md): environment, transport, authentication,
+    the add-account UI, and Keychain credential storage.
+17. [`WORKSTREAM_5.md`](WORKSTREAM_5.md): the encrypted-persistence contract slice
+    with the storage engine deferred.
+18. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
+19. [`CICD.md`](CICD.md): local build/version commands and guarded future release
     automation.
-18. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
+20. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
     that automation may be enabled.
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
