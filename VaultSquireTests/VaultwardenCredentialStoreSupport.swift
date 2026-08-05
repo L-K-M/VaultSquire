@@ -51,16 +51,17 @@ final class InMemoryCredentialStore: VaultwardenCredentialStore, @unchecked Send
     }
 }
 
-/// A credential store whose writes always report the platform store as
+/// A credential store whose reads and writes report the platform store as
 /// unavailable, for exercising the credential-store-failure path where the
-/// server authenticated but the local save could not complete.
+/// server authenticated but the local store could not complete. `delete` is a
+/// no-op so teardown never fails.
 struct FailingCredentialStore: VaultwardenCredentialStore {
     func save(_ credentials: VaultwardenStoredCredentials, for account: VaultwardenAccountKey) throws {
         throw VaultwardenCredentialStoreError.storeUnavailable(errSecMissingEntitlement)
     }
 
     func load(for account: VaultwardenAccountKey) throws -> VaultwardenStoredCredentials? {
-        nil
+        throw VaultwardenCredentialStoreError.storeUnavailable(errSecMissingEntitlement)
     }
 
     func replaceRefreshToken(_ token: String, for account: VaultwardenAccountKey) throws {

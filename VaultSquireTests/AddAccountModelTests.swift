@@ -184,6 +184,9 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .challenged)
         XCTAssertEqual(model.offeredProviders, [.authenticator])
         XCTAssertFalse(model.hasUnsupportedOnlyChallenge)
+        XCTAssertEqual(
+            model.masterPassword, "", "master password must be cleared even when challenged"
+        )
 
         model.twoFactorCode = "123456"
         model.rememberDevice = true
@@ -194,6 +197,40 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertEqual(
             store.record(for: .primary)?.rememberedTwoFactorToken, "VSQ-remember"
         )
+    }
+
+    func testTwoFactorSuccessWithoutRememberDoesNotStoreRememberedToken() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        StubServer.shared.on("/api/config", respond: .json(200, "{}"))
+        StubServer.shared.on(
+            "/accounts/prelogin/password",
+            respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
+        )
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(400, "{\"TwoFactorProviders2\":{\"0\":{}}}")
+        )
+        // When the device is not remembered the server issues no remember
+        // token, so none is persisted.
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r2\",\"TwoFactorToken\":null}")
+        )
+
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        await model.signIn()
+        XCTAssertEqual(model.phase, .challenged)
+
+        model.twoFactorCode = "123456"
+        model.rememberDevice = false
+        await model.submitTwoFactor()
+
+        XCTAssertEqual(model.phase, .succeeded)
+        XCTAssertEqual(store.record(for: .primary)?.refreshToken, "r2")
+        XCTAssertNil(store.record(for: .primary)?.rememberedTwoFactorToken)
     }
 
     func testUnsupportedOnlyChallengeIsFlagged() async {

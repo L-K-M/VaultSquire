@@ -120,9 +120,11 @@ final class AddAccountModel: ObservableObject, Identifiable {
         self.authenticator = authenticator
         self.environment = environment
 
-        // Copy the password bytes and clear the stored String promptly.
-        let passwordBytes = Data(masterPassword.utf8)
+        // Copy the password bytes and clear the stored String promptly, then
+        // best-effort zero the byte copy once the login transaction is done.
+        var passwordBytes = Data(masterPassword.utf8)
         masterPassword = ""
+        defer { VaultwardenCryptoZeroize.zero(&passwordBytes) }
 
         do {
             let outcome = try await authenticator.login(
@@ -166,9 +168,11 @@ final class AddAccountModel: ObservableObject, Identifiable {
         do {
             try await authenticator.sendEmailChallenge(pending: pending)
         } catch let error as VaultwardenAPIError {
-            fail(with: error.safeDisplayMessage)
+            // Surface the error on the challenge screen; a send failure must not
+            // discard the 2FA context and drop the user back to the form.
+            failureMessage = error.safeDisplayMessage
         } catch {
-            fail(with: "The verification email could not be sent.")
+            failureMessage = "The verification email could not be sent."
         }
     }
 
