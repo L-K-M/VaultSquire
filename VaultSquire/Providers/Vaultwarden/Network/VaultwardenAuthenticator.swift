@@ -22,6 +22,9 @@ struct VaultwardenAuthSession: Sendable {
     let wrappedPrivateKey: String?
     let rememberTwoFactorToken: String?
     let kdfConfiguration: VaultwardenKDFConfiguration
+    /// The approved identity base URL this session authenticated against, so a
+    /// token refresher targets the same origin the login transaction approved.
+    let identityBaseURL: URL
 }
 
 /// Carries the derived proof and key material across a 2FA prompt so the grant
@@ -171,14 +174,18 @@ struct VaultwardenAuthenticator: Sendable {
         }
     }
 
-    /// Sends the email-provider challenge so the user can receive a code.
+    /// Sends the email-provider challenge so the user can receive a code. The
+    /// request authenticates with the same server-auth hash and device
+    /// identifier the token grant uses; the exact field set is verified on the
+    /// pinned-container contract lane.
     func sendEmailChallenge(pending: VaultwardenPendingTwoFactor) async throws {
         let url = pending.apiBaseURL.appendingPathComponent("two-factor/send-email-login")
-        let response = try await transport.send(
-            .post,
-            url: url,
-            body: .json(try Self.emailBody(pending.normalizedEmail))
-        )
+        let body = try JSONEncoder().encode([
+            "email": pending.normalizedEmail,
+            "masterPasswordHash": pending.authHash,
+            "deviceIdentifier": pending.device.identifier,
+        ])
+        let response = try await transport.send(.post, url: url, body: .json(body))
         guard (200..<300).contains(response.status) else {
             throw Self.error(from: response)
         }
@@ -299,7 +306,8 @@ struct VaultwardenAuthenticator: Sendable {
                 wrappedUserKey: token.key,
                 wrappedPrivateKey: token.privateKey,
                 rememberTwoFactorToken: token.twoFactorToken,
-                kdfConfiguration: pending.kdfConfiguration
+                kdfConfiguration: pending.kdfConfiguration,
+                identityBaseURL: pending.identityBaseURL
             )
             return .authenticated(session)
         }

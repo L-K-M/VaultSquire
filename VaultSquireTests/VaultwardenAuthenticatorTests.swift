@@ -303,6 +303,53 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
         XCTAssertEqual(grant.url.host, "identity.other.com")
     }
 
+    func testMalformedConfigFallsBackToEnteredOriginAndProceeds() async throws {
+        // A config body that is not decodable must not abort login; the client
+        // falls back to the entered origin (the safe same-origin default).
+        StubServer.shared.on("/api/config", respond: .json(200, "}{ not json"))
+        stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)
+        StubServer.shared.on("/connect/token", respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r\"}"))
+
+        let outcome = try await makeAuthenticator().login(
+            email: email, masterPasswordBytes: passwordBytes, device: device, lastAcceptedKDF: nil
+        )
+        guard case .authenticated = outcome else {
+            return XCTFail("malformed config should fall back and authenticate")
+        }
+        let prelogin = try XCTUnwrap(
+            StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password")
+        )
+        XCTAssertEqual(prelogin.url.host, "vault.example.com")
+    }
+
+    func testEmailChallengeCarriesAuthHashAndDeviceIdentifier() async throws {
+        stubConfig()
+        stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(400, "{\"TwoFactorProviders2\":{\"1\":{}}}")
+        )
+        StubServer.shared.on("/two-factor/send-email-login", respond: .json(200, "{}"))
+
+        let authenticator = try makeAuthenticator()
+        let outcome = try await authenticator.login(
+            email: email, masterPasswordBytes: passwordBytes, device: device, lastAcceptedKDF: nil
+        )
+        guard case .twoFactorRequired(_, let pending) = outcome else {
+            return XCTFail("expected an email 2FA challenge")
+        }
+
+        try await authenticator.sendEmailChallenge(pending: pending)
+
+        let send = try XCTUnwrap(
+            StubServer.shared.lastRequest(pathSuffix: "/two-factor/send-email-login")
+        )
+        XCTAssertTrue(send.bodyString.contains("masterPasswordHash"))
+        XCTAssertTrue(send.bodyString.contains("deviceIdentifier"))
+        // The auth hash, not the master password, is what is sent.
+        XCTAssertFalse(send.bodyString.contains(VaultwardenCryptoFixtures.password))
+    }
+
     func testPreloginLegacyAliasFallback() async throws {
         stubConfig()
         StubServer.shared.on("/accounts/prelogin/password", respond: .json(404, "{}"))

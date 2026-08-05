@@ -87,7 +87,10 @@ casing cannot be exercised by a stub and are gathered on the blocking pinned
 Vaultwarden 1.37.1 container, private-CA, and reverse-proxy contract lanes,
 per SECURITY_AND_TESTING.md. The recorded request field names follow
 `IMPLEMENTATION_REPORT.md`; their byte-exact acceptance by the real server is
-that contract lane's evidence, not this PR's. `Bitwarden-Client-Version`
+that contract lane's evidence, not this PR's. The `send-email-login` request
+authenticates with the server-auth hash and device identifier (mirroring the
+token grant); its exact field set is not enumerated in the recorded facts and
+is verified on the same contract lane. `Bitwarden-Client-Version`
 remains unset until a contract lane justifies a value (EVIDENCE.md).
 
 ## Outstanding Workstream 1 Exit Evidence

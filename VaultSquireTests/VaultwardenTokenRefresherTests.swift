@@ -52,6 +52,22 @@ final class VaultwardenTokenRefresherTests: XCTestCase {
         XCTAssertEqual(current, "stale")
     }
 
+    func testRefreshTargetsTheProvidedEffectiveIdentityURL() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport(base: "https://vault.example.com")
+        StubServer.shared.on("/connect/token", respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"b\"}"))
+        let effectiveIdentity = URL(string: "https://identity.other.com/identity")!
+        let refresher = VaultwardenTokenRefresher(
+            transport: transport,
+            refreshToken: "start",
+            identityBaseURL: effectiveIdentity
+        )
+
+        _ = await refresher.refresh()
+
+        let grant = try XCTUnwrap(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
+        XCTAssertEqual(grant.url.host, "identity.other.com")
+    }
+
     func testRateLimitedRefreshIsTransientNotSessionEnding() async throws {
         let transport = try VaultwardenTestFactory.stubbedTransport()
         StubServer.shared.on("/connect/token", respond: .json(429, "{\"error\":\"too_many_requests\"}"))

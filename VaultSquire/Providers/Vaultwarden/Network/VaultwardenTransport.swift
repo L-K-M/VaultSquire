@@ -46,12 +46,14 @@ enum VaultwardenTransportError: Error, Equatable, Sendable {
 
 /// Ephemeral, bounded HTTP transport for the Vaultwarden provider. The session
 /// keeps no URL cache, cookie store, or credential store; every request runs
-/// under the redirect policy, carries the fixed client headers, and has its
-/// body size bounded before it is fully buffered.
+/// under the redirect policy, carries the fixed client headers, and rejects a
+/// response whose fully buffered body exceeds a safety bound.
 struct VaultwardenTransport: Sendable {
     let environment: VaultwardenEnvironment
-    /// Maximum response body accepted before the request is aborted. Auth and
-    /// config responses are small; this is a safety bound, not a content size.
+    /// Maximum response body size; a larger body is rejected once the response
+    /// is fully received. Auth and config responses are small, so this is a
+    /// post-download safety bound, not a content size. A streaming mid-transfer
+    /// bound arrives with attachment transfer, where large bodies occur.
     let maximumResponseBytes: Int
     private let session: URLSession
     private let redirectPolicy: VaultwardenRedirectPolicy

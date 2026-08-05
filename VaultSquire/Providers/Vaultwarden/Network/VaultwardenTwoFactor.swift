@@ -55,8 +55,10 @@ struct VaultwardenTwoFactorChallenge: Hashable, Sendable {
         self.unknownProviderIDs = unknown
     }
 
-    /// The providers the user can complete, most-convenient first is not
-    /// assumed; the caller (UI, later) chooses. Order preserves the server's.
+    /// The providers the user can complete. Order is ascending provider ID
+    /// (the challenge maps are unordered on the wire, so a stable numeric order
+    /// is imposed), not a server-declared preference; the caller chooses how to
+    /// present them.
     var completableProviders: [VaultwardenTwoFactorProvider] {
         offered.filter(\.isUserCompletable)
     }

@@ -18,6 +18,10 @@ enum VaultwardenRefreshOutcome: Sendable {
 actor VaultwardenTokenRefresher {
     private let transport: VaultwardenTransport
     private let clientID: String
+    /// The identity base URL the login transaction approved. Defaults to the
+    /// configured identity URL; a split-origin login passes its effective one
+    /// so refresh targets the same server.
+    private let identityBaseURL: URL
     private var refreshToken: String
     private var inFlight: Task<VaultwardenRefreshOutcome, Never>?
     /// Number of network refresh requests actually issued. Coalesced callers do
@@ -28,10 +32,12 @@ actor VaultwardenTokenRefresher {
     init(
         transport: VaultwardenTransport,
         refreshToken: String,
+        identityBaseURL: URL? = nil,
         clientID: String = "desktop"
     ) {
         self.transport = transport
         self.refreshToken = refreshToken
+        self.identityBaseURL = identityBaseURL ?? transport.environment.identityURL
         self.clientID = clientID
     }
 
@@ -48,11 +54,12 @@ actor VaultwardenTokenRefresher {
 
         let token = refreshToken
         refreshRequestCount += 1
-        let task = Task<VaultwardenRefreshOutcome, Never> { [transport, clientID] in
+        let task = Task<VaultwardenRefreshOutcome, Never> { [transport, clientID, identityBaseURL] in
             await Self.performRefresh(
                 transport: transport,
                 refreshToken: token,
-                clientID: clientID
+                clientID: clientID,
+                identityBaseURL: identityBaseURL
             )
         }
         inFlight = task
@@ -70,15 +77,18 @@ actor VaultwardenTokenRefresher {
     private static func performRefresh(
         transport: VaultwardenTransport,
         refreshToken: String,
-        clientID: String
+        clientID: String,
+        identityBaseURL: URL
     ) async -> VaultwardenRefreshOutcome {
+        // The refresh grant carries exactly grant_type, refresh_token, and
+        // client_id per the recorded protocol; device fields belong only on the
+        // password grant.
         let fields = [
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
             "client_id": clientID,
         ]
-        let tokenURL = transport.environment.identityURL
-            .appendingPathComponent("connect/token")
+        let tokenURL = identityBaseURL.appendingPathComponent("connect/token")
 
         let response: VaultwardenHTTPResponse
         do {
