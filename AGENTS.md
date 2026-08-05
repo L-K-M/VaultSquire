@@ -2,9 +2,11 @@
 
 VaultSquire is a planned native macOS password-manager client for self-hosted
 Vaultwarden and, later, Proton Pass through the official user-installed CLI.
-This history-isolated repository contains research, governance, and the
-Workstream 1 native-shell implementation. It has no supported release or
-provider implementation.
+This history-isolated repository contains research, governance, the Workstream 1
+native-shell implementation, the Workstream 2 domain/session/provider contracts,
+and the Workstream 3 Vaultwarden cryptographic harness. It has no supported
+release, no network or persistence layer, and no wired-up provider
+implementation.
 
 ## Read first
 

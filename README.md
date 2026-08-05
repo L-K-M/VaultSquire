@@ -1,9 +1,11 @@
 # VaultSquire
 
 VaultSquire is a planned, completely new native macOS client for self-hosted
-Vaultwarden instances and Proton Pass accounts. Workstream 1 now contains the
-initial native locked shell and feasibility harness; there is no supported
-release or provider implementation yet.
+Vaultwarden instances and Proton Pass accounts. Workstream 1 contains the initial
+native locked shell and feasibility harness, Workstream 2 the domain, session,
+and provider contracts, and Workstream 3 the Vaultwarden cryptographic harness.
+There is no supported release, no network or persistence layer, and no wired-up
+provider implementation yet.
 
 Current source version: <!-- version -->0.1.0<!-- /version -->. This is a source
 version, not a supported or distributable release.
@@ -18,7 +20,8 @@ version, not a supported or distributable release.
 This is the accepted clean-history implementation repository exported from the
 approved planning tree. The source-isolation attestation applies to root commit
 `81cfb67df4ab7e06bdd1961ef98168b6dcf1ca9c` and reviewed descendants. Workstream
-0 governance is recorded and Workstream 1 application scaffolding is in progress.
+0 governance is recorded, and Workstreams 1 through 3 are merged with the exit
+evidence each of their records still lists as outstanding.
 See
 [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md) for the exact source
 tree, isolation procedure, exclusions, and completed reviewer attestation.
@@ -94,10 +97,14 @@ Read the documents in this order:
 12. [`DELIVERY.md`](DELIVERY.md): sequential pull-request milestones.
 13. [`WORKSTREAM_1.md`](WORKSTREAM_1.md): native shell implementation and
     outstanding macOS evidence gates.
-14. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
-15. [`CICD.md`](CICD.md): local build/version commands and guarded future release
+14. [`WORKSTREAM_2.md`](WORKSTREAM_2.md): domain, session, and provider contracts
+    proven against a test-only provider facade.
+15. [`WORKSTREAM_3.md`](WORKSTREAM_3.md): Vaultwarden cryptographic harness and
+    the cross-client differential still owed.
+16. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
+17. [`CICD.md`](CICD.md): local build/version commands and guarded future release
     automation.
-16. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
+18. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
     that automation may be enabled.
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
