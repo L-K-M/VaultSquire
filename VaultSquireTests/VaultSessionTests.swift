@@ -165,6 +165,42 @@ final class VaultSessionTests: XCTestCase {
         await work.value
     }
 
+    func testRegisteredSyncWorkSurvivesPlainLock() async throws {
+        let session = try await makeAuthenticatedSession()
+
+        let syncWork = Task {
+            _ = try? await Task.sleep(for: .seconds(60))
+        }
+        let token = await session.registerSync(syncWork)
+
+        await session.lock()
+
+        XCTAssertFalse(syncWork.isCancelled)
+        await session.unregisterSync(token)
+        syncWork.cancel()
+    }
+
+    func testLogoutCancelsRegisteredSyncWork() async throws {
+        let session = try await makeAuthenticatedSession()
+
+        let observedCancellation = expectation(
+            description: "sync work observed cancellation on logout"
+        )
+        let syncWork = Task {
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                observedCancellation.fulfill()
+            }
+        }
+        _ = await session.registerSync(syncWork)
+
+        try await session.beginLogout()
+
+        await fulfillment(of: [observedCancellation], timeout: 5)
+        await syncWork.value
+    }
+
     func testUnregisteredWorkIsNotCancelledByLock() async throws {
         let session = try await makeAuthenticatedSession()
 
@@ -277,6 +313,20 @@ final class VaultSessionTests: XCTestCase {
 
         let state = await session.state
         XCTAssertEqual(state.vaultAccess, .locked)
+    }
+
+    // MARK: Connectivity dimension
+
+    func testConnectivityTransitionsAreReflected() async throws {
+        let session = VaultSession()
+
+        await session.setConnectivity(.online)
+        let online = await session.state
+        XCTAssertEqual(online.connectivity, .online)
+
+        await session.setConnectivity(.offline)
+        let offline = await session.state
+        XCTAssertEqual(offline.connectivity, .offline)
     }
 
     // MARK: Sync dimension

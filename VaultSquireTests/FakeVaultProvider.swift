@@ -75,6 +75,14 @@ actor FakeVaultProvider: VaultProvider {
         for continuation in continuations {
             continuation.resume()
         }
+        // Also release arrival waiters so a misordered release can never
+        // leave a test parked forever waiting for a reader that already ran
+        // or will never come.
+        let waiters = holdArrivalWaiters
+        holdArrivalWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     // MARK: VaultProvider

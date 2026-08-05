@@ -40,8 +40,11 @@ test target and never ships. No real vault or account data is valid test input.
   Structural gate authorization covers mutations now; read actions (reveal,
   copy, search) gain their gate-issued authorizations with the Workstream 7
   UI, where those action paths first exist.
-- Logout resets the sync dimension and cancels registered work through its
-  lock, because logout — unlike a plain lock — cancels all sync.
+- Two separate cancellation registries with different lifetimes: registered
+  plaintext-producing work is cancelled by every lock, while registered sync
+  work survives a plain lock — ciphertext-only sync may continue while
+  locked — and is cancelled by logout, which also resets the sync dimension,
+  because logout cancels all sync.
 - Provider cache-envelope contract with explicit fidelity metadata
   (lossless native ciphertext versus lossy application-encrypted), schema
   version, capture snapshot generation, and an opaque payload preserved byte

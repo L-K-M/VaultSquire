@@ -18,6 +18,7 @@ actor VaultSession {
     private var activeGeneration: SessionGeneration?
     private var authenticationOrigin: AccountState?
     private var registeredWork: [UUID: Task<Void, Never>] = [:]
+    private var registeredSyncWork: [UUID: Task<Void, Never>] = [:]
 
     // MARK: Account dimension
 
@@ -77,14 +78,18 @@ actor VaultSession {
         state.account = .reauthenticationRequired
     }
 
-    /// Logout cancels all sync, unlike a plain lock, which may let
-    /// ciphertext-only sync continue. The sync dimension is reset here and
-    /// sync workers must register their tasks so the lock inside this call
-    /// cancels them.
+    /// Logout cancels all sync, unlike a plain lock, which lets
+    /// ciphertext-only sync continue. Registered sync work is cancelled here,
+    /// in addition to the plaintext work the lock below cancels.
     func beginLogout() throws {
         switch state.account {
         case .authenticated, .reauthenticationRequired:
             state.account = .loggingOut
+            let syncWork = registeredSyncWork.values
+            registeredSyncWork.removeAll()
+            for task in syncWork {
+                task.cancel()
+            }
             state.syncOperation = .idle
             lock()
         case .noAccount, .authenticating, .challenged, .loggingOut:
@@ -157,6 +162,9 @@ actor VaultSession {
     /// Locks unconditionally and idempotently; locking must never fail. The
     /// generation is invalidated before registered work is cancelled so a
     /// cancellation handler that races ahead can never publish plaintext.
+    /// Only plaintext-producing work is cancelled: registered sync work
+    /// survives a plain lock because ciphertext-only sync may continue while
+    /// locked.
     func lock() {
         state.vaultAccess = .locking
         generationCounter += 1
@@ -183,6 +191,18 @@ actor VaultSession {
 
     func unregister(_ token: UUID) {
         registeredWork[token] = nil
+    }
+
+    /// Registers ciphertext-capable sync work. It survives a plain lock and
+    /// is cancelled by logout, which cancels all sync.
+    func registerSync(_ task: Task<Void, Never>) -> UUID {
+        let token = UUID()
+        registeredSyncWork[token] = task
+        return token
+    }
+
+    func unregisterSync(_ token: UUID) {
+        registeredSyncWork[token] = nil
     }
 
     // MARK: Connectivity dimension
