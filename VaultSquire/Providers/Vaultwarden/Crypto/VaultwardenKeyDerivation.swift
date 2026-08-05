@@ -174,7 +174,8 @@ enum VaultwardenKeyDerivation {
                 }
             }
         }
-        guard status == kCCSuccess else {
+        // CCKeyDerivationPBKDF returns Int32; kCCSuccess imports as Int.
+        guard status == Int32(kCCSuccess) else {
             throw VaultwardenCryptoError.invalidKeyMaterial
         }
 

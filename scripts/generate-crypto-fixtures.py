@@ -145,8 +145,12 @@ def generate_rsa_material(user_key: bytes, org_key: bytes, rsa_dir: pathlib.Path
             check=True,
             capture_output=True,
         )
+    # `openssl pkey -outform DER` emits a traditional PKCS#1 RSAPrivateKey on
+    # OpenSSL 3.x; the Swift DER reader expects the PKCS#8 PrivateKeyInfo
+    # envelope, so ask for it explicitly.
     pkcs8_der = subprocess.run(
-        ["openssl", "pkey", "-in", str(pem), "-outform", "DER"],
+        ["openssl", "pkcs8", "-topk8", "-nocrypt",
+         "-in", str(pem), "-outform", "DER"],
         check=True,
         capture_output=True,
     ).stdout

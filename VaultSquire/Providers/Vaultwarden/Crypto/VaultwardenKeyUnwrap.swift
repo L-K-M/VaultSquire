@@ -4,7 +4,7 @@ import Security
 enum VaultwardenKeyUnwrap {
     /// Unwraps the account's 64-byte user key from its type-2 wrapping under
     /// the 64-byte stretched master key. Legacy type-0 wrappers are detected
-    /// here — for both recorded legacy key lengths — and refused without
+    /// here, for both recorded legacy key lengths, and refused without
     /// producing any plaintext; the account must migrate with a compatible
     /// client.
     static func unwrapUserKey(
@@ -49,6 +49,7 @@ enum VaultwardenKeyUnwrap {
             attributes as CFDictionary,
             &creationError
         ) else {
+            creationError?.release()
             throw VaultwardenCryptoError.invalidKeyMaterial
         }
         guard SecKeyIsAlgorithmSupported(privateKey, .decrypt, .rsaEncryptionOAEPSHA1) else {
@@ -62,6 +63,7 @@ enum VaultwardenKeyUnwrap {
             wrappedOrganizationKey as CFData,
             &decryptionError
         ) as Data? else {
+            decryptionError?.release()
             throw VaultwardenCryptoError.integrityFailure
         }
         guard unwrapped.count == 64 else {

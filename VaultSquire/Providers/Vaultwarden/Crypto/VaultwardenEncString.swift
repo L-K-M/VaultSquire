@@ -201,7 +201,8 @@ enum VaultwardenCipher {
                 }
             }
         }
-        guard status == kCCSuccess else {
+        // CCCrypt returns CCCryptorStatus (Int32); kCCSuccess imports as Int.
+        guard status == Int32(kCCSuccess) else {
             throw VaultwardenCryptoError.integrityFailure
         }
 
