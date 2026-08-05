@@ -19,14 +19,24 @@ final class InMemoryEncryptedStore: EncryptedStore, @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [AccountID: Entry] = [:]
 
+    private var _failNextPublish = false
+    private var _forcedIntegrity: StoreIntegrity = .ok
+
     /// Test hook: when true, the next `publish` throws `.unexpected` without
     /// mutating any state, modeling an engine failure mid-commit so a test can
-    /// prove the prior generation survives intact.
-    var failNextPublish = false
+    /// prove the prior generation survives intact. Guarded by the same lock as
+    /// the store's state so `@unchecked Sendable` holds even under TSan.
+    func setFailNextPublish(_ value: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        _failNextPublish = value
+    }
 
     /// Test hook: the result `checkIntegrity` returns, so a test can model a
-    /// corrupt database without a real engine.
-    var forcedIntegrity: StoreIntegrity = .ok
+    /// corrupt database without a real engine. Guarded by the store's lock.
+    func setForcedIntegrity(_ value: StoreIntegrity) {
+        lock.lock(); defer { lock.unlock() }
+        _forcedIntegrity = value
+    }
 
     /// Requires the lock to be held.
     private func makeEntry(for account: AccountID) -> Entry {
@@ -39,8 +49,8 @@ final class InMemoryEncryptedStore: EncryptedStore, @unchecked Sendable {
     func publish(_ snapshot: AccountSnapshot) throws {
         lock.lock(); defer { lock.unlock() }
         if Task.isCancelled { throw EncryptedStoreError.cancelled }
-        if failNextPublish {
-            failNextPublish = false
+        if _failNextPublish {
+            _failNextPublish = false
             throw EncryptedStoreError.unexpected
         }
         let entry = makeEntry(for: snapshot.account)
@@ -106,7 +116,7 @@ final class InMemoryEncryptedStore: EncryptedStore, @unchecked Sendable {
 
     func checkIntegrity(for account: AccountID) throws -> StoreIntegrity {
         lock.lock(); defer { lock.unlock() }
-        return forcedIntegrity
+        return _forcedIntegrity
     }
 
     func wipe(_ account: AccountID) throws {

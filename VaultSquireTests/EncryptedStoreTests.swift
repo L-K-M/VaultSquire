@@ -57,7 +57,7 @@ final class EncryptedStoreTests: XCTestCase {
         try store.publish(makeCanarySnapshot(generation: 1, records: [priorRecord]))
 
         // Model an engine failure mid-commit while publishing a new generation.
-        store.failNextPublish = true
+        store.setFailNextPublish(true)
         let replacement = makeCanaryRecord(itemRawValue: "replace", revisionDate: Date(timeIntervalSince1970: 20))
         XCTAssertThrowsError(try store.publish(makeCanarySnapshot(generation: 2, records: [replacement]))) { error in
             XCTAssertEqual(error as? EncryptedStoreError, .unexpected)
@@ -198,7 +198,7 @@ final class EncryptedStoreTests: XCTestCase {
         let store = InMemoryEncryptedStore()
         XCTAssertEqual(try store.checkIntegrity(for: account), .ok)
 
-        store.forcedIntegrity = .corrupt(reason: "VSQ-Canary-corruption")
+        store.setForcedIntegrity(.corrupt(reason: "VSQ-Canary-corruption"))
         XCTAssertEqual(try store.checkIntegrity(for: account), .corrupt(reason: "VSQ-Canary-corruption"))
     }
 
@@ -225,14 +225,28 @@ final class EncryptedStoreTests: XCTestCase {
         let store = InMemoryEncryptedStore()
         let other = AccountID(provider: .vaultwarden, rawValue: "VSQ-Canary-other")
         try store.publish(makeCanarySnapshot(account: account, generation: 1))
-        try store.publish(makeCanarySnapshot(account: other, generation: 9))
+        try store.publish(
+            makeCanarySnapshot(
+                account: other,
+                generation: 9,
+                records: [
+                    makeCanaryRecord(
+                        account: other,
+                        itemRawValue: "o1",
+                        revisionDate: Date(timeIntervalSince1970: 60)
+                    )
+                ]
+            )
+        )
 
         XCTAssertEqual(try store.currentGeneration(for: account), SnapshotGeneration(rawValue: 1))
         XCTAssertEqual(try store.currentGeneration(for: other), SnapshotGeneration(rawValue: 9))
 
         try store.wipe(account)
         XCTAssertNil(try store.currentGeneration(for: account))
-        // Wiping one account leaves the other intact.
+        // Wiping one account leaves the other fully intact — records included —
+        // so an over-broad wipe (a delete missing its account scope) is caught.
         XCTAssertEqual(try store.currentGeneration(for: other), SnapshotGeneration(rawValue: 9))
+        XCTAssertEqual(try store.records(for: other).map(\.itemID.rawValue), ["o1"])
     }
 }
