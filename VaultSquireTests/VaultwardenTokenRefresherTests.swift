@@ -52,6 +52,20 @@ final class VaultwardenTokenRefresherTests: XCTestCase {
         XCTAssertEqual(current, "stale")
     }
 
+    func testRateLimitedRefreshIsTransientNotSessionEnding() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        StubServer.shared.on("/connect/token", respond: .json(429, "{\"error\":\"too_many_requests\"}"))
+        let refresher = VaultwardenTokenRefresher(transport: transport, refreshToken: "keep")
+
+        let outcome = await refresher.refresh()
+
+        guard case .transientFailure = outcome else {
+            return XCTFail("a rate limit must not end the session")
+        }
+        let current = await refresher.currentRefreshToken
+        XCTAssertEqual(current, "keep")
+    }
+
     func testConcurrentRefreshesShareOneInFlightRequest() async throws {
         let transport = try VaultwardenTestFactory.stubbedTransport()
         StubServer.shared.on(
@@ -78,10 +92,13 @@ final class VaultwardenTokenRefresherTests: XCTestCase {
             }
             XCTAssertEqual(refreshToken, "b")
         }
-        // The eight callers coalesced onto a single network request.
+        // The eight callers coalesced onto a single network request, observed
+        // both at the stub and in the actor's own issued-request counter.
         let tokenRequests = StubServer.shared.requests.filter {
             $0.url.path.hasSuffix("/connect/token")
         }
         XCTAssertEqual(tokenRequests.count, 1)
+        let issued = await refresher.refreshRequestCount
+        XCTAssertEqual(issued, 1)
     }
 }

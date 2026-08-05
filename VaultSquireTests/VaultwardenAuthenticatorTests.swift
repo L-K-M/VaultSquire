@@ -278,6 +278,29 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
         XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password"))
     }
 
+    func testApprovedEffectiveOriginIsActuallyUsedForPreloginAndGrant() async throws {
+        // Config advertises identity on a different host; with approval, the
+        // prelogin and token grant must target that approved host, not the
+        // entered one.
+        StubServer.shared.on(
+            "/api/config",
+            respond: .json(200, "{\"environment\":{\"identity\":\"https://identity.other.com/identity\"}}")
+        )
+        stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)
+        StubServer.shared.on("/connect/token", respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r\"}"))
+
+        _ = try await makeAuthenticator().login(
+            email: email, masterPasswordBytes: passwordBytes, device: device, lastAcceptedKDF: nil
+        )
+
+        let prelogin = try XCTUnwrap(
+            StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password")
+        )
+        XCTAssertEqual(prelogin.url.host, "identity.other.com")
+        let grant = try XCTUnwrap(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
+        XCTAssertEqual(grant.url.host, "identity.other.com")
+    }
+
     func testPreloginLegacyAliasFallback() async throws {
         stubConfig()
         StubServer.shared.on("/accounts/prelogin/password", respond: .json(404, "{}"))

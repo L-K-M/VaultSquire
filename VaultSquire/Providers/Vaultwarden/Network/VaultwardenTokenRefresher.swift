@@ -2,10 +2,13 @@ import Foundation
 
 /// The outcome of a token refresh. On success the caller atomically adopts the
 /// new tokens; `sessionExpired` means the refresh token is no longer valid and
-/// the account must reauthenticate (without deleting its last known-good cache).
+/// the account must reauthenticate (without deleting its last known-good
+/// cache); `transientFailure` is a network or rate-limit condition the caller
+/// retries later without ending the session.
 enum VaultwardenRefreshOutcome: Sendable {
     case refreshed(accessToken: String, refreshToken: String, expiresIn: Int?)
     case sessionExpired
+    case transientFailure
 }
 
 /// Coordinates token refresh for one account. It enforces the one-in-flight
@@ -17,6 +20,9 @@ actor VaultwardenTokenRefresher {
     private let clientID: String
     private var refreshToken: String
     private var inFlight: Task<VaultwardenRefreshOutcome, Never>?
+    /// Number of network refresh requests actually issued. Coalesced callers do
+    /// not increment it, so it stays below the caller count when the
+    /// one-in-flight rule holds.
     private(set) var refreshRequestCount = 0
 
     init(
@@ -41,6 +47,7 @@ actor VaultwardenTokenRefresher {
         }
 
         let token = refreshToken
+        refreshRequestCount += 1
         let task = Task<VaultwardenRefreshOutcome, Never> { [transport, clientID] in
             await Self.performRefresh(
                 transport: transport,
@@ -52,6 +59,8 @@ actor VaultwardenTokenRefresher {
         let outcome = await task.value
         inFlight = nil
 
+        // Replace the stored token only on success; a failed refresh leaves the
+        // last valid refresh token in place for a later retry.
         if case .refreshed(_, let newRefreshToken, _) = outcome {
             refreshToken = newRefreshToken
         }
@@ -76,23 +85,34 @@ actor VaultwardenTokenRefresher {
             response = try await transport.send(.post, url: tokenURL, body: .form(fields))
         } catch {
             // A transport failure is transient; the caller retries later. It is
-            // not a session-ending condition, so report expiry only on an
-            // explicit invalid_grant below.
+            // not a session-ending condition.
+            return .transientFailure
+        }
+
+        if (200..<300).contains(response.status) {
+            if let token = try? JSONDecoder().decode(
+                   VaultwardenTokenResponse.self, from: response.body
+               ),
+               let newRefreshToken = token.refreshToken {
+                return .refreshed(
+                    accessToken: token.accessToken,
+                    refreshToken: newRefreshToken,
+                    expiresIn: token.expiresIn
+                )
+            }
+            // A success without a usable refresh token is malformed, not a
+            // revoked session; retry rather than force reauthentication.
+            return .transientFailure
+        }
+
+        // An explicit rejected grant ends the session; a rate limit or server
+        // error is transient.
+        let body = try? JSONDecoder().decode(VaultwardenErrorBody.self, from: response.body)
+        if response.status == 401
+            || (response.status == 400 && body?.error == "invalid_grant") {
             return .sessionExpired
         }
 
-        if (200..<300).contains(response.status),
-           let token = try? JSONDecoder().decode(
-               VaultwardenTokenResponse.self, from: response.body
-           ),
-           let newRefreshToken = token.refreshToken {
-            return .refreshed(
-                accessToken: token.accessToken,
-                refreshToken: newRefreshToken,
-                expiresIn: token.expiresIn
-            )
-        }
-
-        return .sessionExpired
+        return .transientFailure
     }
 }

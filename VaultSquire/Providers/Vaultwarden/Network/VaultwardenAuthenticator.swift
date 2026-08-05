@@ -34,6 +34,11 @@ struct VaultwardenPendingTwoFactor: Sendable {
     fileprivate let kdfConfiguration: VaultwardenKDFConfiguration
     fileprivate let normalizedEmail: String
     fileprivate let device: VaultwardenDeviceIdentity
+    /// The approved identity and API base URLs the continuation must reuse, so
+    /// the grant and email challenge target the same endpoints the login
+    /// transaction already approved.
+    fileprivate let identityBaseURL: URL
+    fileprivate let apiBaseURL: URL
 }
 
 enum VaultwardenLoginOutcome: Sendable {
@@ -86,10 +91,13 @@ struct VaultwardenAuthenticator: Sendable {
         device: VaultwardenDeviceIdentity,
         lastAcceptedKDF: VaultwardenKDFConfiguration?
     ) async throws -> VaultwardenLoginOutcome {
-        try await discoverAndApproveOrigins(enteredEmail: email)
+        let endpoints = try await resolveEffectiveEndpoints()
 
         let normalizedEmail = VaultwardenKeyDerivation.normalizedEmail(email)
-        let prelogin = try await fetchPrelogin(email: normalizedEmail)
+        let prelogin = try await fetchPrelogin(
+            email: normalizedEmail,
+            identityBase: endpoints.identityBase
+        )
         let kdfConfiguration = try mapKDF(prelogin)
 
         if !kdfMatches(kdfConfiguration, lastAcceptedKDF) {
@@ -129,7 +137,9 @@ struct VaultwardenAuthenticator: Sendable {
             stretchedMasterKey: stretchedMasterKey,
             kdfConfiguration: kdfConfiguration,
             normalizedEmail: normalizedEmail,
-            device: device
+            device: device,
+            identityBaseURL: endpoints.identityBase,
+            apiBaseURL: endpoints.apiBase
         )
 
         return try await submitGrant(pending: pending, proof: nil)
@@ -163,7 +173,7 @@ struct VaultwardenAuthenticator: Sendable {
 
     /// Sends the email-provider challenge so the user can receive a code.
     func sendEmailChallenge(pending: VaultwardenPendingTwoFactor) async throws {
-        let url = environment.apiURL.appendingPathComponent("two-factor/send-email-login")
+        let url = pending.apiBaseURL.appendingPathComponent("two-factor/send-email-login")
         let response = try await transport.send(
             .post,
             url: url,
@@ -176,7 +186,11 @@ struct VaultwardenAuthenticator: Sendable {
 
     // MARK: - Steps
 
-    private func discoverAndApproveOrigins(enteredEmail: String) async throws {
+    /// Fetches `/api/config` (before any email is sent), resolves the effective
+    /// identity and API base URLs, and, when either differs from the entered
+    /// origin, requires explicit approval. The approved base URLs are returned
+    /// so prelogin, the token grant, and the email challenge all target them.
+    private func resolveEffectiveEndpoints() async throws -> (identityBase: URL, apiBase: URL) {
         let configURL = environment.apiURL.appendingPathComponent("config")
         let response: VaultwardenHTTPResponse
         do {
@@ -192,10 +206,14 @@ struct VaultwardenAuthenticator: Sendable {
         let config = try? JSONDecoder().decode(
             VaultwardenConfig.self, from: response.body
         )
-        let effectiveIdentity = origin(
-            from: config?.environment?.identity, fallback: entered
+        let identityBase = baseURL(
+            from: config?.environment?.identity, fallback: environment.identityURL
         )
-        let effectiveAPI = origin(from: config?.environment?.api, fallback: entered)
+        let apiBase = baseURL(
+            from: config?.environment?.api, fallback: environment.apiURL
+        )
+        let effectiveIdentity = originOf(identityBase, fallback: entered)
+        let effectiveAPI = originOf(apiBase, fallback: entered)
 
         if effectiveIdentity != entered || effectiveAPI != entered {
             let approved = await originApprovalPolicy.approve(
@@ -210,18 +228,21 @@ struct VaultwardenAuthenticator: Sendable {
                 )
             }
         }
+
+        return (identityBase, apiBase)
     }
 
-    private func fetchPrelogin(email: String) async throws -> VaultwardenPrelogin {
+    private func fetchPrelogin(
+        email: String,
+        identityBase: URL
+    ) async throws -> VaultwardenPrelogin {
         let body = Data("{\"email\":\"\(email)\"}".utf8)
-        let currentURL = environment.identityURL
-            .appendingPathComponent("accounts/prelogin/password")
+        let currentURL = identityBase.appendingPathComponent("accounts/prelogin/password")
         var response = try await transport.send(.post, url: currentURL, body: .json(body))
 
         // Legacy servers expose only the un-suffixed alias.
         if response.status == 404 {
-            let legacyURL = environment.identityURL
-                .appendingPathComponent("accounts/prelogin")
+            let legacyURL = identityBase.appendingPathComponent("accounts/prelogin")
             response = try await transport.send(.post, url: legacyURL, body: .json(body))
         }
         guard (200..<300).contains(response.status) else {
@@ -261,7 +282,7 @@ struct VaultwardenAuthenticator: Sendable {
             }
         }
 
-        let tokenURL = environment.identityURL.appendingPathComponent("connect/token")
+        let tokenURL = pending.identityBaseURL.appendingPathComponent("connect/token")
         let response = try await transport.send(.post, url: tokenURL, body: .form(fields))
 
         if (200..<300).contains(response.status) {
@@ -280,7 +301,7 @@ struct VaultwardenAuthenticator: Sendable {
             return .authenticated(session)
         }
 
-        // A 400 carrying challenge maps is a 2FA requirement, not a failure —
+        // A 400 carrying challenge maps is a 2FA requirement, not a failure,
         // but only on the first grant. A resubmitted proof that comes back with
         // maps is handled by completeTwoFactor as a failed proof.
         let body = try? JSONDecoder().decode(VaultwardenErrorBody.self, from: response.body)
@@ -335,11 +356,22 @@ struct VaultwardenAuthenticator: Sendable {
         return lhs == rhs
     }
 
-    private func origin(from urlString: String?, fallback: VaultwardenOrigin) -> VaultwardenOrigin {
+    /// Resolves a config-advertised service URL to a usable base URL. A value
+    /// that is not a valid absolute URL with a host falls back to the entered
+    /// service URL, so a malformed or relative advertisement never redirects
+    /// credentials somewhere unexpected.
+    private func baseURL(from urlString: String?, fallback: URL) -> URL {
         guard let urlString, !urlString.isEmpty,
               let url = URL(string: urlString),
-              let scheme = url.scheme?.lowercased(),
-              let host = url.host else {
+              url.scheme != nil, url.host != nil else {
+            return fallback
+        }
+
+        return url
+    }
+
+    private func originOf(_ url: URL, fallback: VaultwardenOrigin) -> VaultwardenOrigin {
+        guard let scheme = url.scheme?.lowercased(), let host = url.host else {
             return fallback
         }
 

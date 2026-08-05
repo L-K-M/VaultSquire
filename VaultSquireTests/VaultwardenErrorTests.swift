@@ -48,13 +48,23 @@ final class VaultwardenErrorTests: XCTestCase {
         XCTAssertEqual(error.retry, .backoffThenRetry(retryAfter: 30))
     }
 
-    func testClassifyInvalidGrantIsSessionExpiredNoRetry() throws {
-        let error = VaultwardenErrorDecoder.classify(
-            httpStatus: 400, body: try body(#"{"error":"invalid_grant"}"#), retryAfter: nil
+    func testClassifyInvalidGrantIsContextSensitive() throws {
+        // On a login grant, invalid_grant means the credentials were rejected.
+        let login = VaultwardenErrorDecoder.classify(
+            httpStatus: 400, body: try body(#"{"error":"invalid_grant"}"#),
+            retryAfter: nil, context: .login
         )
-        XCTAssertEqual(error.category, .sessionExpired)
-        XCTAssertEqual(error.machineCode, "invalid_grant")
-        XCTAssertEqual(error.retry, .noRetry)
+        XCTAssertEqual(login.category, .badCredentials)
+        XCTAssertEqual(login.machineCode, "invalid_grant")
+        XCTAssertEqual(login.retry, .noRetry)
+
+        // On a refresh grant, the same code means the session ended.
+        let refresh = VaultwardenErrorDecoder.classify(
+            httpStatus: 400, body: try body(#"{"error":"invalid_grant"}"#),
+            retryAfter: nil, context: .refresh
+        )
+        XCTAssertEqual(refresh.category, .sessionExpired)
+        XCTAssertEqual(refresh.retry, .noRetry)
     }
 
     func testClassifyBadCredentialsAndAccountLockedAndServerError() throws {

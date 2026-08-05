@@ -63,6 +63,13 @@ struct VaultwardenAPIError: Error, Hashable, Sendable {
 /// `errorModel.message`, then flattened `validationErrors`, then a generic
 /// status message.
 enum VaultwardenErrorDecoder {
+    /// Which grant produced a response, so `invalid_grant` classifies
+    /// correctly: rejected login credentials versus an expired session.
+    enum Context: Sendable {
+        case login
+        case refresh
+    }
+
     static func safeMessage(
         from body: VaultwardenErrorBody?,
         httpStatus: Int
@@ -87,10 +94,17 @@ enum VaultwardenErrorDecoder {
     /// Classifies a completed HTTP response into a typed error. 2FA challenge
     /// detection is decided by the caller from local login state and the
     /// presence of challenge maps, so this handles the non-challenge paths.
+    ///
+    /// `context` distinguishes a token refresh from an interactive login: an
+    /// `invalid_grant` on refresh ends the session (reauthentication needed),
+    /// while the same code on a login grant means the submitted credentials
+    /// were rejected. This classifier serves the authenticator; the refresher
+    /// reports session expiry through its own outcome type.
     static func classify(
         httpStatus: Int,
         body: VaultwardenErrorBody?,
-        retryAfter: TimeInterval?
+        retryAfter: TimeInterval?,
+        context: Context = .login
     ) -> VaultwardenAPIError {
         let message = safeMessage(from: body, httpStatus: httpStatus)
         switch httpStatus {
@@ -104,7 +118,7 @@ enum VaultwardenErrorDecoder {
             )
         case 400 where body?.error == "invalid_grant":
             return VaultwardenAPIError(
-                category: .sessionExpired,
+                category: context == .refresh ? .sessionExpired : .badCredentials,
                 httpStatus: httpStatus,
                 machineCode: "invalid_grant",
                 retry: .noRetry,
