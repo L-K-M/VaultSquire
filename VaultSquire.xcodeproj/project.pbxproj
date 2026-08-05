@@ -49,6 +49,20 @@
 		C0000000000000000000002B /* VaultwardenEncStringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002E /* VaultwardenEncStringTests.swift */; };
 		C0000000000000000000002C /* VaultwardenKeyUnwrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002F /* VaultwardenKeyUnwrapTests.swift */; };
 		C0000000000000000000002D /* VaultwardenCryptoFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000030 /* VaultwardenCryptoFuzzTests.swift */; };
+		C0000000000000000000002E /* VaultwardenEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000031 /* VaultwardenEnvironment.swift */; };
+		C0000000000000000000002F /* VaultwardenAPIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000032 /* VaultwardenAPIError.swift */; };
+		C00000000000000000000030 /* VaultwardenWireModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000033 /* VaultwardenWireModels.swift */; };
+		C00000000000000000000031 /* VaultwardenTwoFactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000034 /* VaultwardenTwoFactor.swift */; };
+		C00000000000000000000032 /* VaultwardenTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000035 /* VaultwardenTransport.swift */; };
+		C00000000000000000000033 /* VaultwardenAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000036 /* VaultwardenAuthenticator.swift */; };
+		C00000000000000000000034 /* VaultwardenTokenRefresher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000037 /* VaultwardenTokenRefresher.swift */; };
+		C00000000000000000000035 /* VaultwardenNetworkTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000038 /* VaultwardenNetworkTestSupport.swift */; };
+		C00000000000000000000036 /* VaultwardenEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000039 /* VaultwardenEnvironmentTests.swift */; };
+		C00000000000000000000037 /* VaultwardenTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003A /* VaultwardenTransportTests.swift */; };
+		C00000000000000000000038 /* VaultwardenErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003B /* VaultwardenErrorTests.swift */; };
+		C00000000000000000000039 /* VaultwardenAuthenticatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003C /* VaultwardenAuthenticatorTests.swift */; };
+		C0000000000000000000003A /* VaultwardenTokenRefresherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003D /* VaultwardenTokenRefresherTests.swift */; };
+		C0000000000000000000003B /* VaultwardenLeakageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003E /* VaultwardenLeakageTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -116,6 +130,20 @@
 		B0000000000000000000002E /* VaultwardenEncStringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenEncStringTests.swift; sourceTree = "<group>"; };
 		B0000000000000000000002F /* VaultwardenKeyUnwrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenKeyUnwrapTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000030 /* VaultwardenCryptoFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCryptoFuzzTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000031 /* VaultwardenEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenEnvironment.swift; sourceTree = "<group>"; };
+		B00000000000000000000032 /* VaultwardenAPIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenAPIError.swift; sourceTree = "<group>"; };
+		B00000000000000000000033 /* VaultwardenWireModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenWireModels.swift; sourceTree = "<group>"; };
+		B00000000000000000000034 /* VaultwardenTwoFactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTwoFactor.swift; sourceTree = "<group>"; };
+		B00000000000000000000035 /* VaultwardenTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTransport.swift; sourceTree = "<group>"; };
+		B00000000000000000000036 /* VaultwardenAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenAuthenticator.swift; sourceTree = "<group>"; };
+		B00000000000000000000037 /* VaultwardenTokenRefresher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTokenRefresher.swift; sourceTree = "<group>"; };
+		B00000000000000000000038 /* VaultwardenNetworkTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenNetworkTestSupport.swift; sourceTree = "<group>"; };
+		B00000000000000000000039 /* VaultwardenEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenEnvironmentTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000003A /* VaultwardenTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTransportTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000003B /* VaultwardenErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenErrorTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000003C /* VaultwardenAuthenticatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenAuthenticatorTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000003D /* VaultwardenTokenRefresherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTokenRefresherTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000003E /* VaultwardenLeakageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenLeakageTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -155,8 +183,23 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000013 /* Crypto */,
+				A00000000000000000000014 /* Network */,
 			);
 			path = Vaultwarden;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000014 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000031 /* VaultwardenEnvironment.swift */,
+				B00000000000000000000032 /* VaultwardenAPIError.swift */,
+				B00000000000000000000033 /* VaultwardenWireModels.swift */,
+				B00000000000000000000034 /* VaultwardenTwoFactor.swift */,
+				B00000000000000000000035 /* VaultwardenTransport.swift */,
+				B00000000000000000000036 /* VaultwardenAuthenticator.swift */,
+				B00000000000000000000037 /* VaultwardenTokenRefresher.swift */,
+			);
+			path = Network;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000013 /* Crypto */ = {
@@ -318,6 +361,13 @@
 				B0000000000000000000002D /* VaultwardenKeyDerivationTests.swift */,
 				B0000000000000000000002F /* VaultwardenKeyUnwrapTests.swift */,
 				B00000000000000000000030 /* VaultwardenCryptoFuzzTests.swift */,
+				B00000000000000000000038 /* VaultwardenNetworkTestSupport.swift */,
+				B00000000000000000000039 /* VaultwardenEnvironmentTests.swift */,
+				B0000000000000000000003A /* VaultwardenTransportTests.swift */,
+				B0000000000000000000003B /* VaultwardenErrorTests.swift */,
+				B0000000000000000000003C /* VaultwardenAuthenticatorTests.swift */,
+				B0000000000000000000003D /* VaultwardenTokenRefresherTests.swift */,
+				B0000000000000000000003E /* VaultwardenLeakageTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -478,6 +528,13 @@
 				C00000000000000000000026 /* VaultwardenKeyDerivation.swift in Sources */,
 				C00000000000000000000027 /* VaultwardenEncString.swift in Sources */,
 				C00000000000000000000028 /* VaultwardenKeyUnwrap.swift in Sources */,
+				C0000000000000000000002E /* VaultwardenEnvironment.swift in Sources */,
+				C0000000000000000000002F /* VaultwardenAPIError.swift in Sources */,
+				C00000000000000000000030 /* VaultwardenWireModels.swift in Sources */,
+				C00000000000000000000031 /* VaultwardenTwoFactor.swift in Sources */,
+				C00000000000000000000032 /* VaultwardenTransport.swift in Sources */,
+				C00000000000000000000033 /* VaultwardenAuthenticator.swift in Sources */,
+				C00000000000000000000034 /* VaultwardenTokenRefresher.swift in Sources */,
 				C00000000000000000000019 /* ProviderIdentity.swift in Sources */,
 				C0000000000000000000001A /* SessionState.swift in Sources */,
 				C0000000000000000000001B /* ProviderCapability.swift in Sources */,
@@ -501,6 +558,13 @@
 				C0000000000000000000002B /* VaultwardenEncStringTests.swift in Sources */,
 				C0000000000000000000002C /* VaultwardenKeyUnwrapTests.swift in Sources */,
 				C0000000000000000000002D /* VaultwardenCryptoFuzzTests.swift in Sources */,
+				C00000000000000000000035 /* VaultwardenNetworkTestSupport.swift in Sources */,
+				C00000000000000000000036 /* VaultwardenEnvironmentTests.swift in Sources */,
+				C00000000000000000000037 /* VaultwardenTransportTests.swift in Sources */,
+				C00000000000000000000038 /* VaultwardenErrorTests.swift in Sources */,
+				C00000000000000000000039 /* VaultwardenAuthenticatorTests.swift in Sources */,
+				C0000000000000000000003A /* VaultwardenTokenRefresherTests.swift in Sources */,
+				C0000000000000000000003B /* VaultwardenLeakageTests.swift in Sources */,
 				C00000000000000000000023 /* ProviderCacheEnvelopeTests.swift in Sources */,
 				C00000000000000000000022 /* ProviderCapabilityTests.swift in Sources */,
 				C00000000000000000000021 /* ProviderIdentityTests.swift in Sources */,
