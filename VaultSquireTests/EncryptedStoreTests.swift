@@ -41,7 +41,15 @@ final class EncryptedStoreTests: XCTestCase {
                 )
             )
         }
-        XCTAssertThrowsError(try store.publish(makeCanarySnapshot(generation: 4)))
+        XCTAssertThrowsError(try store.publish(makeCanarySnapshot(generation: 4))) { error in
+            XCTAssertEqual(
+                error as? EncryptedStoreError,
+                .nonMonotonicGeneration(
+                    current: SnapshotGeneration(rawValue: 5),
+                    offered: SnapshotGeneration(rawValue: 4)
+                )
+            )
+        }
 
         // The rejected publishes left the current generation untouched.
         XCTAssertEqual(try store.currentGeneration(for: account), SnapshotGeneration(rawValue: 5))

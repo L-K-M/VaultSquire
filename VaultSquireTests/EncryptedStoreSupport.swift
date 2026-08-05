@@ -98,7 +98,20 @@ final class InMemoryEncryptedStore: EncryptedStore, @unchecked Sendable {
         case .providerSpace(let space):
             scope = "space:\(space)"
         }
-        return "\(id.account.provider.rawValue)|\(id.account.rawValue)|\(scope)|\(id.rawValue)"
+        // Length-prefix each field so a value containing the separator cannot
+        // collide with a different split of the same concatenated bytes — the
+        // same domain-separation the cache-envelope AAD uses.
+        func lengthPrefixed(_ value: String) -> String {
+            "\(value.utf8.count):\(value)"
+        }
+        return [
+            id.account.provider.rawValue,
+            id.account.rawValue,
+            scope,
+            id.rawValue,
+        ]
+        .map(lengthPrefixed)
+        .joined(separator: "|")
     }
 
     func syncState(for account: AccountID) throws -> ProviderSyncState? {
