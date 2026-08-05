@@ -117,6 +117,7 @@ final class VaultSessionTests: XCTestCase {
             _ = await session.publish(items, generation: generation)
         }
 
+        await provider.waitUntilListItemsHeld()
         await session.lock()
         await provider.releaseHeldListItems()
         await inFlight.value
@@ -225,6 +226,19 @@ final class VaultSessionTests: XCTestCase {
         XCTAssertEqual(state.account, .reauthenticationRequired)
     }
 
+    func testReauthenticationRestartedAtChallengeKeepsItsOrigin() async throws {
+        let session = try await makeAuthenticatedSession()
+        try await session.requireReauthentication()
+        try await session.beginAuthentication()
+        try await session.presentChallenge()
+        try await session.beginAuthentication()
+
+        try await session.cancelAuthentication()
+
+        let state = await session.state
+        XCTAssertEqual(state.account, .reauthenticationRequired)
+    }
+
     func testCancelledFirstAuthenticationReturnsToNoAccount() async throws {
         let session = VaultSession()
         try await session.beginAuthentication()
@@ -293,6 +307,20 @@ final class VaultSessionTests: XCTestCase {
         let state = await session.state
         XCTAssertEqual(state.vaultAccess, .locked)
         XCTAssertEqual(state.syncOperation, .idle)
+    }
+
+    func testLogoutResetsInFlightSyncState() async throws {
+        let session = try await makeAuthenticatedSession()
+        try await session.beginSyncCheck()
+        try await session.beginSyncApply(candidate: SnapshotGeneration(rawValue: 3))
+
+        try await session.beginLogout()
+        try await session.completeLogout()
+
+        let state = await session.state
+        XCTAssertEqual(state.syncOperation, .idle)
+        XCTAssertEqual(state.account, .noAccount)
+        XCTAssertEqual(state.vaultAccess, .locked)
     }
 
     func testSyncFailureRequiresExplicitClearing() async throws {

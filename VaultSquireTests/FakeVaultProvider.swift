@@ -25,6 +25,7 @@ actor FakeVaultProvider: VaultProvider {
     /// flight.
     private var holdListItems = false
     private var heldListContinuations: [CheckedContinuation<Void, Never>] = []
+    private var holdArrivalWaiters: [CheckedContinuation<Void, Never>] = []
 
     // MARK: Configuration
 
@@ -55,6 +56,18 @@ actor FakeVaultProvider: VaultProvider {
         holdListItems = true
     }
 
+    /// Suspends until at least one `listItems` caller is parked on the hold,
+    /// so a test can deterministically act while the read is in flight.
+    func waitUntilListItemsHeld() async {
+        guard heldListContinuations.isEmpty else {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            holdArrivalWaiters.append(continuation)
+        }
+    }
+
     func releaseHeldListItems() {
         holdListItems = false
         let continuations = heldListContinuations
@@ -78,6 +91,11 @@ actor FakeVaultProvider: VaultProvider {
         if holdListItems {
             await withCheckedContinuation { continuation in
                 heldListContinuations.append(continuation)
+                let waiters = holdArrivalWaiters
+                holdArrivalWaiters = []
+                for waiter in waiters {
+                    waiter.resume()
+                }
             }
         }
 

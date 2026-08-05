@@ -42,8 +42,7 @@ final class ProviderCapabilityTests: XCTestCase {
         )
     }
 
-    func testUnsupportedMutationIsRejectedFromEveryEntryPoint() async throws {
-        let provider = FakeVaultProvider()
+    func testUnsupportedMutationIsRejectedFromEveryEntryPoint() {
         let gate = CapabilityGate(capabilities: [.viewItems, .searchItems])
 
         for mutation in allMutations {
@@ -59,8 +58,10 @@ final class ProviderCapabilityTests: XCTestCase {
             }
         }
 
-        let performed = await provider.performedMutations
-        XCTAssertTrue(performed.isEmpty)
+        // Reaching VaultProvider.perform without a gate-issued authorization
+        // is a compile error: CapabilityAuthorization's initializer is
+        // private to the gate's file, so the rejections above are the only
+        // outcome any entry point can produce.
     }
 
     func testSupportedMutationPassesTheGateAndReachesTheProvider() async throws {

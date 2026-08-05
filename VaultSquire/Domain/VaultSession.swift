@@ -23,8 +23,13 @@ actor VaultSession {
 
     func beginAuthentication() throws {
         switch state.account {
-        case .noAccount, .reauthenticationRequired, .challenged:
+        case .noAccount, .reauthenticationRequired:
             authenticationOrigin = state.account
+            state.account = .authenticating
+        case .challenged:
+            // Restarting at the challenge step keeps the original origin so a
+            // later cancellation still returns there instead of degrading a
+            // reauthentication to no-account.
             state.account = .authenticating
         case .authenticating, .authenticated, .loggingOut:
             throw VaultSessionError.invalidTransition
@@ -72,10 +77,15 @@ actor VaultSession {
         state.account = .reauthenticationRequired
     }
 
+    /// Logout cancels all sync, unlike a plain lock, which may let
+    /// ciphertext-only sync continue. The sync dimension is reset here and
+    /// sync workers must register their tasks so the lock inside this call
+    /// cancels them.
     func beginLogout() throws {
         switch state.account {
         case .authenticated, .reauthenticationRequired:
             state.account = .loggingOut
+            state.syncOperation = .idle
             lock()
         case .noAccount, .authenticating, .challenged, .loggingOut:
             throw VaultSessionError.invalidTransition

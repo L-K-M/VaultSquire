@@ -1,6 +1,8 @@
 # Workstream 2 Domain, Session, And Provider Contracts Record
 
-- Status: implemented; automated exit criteria pass in CI
+- Status: implemented; automated exit criteria run in PR #9's `macOS Product`
+  lane, first green in workflow run `31014810704`, and the merged PR's final
+  green run is the controlling evidence
 - Owner: `L-K-M`
 - Started: 2026-08-05
 - Scope: domain identities, orthogonal session state, capability gating, cache
@@ -35,6 +37,11 @@ test target and never ships. No real vault or account data is valid test input.
   boundary. Provider mutations require a `CapabilityAuthorization` that only
   the gate can create, so no entry point — menu, keyboard shortcut, context
   menu, deep link, or accessibility action — can bypass a capability check.
+  Structural gate authorization covers mutations now; read actions (reveal,
+  copy, search) gain their gate-issued authorizations with the Workstream 7
+  UI, where those action paths first exist.
+- Logout resets the sync dimension and cancels registered work through its
+  lock, because logout — unlike a plain lock — cancels all sync.
 - Provider cache-envelope contract with explicit fidelity metadata
   (lossless native ciphertext versus lossy application-encrypted), schema
   version, capture snapshot generation, and an opaque payload preserved byte
