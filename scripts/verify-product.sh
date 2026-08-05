@@ -10,6 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="$1"
 CONFIGURATION="$2"
 BINARY="$APP_PATH/Contents/MacOS/VaultSquire"
+INFO="$APP_PATH/Contents/Info.plist"
 
 # The reviewed allowlist is written out here rather than read back from the file used
 # for signing. Comparing the signed blob only against its own source would accept any
@@ -31,6 +32,17 @@ esac
 
 if [[ ! -x "$BINARY" ]]; then
     printf 'Built application executable is missing: %s\n' "$BINARY" >&2
+    exit 1
+fi
+
+expected_version="$("$ROOT/scripts/version.sh" --marketing)"
+expected_build="$("$ROOT/scripts/version.sh" --build)"
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO")" != "$expected_version" ]]; then
+    printf 'Built marketing version does not match the project.\n' >&2
+    exit 1
+fi
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO")" != "$expected_build" ]]; then
+    printf 'Built build number does not match the project.\n' >&2
     exit 1
 fi
 

@@ -78,6 +78,12 @@ reproducible local command it runs.
 ## Repository automation
 
 - `repository-hygiene.yml` validates governance and rejects tracked local/secret files.
+- `macos-product.yml` is reusable by the guarded release workflow and runs the
+  same `scripts/ci.sh` product gate used locally.
+- `release.yml` is signed-only future infrastructure. It remains blocked until
+  all pre-artifact candidate gates pass and its exact source commit is approved;
+  artifact-dependent gates then apply to the restricted draft, which still may
+  not be distributed or published. See `CICD.md`.
 - `zai-code-review.yml` is explicit opt-in through the `glm-review` label. Add
   that label only when the PR diff may be sent to Z.ai. Never label embargoed
   security, licensing, provenance, or contamination work for external review.

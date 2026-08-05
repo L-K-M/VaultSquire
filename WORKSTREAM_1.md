@@ -63,16 +63,23 @@ build numbers from marketing versions.
 |---|---|
 | Portable repository checks | `./scripts/check-repository.sh` |
 | Automated unit and UI checks | `./scripts/test.sh` |
+| Family-standard verified Release build | `./scripts/build.sh` |
+| Resolved local build and release-gate status | `./scripts/build.sh --check` |
 | Release-compatible locked shell | `./scripts/build-local.sh Release` |
 | Direct process-probe comparison | `./scripts/build-local.sh DirectProbe` |
 | Sandboxed process probe | `./scripts/build-local.sh SandboxProbe` |
 | Launch and panel metrics | `./scripts/measure-workstream-1.sh` |
 | Build, test, sign, and inspect lane | `./scripts/ci.sh` |
+| Source version consistency | `./scripts/version.sh --check` |
+| Guarded future release status | `./scripts/release.sh --check` |
 
 The hosted job runs `./scripts/ci.sh` and then
 `./scripts/measure-workstream-1.sh`; `ci.sh` alone does not include the
 performance lane. Product commands require native Apple Silicon and Xcode 26.3.
 The current Linux host cannot substitute for them.
+`build.sh --check`, `version.sh`, repository checks, and release-gate status are
+portable; actual release execution remains prohibited and fail-closed as
+documented in [`CICD.md`](CICD.md).
 
 An earlier revision recorded that `xcresulttool` returned an empty metrics array
 and attributed it to Xcode 26.3. That attribution was wrong for the Quick Search

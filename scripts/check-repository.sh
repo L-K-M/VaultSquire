@@ -6,16 +6,29 @@ cd "$ROOT"
 
 required_files=(
     AGENTS.md
+    CICD.md
     CONTRIBUTING.md
     PRIVACY.md
+    RELEASE_ELIGIBILITY.md
     SECURITY.md
     LICENSE
     .claude/settings.json
     .github/dependabot.yml
+    .github/release-eligibility.env
+    .github/workflows/release.yml
     VaultSquire.xcodeproj/project.pbxproj
     VaultSquire.xcodeproj/xcshareddata/xcschemes/VaultSquire.xcscheme
     VaultSquire.xcodeproj/xcshareddata/xcschemes/VaultSquire-Performance.xcscheme
     VaultSquire.xcodeproj/xcshareddata/xcschemes/VaultSquire-SandboxProbe.xcscheme
+    scripts/build.sh
+    scripts/check-release-eligibility.sh
+    scripts/check-release-hosting.sh
+    scripts/generate-sbom.py
+    scripts/generate-sbom.sh
+    scripts/install-local.sh
+    scripts/release.sh
+    scripts/verify-signed-product.sh
+    scripts/version.sh
 )
 
 for file in "${required_files[@]}"; do
@@ -24,6 +37,47 @@ for file in "${required_files[@]}"; do
         exit 1
     fi
 done
+
+"$ROOT/scripts/version.sh" --check
+"$ROOT/scripts/check-release-eligibility.sh" --status
+bash -n scripts/*.sh
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("scripts/generate-sbom.py").read_text())'
+
+sbom_fixture="$(mktemp -d)"
+trap 'rm -rf "$sbom_fixture"' EXIT
+mkdir -p "$sbom_fixture/VaultSquire.app/Contents/MacOS"
+cp LICENSE "$sbom_fixture/VaultSquire.app/Contents/MacOS/VaultSquire"
+chmod +x "$sbom_fixture/VaultSquire.app/Contents/MacOS/VaultSquire"
+sbom_commit="$(git rev-parse HEAD)"
+if ! git cat-file -e "$sbom_commit:README.md" 2>/dev/null \
+    || ! git cat-file -e "$sbom_commit:VaultSquire.xcodeproj/project.pbxproj" 2>/dev/null; then
+    sbom_commit="$(git rev-list --all -- README.md VaultSquire.xcodeproj/project.pbxproj | /usr/bin/head -n 1)"
+fi
+scripts/generate-sbom.sh \
+    --app "$sbom_fixture/VaultSquire.app" \
+    --version "$(scripts/version.sh --marketing)" \
+    --build "$(scripts/version.sh --build)" \
+    --commit "$sbom_commit" \
+    --output "$sbom_fixture/VaultSquire.spdx.json"
+python3 -c '
+import json, pathlib, sys
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert document["spdxVersion"] == "SPDX-2.3"
+assert all(any(value["algorithm"] == "SHA1" for value in item["checksums"]) for item in document["files"])
+assert all(item["filesAnalyzed"] is True for item in document["packages"])
+' "$sbom_fixture/VaultSquire.spdx.json"
+rm -rf "$sbom_fixture"
+trap - EXIT
+
+release_workflow=".github/workflows/release.yml"
+if /usr/bin/grep -qE 'uses:[[:space:]]+[^.][^@[:space:]]*@(main|master|v[0-9]+)([[:space:]#]|$)' "$release_workflow"; then
+    printf 'Release workflow contains a mutable action reference.\n' >&2
+    exit 1
+fi
+if ! /usr/bin/grep -q 'actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a' "$release_workflow"; then
+    printf 'Release provenance action pin changed without updating repository policy.\n' >&2
+    exit 1
+fi
 
 if command -v jq >/dev/null 2>&1; then
     jq empty .claude/settings.json

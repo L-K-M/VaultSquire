@@ -5,6 +5,9 @@ Vaultwarden instances and Proton Pass accounts. Workstream 1 now contains the
 initial native locked shell and feasibility harness; there is no supported
 release or provider implementation yet.
 
+Current source version: <!-- version -->0.1.0<!-- /version -->. This is a source
+version, not a supported or distributable release.
+
 > LLM Disclosure: VaultSquire's research and planning documents are being
 > developed with substantial assistance from large language models (AI coding
 > and research tools). Their output is reviewed against primary and immutable
@@ -92,6 +95,10 @@ Read the documents in this order:
 13. [`WORKSTREAM_1.md`](WORKSTREAM_1.md): native shell implementation and
     outstanding macOS evidence gates.
 14. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
+15. [`CICD.md`](CICD.md): local build/version commands and guarded future release
+    automation.
+16. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
+    that automation may be enabled.
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and
@@ -111,6 +118,17 @@ launch and Quick Search performance fixtures; that lane detects crashes and
 hangs, and the hosted runner has so far exported no machine-readable metrics
 from it, so it is not evidence that a performance budget was met.
 Repository-only checks remain portable through `./scripts/check-repository.sh`.
+
+`./scripts/build.sh` is the family-standard local entry point and preserves the
+three reviewed product modes in `build-local.sh`. `./scripts/build.sh --check`
+prints its resolved contract without requiring macOS. A development-signed local
+installation requires the real Apple Team and uses
+`DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build.sh --install`; an ad-hoc artifact
+cannot validate App Group provisioning.
+
+`./scripts/release.sh --check` reports the version and release gate. Actual
+release execution is deliberately blocked in both the script and GitHub Actions
+while `.github/release-eligibility.env` is false. See [`CICD.md`](CICD.md).
 
 The generated app-icon catalog remains intentionally absent until the visual
 review in `ICON_PROVENANCE.md` passes. No application package dependency has

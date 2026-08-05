@@ -47,6 +47,13 @@ fictional commands, and do not claim a macOS, accessibility, hardware
 performance, signing, notarization, or process-sandbox result that was not
 actually produced on such a Mac.
 
+Use `./scripts/build.sh` as the local build entry point and
+`./scripts/build.sh --check` to inspect its contract on any host. Release
+automation is security-boundary code: do not enable
+`.github/release-eligibility.env`, add the matching approval marker, create a
+release tag, or configure signing material until every controlling gate is
+recorded and the change has two focused human reviewers. See [`CICD.md`](CICD.md).
+
 GLM review is optional and external. Add the `glm-review` label only when the
 entire diff is suitable for submission to Z.ai. Human security and provenance
 review remains mandatory regardless of automated feedback.

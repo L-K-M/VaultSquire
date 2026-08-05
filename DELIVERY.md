@@ -14,7 +14,8 @@ maps to reviewable pull requests; it does not weaken any exit criterion.
 | 5 | Encrypted persistence and offline unlock | Workstream 5 storage, Keychain, corruption, migration, and process-death gates pass |
 | 6 | Vaultwarden sync, decryption, and read models | Workstream 6 aggregate-sync, tolerant-decoding, organization, and permission gates pass |
 | 7 | Vault UI, search, clipboard, and URI handling | Workstream 7 accessibility, leakage, and release-performance gates pass |
-| 8 | Security hardening and private preview | Workstream 8 stop-ship, signing, notarization, support, and clean-Mac gates pass |
+| 8A | Security hardening and signed candidate infrastructure | Pre-artifact hardening and candidate gates pass; reviewed infrastructure may merge while distribution remains blocked |
+| 8B | Private preview qualification | The protected workflow produces one restricted draft candidate; artifact-dependent stop-ship, signing, notarization, support, and clean-Mac evidence passes before any distribution |
 | 9 | Safe Vaultwarden core writes | Workstream 9 cross-client, conflict, ambiguity, and unknown-field gates pass |
 | 10A | Proton process boundary and read provider | Workstream 10 read, cache, process, sandbox/direct, and leakage gates pass |
 | 10B+ | One PR per safe Proton write operation | Exact command/version protected-input and reconciliation gates pass |
@@ -40,3 +41,10 @@ Workstream 1 merge, which has happened, but they do block any release or
 distributed artifact; see
 [ADR 0006](docs/adr/0006-workstream-1-merge-with-outstanding-evidence.md) and the
 Exit Evidence table in [`WORKSTREAM_1.md`](WORKSTREAM_1.md).
+
+The repository contains a signed-only future release workflow so that signing,
+provisioning, notarization, final-package inspection, checksums, and
+provenance behavior are reviewable before credentials exist. It is not active:
+`.github/release-eligibility.env` and a matching approval marker in the recorded
+gate must both enable it. Until then the workflow exits before credentials or
+artifacts, as documented in [`CICD.md`](CICD.md).
