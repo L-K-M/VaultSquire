@@ -227,6 +227,7 @@ final class AddAccountModelTests: XCTestCase {
         model.masterPassword = "pw"
         await model.signIn()
         XCTAssertEqual(model.phase, .challenged)
+        XCTAssertEqual(model.masterPassword, "", "master password must be cleared even when challenged")
 
         model.twoFactorCode = "123456"
         model.rememberDevice = false
@@ -293,6 +294,7 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .editing)
         XCTAssertEqual(model.serverURL, "https://vault.example.com")
         XCTAssertEqual(model.email, "user@example.com")
+        XCTAssertEqual(model.masterPassword, "", "master password must remain cleared after returning to the form")
         XCTAssertTrue(model.offeredProviders.isEmpty)
     }
 
