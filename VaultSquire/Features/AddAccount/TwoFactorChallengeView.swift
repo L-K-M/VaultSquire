@@ -53,7 +53,7 @@ struct TwoFactorChallengeView: View {
 
             if model.selectedProvider?.requiresChallengeDispatch == true {
                 Button("Send Code") {
-                    Task { await model.sendEmailChallengeIfNeeded() }
+                    model.beginSendEmailChallenge()
                 }
                 .disabled(model.isSendingEmailChallenge)
                 .accessibilityIdentifier("two-factor-send-email")

@@ -101,18 +101,28 @@ final class AddAccountModel: ObservableObject, Identifiable {
     }
 
     /// Starts the sign-in transaction in a tracked task the view can cancel on
-    /// dismissal, so a dismissed flow never persists credentials.
+    /// dismissal, so a dismissed flow never persists credentials. Any prior
+    /// task is cancelled first so it cannot mutate state behind the new one.
     func beginSignIn() {
+        activeTask?.cancel()
         activeTask = Task { await signIn() }
     }
 
     /// Starts the second-factor submission in the same tracked task.
     func beginSubmitTwoFactor() {
+        activeTask?.cancel()
         activeTask = Task { await submitTwoFactor() }
     }
 
-    /// Cancels any in-flight sign-in or two-factor task. Called when the sheet
-    /// is dismissed.
+    /// Starts the emailed-code request in the same tracked task so dismissal
+    /// cancels it too.
+    func beginSendEmailChallenge() {
+        activeTask?.cancel()
+        activeTask = Task { await sendEmailChallengeIfNeeded() }
+    }
+
+    /// Cancels any in-flight sign-in, two-factor, or email-send task. Called
+    /// when the sheet is dismissed.
     func cancel() {
         activeTask?.cancel()
         activeTask = nil
@@ -200,6 +210,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// Submits the entered second-factor code for the selected provider.
     func submitTwoFactor() async {
         guard let authenticator, let pending, let provider = selectedProvider else {
+            // Inconsistent state (no active challenge); surface feedback rather
+            // than a dead button.
+            failureMessage = "Something went wrong. Please go back and try again."
             return
         }
         phase = .connecting

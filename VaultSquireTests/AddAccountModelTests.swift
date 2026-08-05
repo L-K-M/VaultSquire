@@ -260,6 +260,15 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertTrue(model.offeredProviders.isEmpty)
     }
 
+    func testSubmitTwoFactorWithoutAChallengeShowsFeedback() async {
+        let model = makeModel(store: InMemoryCredentialStore())
+
+        // No challenge was ever presented, so the state is inconsistent.
+        await model.submitTwoFactor()
+
+        XCTAssertNotNil(model.failureMessage)
+    }
+
     func testReturnToFormPreservesNonSecretFields() async {
         let store = InMemoryCredentialStore()
         let model = makeModel(store: store)
@@ -294,6 +303,8 @@ final class AddAccountModelTests: XCTestCase {
             "/api/config",
             respond: .json(200, "{\"environment\":{\"identity\":\"https://identity.other.com\"}}")
         )
+        // Prelogin is stubbed but must never be reached: the differing origin
+        // fails closed before any credential-bearing request is sent.
         StubServer.shared.on(
             "/accounts/prelogin/password",
             respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
