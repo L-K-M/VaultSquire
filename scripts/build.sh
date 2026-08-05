@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Build a verified VaultSquire product. Release is the default; probe variants
 # preserve their reviewed entitlement contracts. --install uses Apple Development
-# signing and a real App Group provisioning profile instead of the ad-hoc CI path.
+# signing and a real App Group provisioning profile instead of the ad-hoc CI path;
+# it signs with the Team ID recorded in the Xcode project unless DEVELOPMENT_TEAM
+# overrides it.
 #
 # Usage: scripts/build.sh [Release|DirectProbe|SandboxProbe] [--clean] [--run] [--install] [--check] [--no-reveal]
 set -euo pipefail
@@ -45,16 +47,22 @@ if $CHECK; then
     "$ROOT/scripts/check-release-eligibility.sh" --status
     printf 'configuration: %s\n' "$CONFIGURATION"
     printf 'product:       %s\n' "$product"
-    $INSTALL && printf 'install:       /Applications/VaultSquire.app (Apple Development signing required)\n'
+    if $INSTALL; then
+        printf 'install:       /Applications/VaultSquire.app (Apple Development signing required)\n'
+        printf 'signing team:  %s\n' "$("$ROOT/scripts/install-local.sh" --print-team)"
+    fi
     exit 0
 fi
 
 if $INSTALL; then
     if $RUN; then
-        "$ROOT/scripts/install-local.sh" --run
+        install_mode=--run
+    elif $REVEAL; then
+        install_mode=--reveal
     else
-        "$ROOT/scripts/install-local.sh"
+        install_mode=--no-reveal
     fi
+    "$ROOT/scripts/install-local.sh" "$install_mode"
     exit 0
 fi
 

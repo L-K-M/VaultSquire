@@ -10,6 +10,39 @@ final class VaultwardenEncStringTests: XCTestCase {
         }
     }
 
+    /// A `Data` slice inherits its parent's indices, so a composite key split
+    /// with a bare `suffix(32)` hands out a MAC key that traps on `[0]`. Both
+    /// halves must be addressable from zero and must still carry the right
+    /// bytes.
+    func testCompositeKeyHalvesAreZeroBasedAndCarryTheCorrectBytes() throws {
+        let keyData = Data(hexFixture: VaultwardenCryptoFixtures.userKeyHex)!
+
+        let key = try VaultwardenSymmetricKey(keyData: keyData)
+
+        XCTAssertEqual(key.encryptionKey.startIndex, 0)
+        XCTAssertEqual(key.macKey.startIndex, 0)
+        XCTAssertEqual(key.encryptionKey.count, 32)
+        XCTAssertEqual(key.macKey.count, 32)
+        XCTAssertEqual(key.encryptionKey[0], keyData[0])
+        XCTAssertEqual(key.macKey[0], keyData[32])
+        XCTAssertEqual(key.macKey[31], keyData[63])
+    }
+
+    func testCompositeKeyRejectsEveryLengthButSixtyFour() {
+        for count in [0, 32, 63, 65, 128] {
+            XCTAssertThrowsError(
+                try VaultwardenSymmetricKey(keyData: Data(count: count)),
+                "\(count)"
+            ) { error in
+                XCTAssertEqual(
+                    error as? VaultwardenCryptoError,
+                    .invalidKeyMaterial,
+                    "\(count)"
+                )
+            }
+        }
+    }
+
     // CRYPTO-01: exact plaintext and serialization round trip.
     func testType2KnownAnswerDecryptsAndReserializes() throws {
         let parsed = try VaultwardenEncString.parse(

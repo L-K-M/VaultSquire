@@ -14,8 +14,14 @@ struct VaultwardenSymmetricKey: Sendable {
             throw VaultwardenCryptoError.invalidKeyMaterial
         }
 
-        encryptionKey = keyData.prefix(32)
-        macKey = keyData.suffix(32)
+        // Each half is copied into its own zero-based buffer instead of being
+        // kept as a slice of `keyData`. A `Data` slice inherits the parent's
+        // indices, so `keyData.suffix(32)` would produce a MAC key whose
+        // `startIndex` is 32 and whose `macKey[0]` traps at runtime. Every
+        // current caller passes the halves whole, which is why that has not
+        // bitten yet; the copy stops it from ever doing so.
+        encryptionKey = Data(keyData.prefix(32))
+        macKey = Data(keyData.suffix(32))
     }
 }
 

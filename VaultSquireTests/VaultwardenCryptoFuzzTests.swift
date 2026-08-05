@@ -25,8 +25,13 @@ private struct SplitMix64: RandomNumberGenerator {
 final class VaultwardenCryptoFuzzTests: XCTestCase {
     func testEncStringParserSurvivesRandomInputs() {
         var generator = SplitMix64(seed: 0x5153_4652_555A_5A31)
+        // Structural characters, the base64 alphabet, and hostile scalars: a
+        // NUL, a multi-byte letter, and a replacement character. The last three
+        // are written as escapes so they cannot be mistaken for mojibake, and
+        // so a future editor cannot silently normalize them away.
         let alphabet = Array(
-            "0123456789.|+/=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz%\u{0}é�FF"
+            "0123456789.|+/=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz%"
+                + "\u{0}\u{E9}\u{FFFD}FF"
         )
 
         for _ in 0..<8_000 {

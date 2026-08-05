@@ -113,13 +113,18 @@ enum VaultwardenKeyDerivation {
             throw VaultwardenCryptoError.invalidKeyMaterial
         }
 
-        let digest = try pbkdf2SHA256(
+        var digest = try pbkdf2SHA256(
             password: masterKey,
             salt: passwordBytes,
             iterations: 1,
             outputLength: 32
         )
-        return digest.base64EncodedString()
+        let encoded = digest.base64EncodedString()
+        // `digest` is a freshly allocated buffer this function solely owns, so
+        // zeroizing it here shortens the lifetime of derived key material
+        // without touching anything the caller still holds.
+        VaultwardenCryptoZeroize.zero(&digest)
+        return encoded
     }
 
     /// Stretches the 32-byte master key to 64 bytes with HKDF-SHA256 Expand

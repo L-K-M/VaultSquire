@@ -55,8 +55,12 @@ input; every fixture is synthetic `VSQ-Canary` material.
 Primitives come only from Apple system frameworks (CommonCrypto, CryptoKit,
 Security) — OS-supplied surfaces, not dependency candidates under ADR 0003.
 No cryptographic primitive is implemented from scratch. Best-effort
-zeroization is provided and documented as best-effort. No logging event is
-added, so the fixed-enum allowlist is unchanged.
+zeroization is provided, documented as best-effort, exercised by
+`authenticationHash` on the derived buffer it solely owns, and covered by a
+test; it is not a claim that no copy of key material survives elsewhere. The
+64-byte composite key copies each half into its own zero-based buffer instead
+of retaining index-inheriting `Data` slices. No logging event is added, so the
+fixed-enum allowlist is unchanged.
 
 ## Fixtures
 

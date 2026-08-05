@@ -159,6 +159,30 @@ final class VaultwardenKeyDerivationTests: XCTestCase {
         }
     }
 
+    /// `authenticationHash` zeroizes its own derived buffer before returning,
+    /// so the utility has a call site and a proof rather than only a doc
+    /// comment. Zeroization stays best effort: this asserts the buffer it is
+    /// handed is cleared, not that no copy ever existed elsewhere.
+    func testZeroizeClearsEveryByteOfTheMaterialItIsGiven() {
+        var material = Data(
+            hexFixture: VaultwardenCryptoFixtures.stretchedMasterKeyHex
+        )!
+        XCTAssertNotEqual(material, Data(count: 64))
+
+        VaultwardenCryptoZeroize.zero(&material)
+
+        XCTAssertEqual(material.count, 64)
+        XCTAssertEqual(material, Data(count: 64))
+    }
+
+    func testZeroizeAcceptsEmptyMaterial() {
+        var empty = Data()
+
+        VaultwardenCryptoZeroize.zero(&empty)
+
+        XCTAssertTrue(empty.isEmpty)
+    }
+
     func testAuthHashRejectsWrongMasterKeySize() {
         XCTAssertThrowsError(
             try VaultwardenKeyDerivation.authenticationHash(
