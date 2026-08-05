@@ -18,8 +18,13 @@ final class VaultwardenKeyUnwrapTests: XCTestCase {
     }
 
     func testUserKeyUnwrapWithWrongKeyFailsGenerically() {
+        // A wrong master password yields a wrong stretched key in both halves.
+        // Corrupt the MAC half (bytes 32-63) so authentication deterministically
+        // fails first and the generic integrity error is returned; corrupting
+        // only the encryption half would leave the MAC valid and reach a
+        // decrypt with a wrong key instead.
         var wrongKey = stretchedMasterKey
-        wrongKey[0] ^= 0xFF
+        wrongKey[40] ^= 0xFF
 
         XCTAssertThrowsError(
             try VaultwardenKeyUnwrap.unwrapUserKey(
