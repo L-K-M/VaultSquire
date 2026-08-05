@@ -73,7 +73,11 @@ final class EncryptedStoreTests: XCTestCase {
         try store.publish(makeCanarySnapshot(generation: 1))
 
         let result: EncryptedStoreError? = await Task {
-            // Cancel this task before the publish so the commit is refused.
+            // Self-cancel synchronously, before publish runs, so it observes
+            // cancellation deterministically. Cancelling the Task from outside
+            // after creation would race the body: publish reads Task.isCancelled
+            // with no suspension point before the call, so the flag must already
+            // be set when the body begins.
             withUnsafeCurrentTask { $0?.cancel() }
             do {
                 try store.publish(makeCanarySnapshot(generation: 2))

@@ -35,7 +35,7 @@ struct DatabaseKey: Sendable {
     /// production this is created once per account and sealed into the
     /// device-only Keychain; the raw value never leaves secure storage.
     static func generated() -> DatabaseKey {
-        let bytes = SymmetricKey(size: .bits256).withUnsafeBytes { Data(Array($0)) }
+        let bytes = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
         // Force-unwrap is safe: a 256-bit key is exactly `rawKeyByteCount` bytes.
         return DatabaseKey(rawKey: bytes)!
     }

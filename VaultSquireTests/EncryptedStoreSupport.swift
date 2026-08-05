@@ -80,8 +80,25 @@ final class InMemoryEncryptedStore: EncryptedStore, @unchecked Sendable {
             if lhs.revisionDate != rhs.revisionDate {
                 return lhs.revisionDate < rhs.revisionDate
             }
-            return lhs.itemID.rawValue < rhs.itemID.rawValue
+            // Tiebreak on the whole item identity, not just the raw value, so two
+            // spaces that share a raw value still order deterministically.
+            return Self.stableOrderingKey(lhs.itemID) < Self.stableOrderingKey(rhs.itemID)
         }
+    }
+
+    /// A fully-qualified, deterministic ordering key for a record: provider,
+    /// account, space scope, then item raw value. `VaultItemID` is not
+    /// `Comparable`, so the fake derives a total order here rather than cascading
+    /// a `Comparable` conformance through the production identity types.
+    private static func stableOrderingKey(_ id: VaultItemID) -> String {
+        let scope: String
+        switch id.space.scope {
+        case .personal:
+            scope = "personal"
+        case .providerSpace(let space):
+            scope = "space:\(space)"
+        }
+        return "\(id.account.provider.rawValue)|\(id.account.rawValue)|\(scope)|\(id.rawValue)"
     }
 
     func syncState(for account: AccountID) throws -> ProviderSyncState? {
