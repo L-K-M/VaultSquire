@@ -230,6 +230,34 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
         XCTAssertEqual(grant.formFields["two_factor_remember"], "1")
     }
 
+    func testResubmittedProofStillChallengedIsBadCredentials() async throws {
+        // Pins the classification path: a resubmitted proof whose grant still
+        // returns challenge maps is a rejected factor (bad credentials), decided
+        // in submitGrant/classify, not the defensive branch in completeTwoFactor.
+        stubConfig()
+        stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)
+        StubServer.shared.on("/connect/token", respond: .json(400, "{\"TwoFactorProviders2\":{\"0\":{}}}"))
+        StubServer.shared.on("/connect/token", respond: .json(400, "{\"TwoFactorProviders2\":{\"0\":{}}}"))
+
+        let authenticator = try makeAuthenticator()
+        let outcome = try await authenticator.login(
+            email: email, masterPasswordBytes: passwordBytes, device: device, lastAcceptedKDF: nil
+        )
+        guard case .twoFactorRequired(_, let pending) = outcome else {
+            return XCTFail("expected a 2FA challenge")
+        }
+
+        do {
+            _ = try await authenticator.completeTwoFactor(
+                pending,
+                proof: VaultwardenTwoFactorProof(provider: .authenticator, token: "000000", rememberDevice: false)
+            )
+            XCTFail("a still-challenged proof must be rejected")
+        } catch let error as VaultwardenAPIError {
+            XCTAssertEqual(error.category, .badCredentials)
+        }
+    }
+
     func testUnsupportedTwoFactorProofRejectedWithoutRequest() async throws {
         stubConfig()
         stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)

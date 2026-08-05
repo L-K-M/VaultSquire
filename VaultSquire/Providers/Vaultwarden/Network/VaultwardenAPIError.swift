@@ -30,9 +30,10 @@ enum VaultwardenRetryDisposition: Hashable, Sendable {
 
 /// A typed transport/auth error. `category`, `httpStatus`, `machineCode`, and
 /// `retry` are the machine-readable facts; `safeDisplayMessage` is the only
-/// field intended for humans and is scrubbed of secrets by construction (it is
-/// only ever a server-provided description or a fixed string, never a token,
-/// URL, or credential).
+/// field intended for humans. It is sourced only from a server-provided
+/// description/message field or a fixed fallback string (never from a token,
+/// URL, or submitted credential), but it is not actively redacted, so callers
+/// must not assume it is safe to log alongside secrets.
 struct VaultwardenAPIError: Error, Hashable, Sendable {
     let category: VaultwardenErrorCategory
     let httpStatus: Int?

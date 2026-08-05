@@ -68,11 +68,12 @@ final class VaultwardenLeakageTests: XCTestCase {
         }
     }
 
-    func testTypedErrorMessageOmitsTokensAndCodes() {
+    func testTypedErrorMessageOmitsTokensAndCodes() throws {
         // A server error whose body echoes a bearer token must not surface that
         // token: the decoder only lifts documented message fields, and a body
-        // with none falls back to a generic status string.
-        let body = try? JSONDecoder().decode(
+        // with none falls back to a generic status string. Decode with `try` so
+        // a decode failure fails the test rather than passing vacuously.
+        let body = try JSONDecoder().decode(
             VaultwardenErrorBody.self,
             from: Data(#"{"access_token":"leaked-token","unexpected":"x"}"#.utf8)
         )

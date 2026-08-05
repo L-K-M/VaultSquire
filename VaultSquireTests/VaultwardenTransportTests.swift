@@ -108,6 +108,12 @@ final class VaultwardenTransportTests: XCTestCase {
         XCTAssertNil(VaultwardenTransport.parseRetryAfter("-1"))
     }
 
+    func testRetryAfterIsCappedAtOneDay() {
+        // A far-future value must not disable retries for an arbitrary span.
+        XCTAssertEqual(VaultwardenTransport.parseRetryAfter("999999999"), 86_400)
+        XCTAssertEqual(VaultwardenTransport.parseRetryAfter("86400"), 86_400)
+    }
+
     func testRetryAfterHeaderSurfacedOn429() async throws {
         let transport = try VaultwardenTestFactory.stubbedTransport()
         StubServer.shared.on(

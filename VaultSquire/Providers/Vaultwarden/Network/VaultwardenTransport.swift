@@ -86,6 +86,10 @@ struct VaultwardenTransport: Sendable {
         configuration.httpShouldSetCookies = false
         configuration.urlCredentialStorage = nil
         configuration.httpCookieAcceptPolicy = .never
+        // Bound how long a request and its whole transfer may run, so a hung or
+        // slow-trickling server cannot hold a connection open indefinitely.
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
         return URLSession(configuration: configuration)
     }
 
@@ -187,7 +191,9 @@ struct VaultwardenTransport: Sendable {
             return nil
         }
 
-        return seconds
+        // Cap at 24 hours: RFC 7231 lets a recipient ignore a far-future value,
+        // so a hostile server cannot disable retries for an arbitrary span.
+        return min(seconds, 86_400)
     }
 
     static func encodeForm(_ fields: [String: String]) -> String {

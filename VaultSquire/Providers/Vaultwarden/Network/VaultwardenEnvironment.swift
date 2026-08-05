@@ -85,7 +85,9 @@ struct VaultwardenEnvironment: Hashable, Sendable {
             throw VaultwardenEnvironmentError.invalidURL
         }
 
-        let isLoopback = host == "localhost" || host == "127.0.0.1" || host == "::1"
+        let lowerHost = host.lowercased()
+        let isLoopback = lowerHost == "localhost" || lowerHost == "127.0.0.1"
+            || lowerHost == "::1"
         if scheme != "https" {
             guard allowInsecureLoopback, isLoopback else {
                 throw VaultwardenEnvironmentError.schemeNotHTTPS
