@@ -47,11 +47,17 @@ not reproducible byte-for-byte and must not be distributed.
 To install a local copy that can exercise the App Group entitlement:
 
 ```sh
+./scripts/build.sh --install
+./scripts/build.sh --install --run
 DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build.sh --install
-DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build.sh --install --run
 ```
 
-This path requires the Apple Developer account to own
+The Xcode project is authoritative for the Apple Developer Team ID exactly as it
+is for the version, so the first two commands need no environment variable; the
+script reads `DEVELOPMENT_TEAM` out of the project, prints which team it resolved
+and where it came from, and refuses to guess if the configurations ever disagree.
+The third form is for a contributor signing with a different Apple Developer
+account. This path requires the Apple Developer account to own
 `ch.lkmc.VaultSquire` and `group.ch.lkmc.VaultSquire`. Xcode obtains an Apple
 Development profile, and the script verifies the signature, embedded profile,
 Team ID, identifiers, App Group, version, architecture, and linked images before

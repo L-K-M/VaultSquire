@@ -121,10 +121,13 @@ Repository-only checks remain portable through `./scripts/check-repository.sh`.
 
 `./scripts/build.sh` is the family-standard local entry point and preserves the
 three reviewed product modes in `build-local.sh`. `./scripts/build.sh --check`
-prints its resolved contract without requiring macOS. A development-signed local
-installation requires the real Apple Team and uses
-`DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build.sh --install`; an ad-hoc artifact
-cannot validate App Group provisioning.
+prints its resolved contract, including the resolved signing team, without
+requiring macOS. A development-signed local installation uses
+`./scripts/build.sh --install`; it signs with the Apple Developer Team ID
+recorded in the Xcode project, and `DEVELOPMENT_TEAM=XXXXXXXXXX` overrides that
+for a contributor signing with a different Apple Developer account. An ad-hoc
+artifact cannot validate App Group provisioning, which is why this path needs a
+real team.
 
 `./scripts/release.sh --check` reports the version and release gate. Actual
 release execution is deliberately blocked in both the script and GitHub Actions
