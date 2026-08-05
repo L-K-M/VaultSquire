@@ -95,7 +95,7 @@ struct LockedShellView: View {
                 } label: {
                     Label("Add Account", systemImage: "person.badge.plus")
                 }
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut("n", modifiers: .command)
                 .accessibilityIdentifier("open-add-account")
 
                 Button {
@@ -103,6 +103,7 @@ struct LockedShellView: View {
                 } label: {
                     Label("Quick Search", systemImage: "magnifyingglass")
                 }
+                .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("open-quick-search")
 
                 SettingsLink {

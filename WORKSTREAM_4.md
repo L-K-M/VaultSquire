@@ -38,8 +38,9 @@ credential storage on top of the headless authenticator:
   warning, and an unsupported-only state, with Back preserving the non-secret
   fields. The master password is copied to bytes and the stored `String` is
   cleared immediately. The flow is presented as a sheet, so the app keeps its
-  single main window. Typed error categories map to fixed, secret-free
-  messages.
+  single main window (verified by
+  `testAddAccountOpensAsASheetWithoutASecondWindow`). Typed error categories
+  map to fixed, secret-free messages.
 
 Scope boundaries for this slice:
 
@@ -63,10 +64,13 @@ The headless slice's scope note below is retained unchanged.
 
 ### Headless Slice
 
-Per PLAN.md, this slice is the Phase 0 headless portion of Workstream 4 and
-does not pull the add-account UI or storage forward. Tokens and key material
-stay in memory; the caller owns them. No real vault or account data is valid
-test input; every fixture is synthetic `VSQ-Canary` material.
+Per PLAN.md, this slice was originally the Phase 0 headless portion of
+Workstream 4 and did not pull the add-account UI or storage forward; that
+boundary has since been extended by the addendum above, which is the current
+scope. The properties below describe the headless authenticator itself and
+still hold: tokens and key material stay in memory and the caller owns them.
+No real vault or account data is valid test input; every fixture is synthetic
+`VSQ-Canary` material.
 
 ## Implemented Surface
 

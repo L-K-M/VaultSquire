@@ -28,7 +28,8 @@ final class InMemoryCredentialStore: VaultwardenCredentialStore, @unchecked Send
         let existing = records[account.rawValue]
         records[account.rawValue] = VaultwardenStoredCredentials(
             refreshToken: token,
-            rememberedTwoFactorToken: existing?.rememberedTwoFactorToken
+            rememberedTwoFactorToken: existing?.rememberedTwoFactorToken,
+            version: existing?.version ?? VaultwardenStoredCredentials.currentVersion
         )
     }
 

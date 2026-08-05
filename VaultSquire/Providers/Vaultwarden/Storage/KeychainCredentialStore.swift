@@ -89,7 +89,8 @@ struct KeychainCredentialStore: VaultwardenCredentialStore {
         let existing = try load(for: account)
         let updated = VaultwardenStoredCredentials(
             refreshToken: token,
-            rememberedTwoFactorToken: existing?.rememberedTwoFactorToken
+            rememberedTwoFactorToken: existing?.rememberedTwoFactorToken,
+            version: existing?.version ?? VaultwardenStoredCredentials.currentVersion
         )
         try save(updated, for: account)
     }

@@ -18,6 +18,9 @@ struct TwoFactorChallengeView: View {
                 challengeForm
             }
         }
+        // A named container that still exposes its children individually; an
+        // identifier alone collapses the subtree into one element.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("two-factor-view")
     }
 
@@ -92,6 +95,7 @@ struct TwoFactorChallengeView: View {
             Button("Back") { model.returnToForm() }
                 .accessibilityIdentifier("two-factor-back")
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("two-factor-unsupported")
     }
 

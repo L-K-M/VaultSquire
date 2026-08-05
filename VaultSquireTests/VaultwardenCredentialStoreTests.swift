@@ -60,7 +60,11 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
             normalizedEmail: "user@example.com"
         )
         XCTAssertFalse(key.rawValue.contains("user@example.com"))
-        XCTAssertEqual(key.rawValue.count, 64) // SHA-256 hex
+        XCTAssertTrue(
+            key.rawValue.allSatisfy { $0.isHexDigit },
+            "expected a hex-encoded SHA-256 digest"
+        )
+        XCTAssertEqual(key.rawValue.count, 64)
     }
 
     // Exercises the real Keychain implementation end to end; skips when the
@@ -69,27 +73,27 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
         let store = KeychainCredentialStore(
             service: "ch.lkmc.VaultSquire.test.\(UUID().uuidString)"
         )
-        let account = VaultwardenAccountKey(rawValue: "test-\(UUID().uuidString)")
+        let keychainAccount = VaultwardenAccountKey(rawValue: "test-\(UUID().uuidString)")
         let credentials = VaultwardenStoredCredentials(
             refreshToken: "VSQ-Canary-refresh",
             rememberedTwoFactorToken: "VSQ-Canary-2fa"
         )
 
         do {
-            try store.save(credentials, for: account)
+            try store.save(credentials, for: keychainAccount)
         } catch VaultwardenCredentialStoreError.storeUnavailable(let status) {
             throw XCTSkip("Keychain unavailable on this host (OSStatus \(status)).")
         }
-        addTeardownBlock { try? store.delete(for: account) }
+        addTeardownBlock { try? store.delete(for: keychainAccount) }
 
-        XCTAssertEqual(try store.load(for: account), credentials)
+        XCTAssertEqual(try store.load(for: keychainAccount), credentials)
 
-        try store.replaceRefreshToken("VSQ-Canary-refresh-2", for: account)
-        let updated = try store.load(for: account)
+        try store.replaceRefreshToken("VSQ-Canary-refresh-2", for: keychainAccount)
+        let updated = try store.load(for: keychainAccount)
         XCTAssertEqual(updated?.refreshToken, "VSQ-Canary-refresh-2")
         XCTAssertEqual(updated?.rememberedTwoFactorToken, "VSQ-Canary-2fa")
 
-        try store.delete(for: account)
-        XCTAssertNil(try store.load(for: account))
+        try store.delete(for: keychainAccount)
+        XCTAssertNil(try store.load(for: keychainAccount))
     }
 }

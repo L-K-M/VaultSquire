@@ -20,6 +20,10 @@ struct AddAccountView: View {
         }
         .padding(24)
         .frame(width: 420)
+        // Keep this a named container that still exposes its children as
+        // individual accessibility elements; applying an identifier alone
+        // collapses the subtree into one element under macOS SwiftUI.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("add-account-view")
     }
 
@@ -92,6 +96,7 @@ struct AddAccountView: View {
                     .accessibilityIdentifier("add-account-done")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("add-account-success")
     }
 

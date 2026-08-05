@@ -117,6 +117,30 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertNil(store.record(for: .primary))
     }
 
+    func testMissingRefreshTokenFailsRatherThanReportingSuccess() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        StubServer.shared.on("/api/config", respond: .json(200, "{}"))
+        StubServer.shared.on(
+            "/accounts/prelogin/password",
+            respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
+        )
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":null,\"TwoFactorToken\":null}")
+        )
+
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        await model.signIn()
+
+        guard case .failed = model.phase else {
+            return XCTFail("a session without a refresh token must not report success")
+        }
+        XCTAssertNil(store.record(for: .primary), "nothing durable should be stored")
+    }
+
     func testTwoFactorChallengeThenSuccessStoresRememberedToken() async {
         let store = InMemoryCredentialStore()
         let model = makeModel(store: store)

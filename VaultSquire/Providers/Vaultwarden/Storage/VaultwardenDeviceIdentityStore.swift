@@ -23,7 +23,12 @@ enum VaultwardenDeviceIdentityStore {
     }
 
     static func defaultDeviceName() -> String {
-        let name = Host.current().localizedName
-        return (name?.isEmpty == false ? name : nil) ?? "Mac"
+        // ProcessInfo reads the local host name without the deprecated `Host`
+        // API. Trim a trailing ".local" so the device label reads cleanly.
+        var name = ProcessInfo.processInfo.hostName
+        if name.hasSuffix(".local") {
+            name = String(name.dropLast(".local".count))
+        }
+        return name.isEmpty ? "Mac" : name
     }
 }

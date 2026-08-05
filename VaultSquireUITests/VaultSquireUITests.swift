@@ -51,8 +51,10 @@ final class VaultSquireUITests: XCTestCase {
         app.buttons["open-add-account"].click()
 
         XCTAssertTrue(element("add-account-view", in: app).waitForExistence(timeout: 2))
-        // The sign-in form rendered its primary action.
+        // The sign-in form rendered its fields and primary action.
         XCTAssertTrue(app.buttons["add-account-submit"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.textFields["add-account-url"].exists)
+        XCTAssertTrue(app.secureTextFields["add-account-password"].exists)
         // The flow is a sheet over the single main window, so the locked shell
         // is never duplicated.
         XCTAssertEqual(

@@ -1,6 +1,14 @@
 import Foundation
 import SwiftUI
 
+/// Failures that originate in the add-account flow itself rather than the
+/// network layer.
+enum AddAccountError: Error {
+    /// The server authenticated the account but returned no refresh token, so
+    /// there is nothing durable to persist.
+    case missingRefreshToken
+}
+
 /// Rejects a differing effective origin. Interactive approval of a
 /// cross-origin server is a later enhancement; until then the sign-in fails
 /// closed with a clear message, and credentials never leave for an
@@ -127,6 +135,8 @@ final class AddAccountModel: ObservableObject, Identifiable {
                 self.pending = pending
                 presentChallenge(challenge)
             }
+        } catch AddAccountError.missingRefreshToken {
+            fail(with: "The server did not return the tokens needed to stay signed in.")
         } catch let error as VaultwardenAPIError {
             fail(with: error.safeDisplayMessage)
         } catch {
@@ -170,6 +180,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
             if let environment = try? VaultwardenEnvironment(configuredURL: serverURL) {
                 onAccountConfigured(environment.base)
             }
+        } catch AddAccountError.missingRefreshToken {
+            phase = .challenged
+            self.failureMessage = "The server did not return the tokens needed to stay signed in."
         } catch let error as VaultwardenAPIError {
             phase = .challenged
             self.failureMessage = error.safeDisplayMessage
@@ -202,9 +215,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
 
     private func store(_ session: VaultwardenAuthSession) throws {
         guard let refreshToken = session.refreshToken else {
-            // Without a refresh token there is nothing durable to persist; the
-            // access token stays in memory only.
-            return
+            // A session with no refresh token has nothing durable to persist,
+            // so reporting success would strand the account with nothing to
+            // unlock with on the next launch. Surface it as a failure instead.
+            throw AddAccountError.missingRefreshToken
         }
 
         let credentials = VaultwardenStoredCredentials(
