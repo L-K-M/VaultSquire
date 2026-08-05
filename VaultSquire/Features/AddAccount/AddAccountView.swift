@@ -39,13 +39,13 @@ struct AddAccountView: View {
                 labeledField("Server URL") {
                     TextField("https://vault.example.com", text: $model.serverURL)
                         .textContentType(.URL)
-                        .disableAutocorrection(true)
+                        .autocorrectionDisabled()
                         .accessibilityIdentifier("add-account-url")
                 }
                 labeledField("Email") {
                     TextField("you@example.com", text: $model.email)
                         .textContentType(.username)
-                        .disableAutocorrection(true)
+                        .autocorrectionDisabled()
                         .accessibilityIdentifier("add-account-email")
                 }
                 labeledField("Master Password") {

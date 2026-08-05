@@ -79,21 +79,35 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
             rememberedTwoFactorToken: "VSQ-Canary-2fa"
         )
 
-        do {
-            try store.save(credentials, for: keychainAccount)
-        } catch VaultwardenCredentialStoreError.storeUnavailable(let status) {
-            throw XCTSkip("Keychain unavailable on this host (OSStatus \(status)).")
-        }
+        // Every Keychain operation converts a store-unavailable status into a
+        // skip, so a host that loses Keychain access partway through skips
+        // rather than fails.
+        try skippingIfUnavailable { try store.save(credentials, for: keychainAccount) }
         addTeardownBlock { try? store.delete(for: keychainAccount) }
 
-        XCTAssertEqual(try store.load(for: keychainAccount), credentials)
+        XCTAssertEqual(
+            try skippingIfUnavailable { try store.load(for: keychainAccount) }, credentials
+        )
 
-        try store.replaceRefreshToken("VSQ-Canary-refresh-2", for: keychainAccount)
-        let updated = try store.load(for: keychainAccount)
+        try skippingIfUnavailable {
+            try store.replaceRefreshToken("VSQ-Canary-refresh-2", for: keychainAccount)
+        }
+        let updated = try skippingIfUnavailable { try store.load(for: keychainAccount) }
         XCTAssertEqual(updated?.refreshToken, "VSQ-Canary-refresh-2")
         XCTAssertEqual(updated?.rememberedTwoFactorToken, "VSQ-Canary-2fa")
 
-        try store.delete(for: keychainAccount)
-        XCTAssertNil(try store.load(for: keychainAccount))
+        try skippingIfUnavailable { try store.delete(for: keychainAccount) }
+        XCTAssertNil(try skippingIfUnavailable { try store.load(for: keychainAccount) })
+    }
+
+    /// Runs a Keychain operation, converting a store-unavailable status into an
+    /// `XCTSkip` so the test skips (rather than fails) on a host without
+    /// Keychain access.
+    private func skippingIfUnavailable<T>(_ block: () throws -> T) throws -> T {
+        do {
+            return try block()
+        } catch VaultwardenCredentialStoreError.storeUnavailable(let status) {
+            throw XCTSkip("Keychain unavailable on this host (OSStatus \(status)).")
+        }
     }
 }

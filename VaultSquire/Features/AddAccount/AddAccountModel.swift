@@ -137,6 +137,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
             }
         } catch AddAccountError.missingRefreshToken {
             fail(with: "The server did not return the tokens needed to stay signed in.")
+        } catch is VaultwardenCredentialStoreError {
+            // Authentication succeeded; only the local save failed. Say so
+            // rather than implying the password was wrong.
+            fail(with: "Authentication succeeded, but the credentials could not be saved. Please try again.")
         } catch let error as VaultwardenAPIError {
             fail(with: error.safeDisplayMessage)
         } catch {
@@ -174,8 +178,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
         )
         do {
             let session = try await authenticator.completeTwoFactor(pending, proof: proof)
-            twoFactorCode = ""
             try store(session)
+            // Clear the code only once storage has succeeded, so a save failure
+            // does not also blank the field.
+            twoFactorCode = ""
             phase = .succeeded
             if let environment = try? VaultwardenEnvironment(configuredURL: serverURL) {
                 onAccountConfigured(environment.base)
@@ -183,6 +189,11 @@ final class AddAccountModel: ObservableObject, Identifiable {
         } catch AddAccountError.missingRefreshToken {
             phase = .challenged
             self.failureMessage = "The server did not return the tokens needed to stay signed in."
+        } catch is VaultwardenCredentialStoreError {
+            // The code was accepted; only the local save failed. Do not claim
+            // the code was rejected.
+            phase = .challenged
+            self.failureMessage = "Verification succeeded, but the credentials could not be saved. Please start over."
         } catch let error as VaultwardenAPIError {
             phase = .challenged
             self.failureMessage = error.safeDisplayMessage

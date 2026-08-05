@@ -18,7 +18,7 @@ final class AddAccountModelTests: XCTestCase {
     }
 
     private func makeModel(
-        store: InMemoryCredentialStore
+        store: any VaultwardenCredentialStore
     ) -> AddAccountModel {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
@@ -139,6 +139,24 @@ final class AddAccountModelTests: XCTestCase {
             return XCTFail("a session without a refresh token must not report success")
         }
         XCTAssertNil(store.record(for: .primary), "nothing durable should be stored")
+    }
+
+    func testCredentialStoreFailureIsReportedAsASaveFailureNotABadPassword() async {
+        let model = makeModel(store: FailingCredentialStore())
+        stubSuccessfulLogin()
+
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        await model.signIn()
+
+        guard case .failed(let message) = model.phase else {
+            return XCTFail("a credential-store failure must surface as a failure")
+        }
+        XCTAssertTrue(
+            message.contains("could not be saved"),
+            "the message should indicate a save failure, not a rejected password"
+        )
     }
 
     func testTwoFactorChallengeThenSuccessStoresRememberedToken() async {

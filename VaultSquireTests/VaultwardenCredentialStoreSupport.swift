@@ -1,4 +1,5 @@
 import Foundation
+import Security
 @testable import VaultSquire
 
 /// In-memory credential store for logic tests. Mirrors the atomic
@@ -38,9 +39,30 @@ final class InMemoryCredentialStore: VaultwardenCredentialStore, @unchecked Send
         records[account.rawValue] = nil
     }
 
-    /// Test-only direct read.
+    /// Test-only, non-throwing direct read. Kept alongside `load(for:)` so
+    /// add-account assertions can read a record without a `try`; used by
+    /// `AddAccountModelTests`.
     func record(for account: VaultwardenAccountKey) -> VaultwardenStoredCredentials? {
         lock.lock(); defer { lock.unlock() }
         return records[account.rawValue]
     }
+}
+
+/// A credential store whose writes always report the platform store as
+/// unavailable, for exercising the credential-store-failure path where the
+/// server authenticated but the local save could not complete.
+struct FailingCredentialStore: VaultwardenCredentialStore {
+    func save(_ credentials: VaultwardenStoredCredentials, for account: VaultwardenAccountKey) throws {
+        throw VaultwardenCredentialStoreError.storeUnavailable(errSecMissingEntitlement)
+    }
+
+    func load(for account: VaultwardenAccountKey) throws -> VaultwardenStoredCredentials? {
+        nil
+    }
+
+    func replaceRefreshToken(_ token: String, for account: VaultwardenAccountKey) throws {
+        throw VaultwardenCredentialStoreError.storeUnavailable(errSecMissingEntitlement)
+    }
+
+    func delete(for account: VaultwardenAccountKey) throws {}
 }
