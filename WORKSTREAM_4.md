@@ -1,15 +1,67 @@
 # Workstream 4 Environment, Transport, And Authentication Record
 
-- Status: headless slice implemented; automated exit criteria run in the
-  `macOS Product` lane via `scripts/ci.sh`; the merged PR's green run is the
-  controlling evidence
+- Status: headless slice and the add-account UI / Keychain slice implemented;
+  automated exit criteria run in the `macOS Product` lane via `scripts/ci.sh`;
+  the merged PR's green run is the controlling evidence
 - Owner: `L-K-M`
 - Started: 2026-08-05
-- Scope: the HEADLESS discovery/authentication contract slice only — URL and
+- Scope: the HEADLESS discovery/authentication contract slice — URL and
   environment parsing, an ephemeral bounded HTTP transport, `/api/config`
   discovery, prelogin, the password token grant, 2FA continuation, token
-  refresh, and a typed error taxonomy. No account UI, no persistence, and no
-  Keychain (those are the remainder of Workstream 4 and later workstreams).
+  refresh, and a typed error taxonomy — plus the add-account UI, the 2FA
+  challenge screen, and Keychain credential storage (see the addendum below).
+
+## Add-Account UI And Keychain Storage Addendum
+
+The remainder of Workstream 4 adds the user-facing sign-in flow and durable
+credential storage on top of the headless authenticator:
+
+- **Credential storage** (`Providers/Vaultwarden/Storage/`). A
+  `VaultwardenCredentialStore` protocol with a `KeychainCredentialStore`
+  implementation stores only the refresh token and, when the user chose to be
+  remembered, the remembered second-factor token — never the access token
+  (memory only) and never the master password. Records use the Data Protection
+  Keychain (`kSecUseDataProtectionKeychain`),
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, and
+  `kSecAttrSynchronizable = false`, carry a version label, and are keyed by an
+  opaque account key (the single-account `primary` key here; a SHA-256-derived
+  per-account key is provided for the later multi-account workstream, so no
+  email appears in Keychain metadata). The refresh token is replaced with an
+  atomic `SecItemUpdate` that preserves the remembered token. A persistent
+  random device identifier is retained in app preferences (a non-secret
+  installation identifier).
+- **Add-account UI** (`Features/AddAccount/`). One SwiftUI form (server URL,
+  email, master password in a `SecureField`) drives the M03 authenticator; on
+  a second-factor challenge it swaps to a challenge screen showing only the
+  server-advertised, user-completable providers (authenticator, email,
+  recovery code), a remembered-device toggle, a recovery-code destructive
+  warning, and an unsupported-only state, with Back preserving the non-secret
+  fields. The master password is copied to bytes and the stored `String` is
+  cleared immediately. The flow is presented as a sheet, so the app keeps its
+  single main window. Typed error categories map to fixed, secret-free
+  messages.
+
+Scope boundaries for this slice:
+
+- **Interactive origin/KDF approval is deferred.** A differing effective origin
+  or a KDF change fails closed with a clear message (credentials never leave
+  for an unconfirmed origin). First-login same-origin servers — the common
+  case — invoke neither policy. Interactive approval of a different origin is a
+  follow-up.
+- **No unlock or vault display.** The flow ends at "account configured,
+  credentials stored"; unlock, sync, and the vault UI are Workstreams 5-7.
+  Reloading the stored credentials on a later launch is Workstream 5.
+- **Keychain testing under ad-hoc signing.** The CI host is ad-hoc signed with
+  no keychain-access-group entitlement, so the `KeychainCredentialStore`
+  round-trip test `XCTSkip`s when the store reports itself unavailable; the
+  storage logic (atomic replacement, delete, round-trip) is fully covered by an
+  in-memory store, and the add-account flow is driven end to end against the
+  `URLProtocol` stub. Real-Keychain behavior on named hardware remains contract
+  evidence.
+
+The headless slice's scope note below is retained unchanged.
+
+### Headless Slice
 
 Per PLAN.md, this slice is the Phase 0 headless portion of Workstream 4 and
 does not pull the add-account UI or storage forward. Tokens and key material

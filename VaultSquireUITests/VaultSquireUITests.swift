@@ -44,6 +44,24 @@ final class VaultSquireUITests: XCTestCase {
     }
 
     @MainActor
+    func testAddAccountOpensAsASheetWithoutASecondWindow() {
+        let app = launchApp()
+        defer { app.terminate() }
+
+        app.buttons["open-add-account"].click()
+
+        XCTAssertTrue(element("add-account-view", in: app).waitForExistence(timeout: 2))
+        XCTAssertTrue(app.textFields["add-account-url"].exists)
+        XCTAssertTrue(app.secureTextFields["add-account-password"].exists)
+        // The add-account flow is a sheet over the single main window.
+        XCTAssertEqual(app.windows.count, 1)
+        XCTAssertEqual(
+            app.descendants(matching: .any).matching(identifier: "locked-shell").count,
+            1
+        )
+    }
+
+    @MainActor
     private func launchApp() -> XCUIApplication {
         continueAfterFailure = false
 

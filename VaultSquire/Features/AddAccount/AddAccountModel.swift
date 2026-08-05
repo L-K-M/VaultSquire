@@ -1,0 +1,237 @@
+import Foundation
+import SwiftUI
+
+/// Rejects a differing effective origin. Interactive approval of a
+/// cross-origin server is a later enhancement; until then the sign-in fails
+/// closed with a clear message, and credentials never leave for an
+/// unconfirmed origin. First-login same-origin servers never invoke this.
+struct RejectDifferingOriginPolicy: VaultwardenOriginApprovalPolicy {
+    func approve(
+        entered: VaultwardenOrigin,
+        effectiveIdentity: VaultwardenOrigin,
+        effectiveAPI: VaultwardenOrigin
+    ) async -> Bool {
+        false
+    }
+}
+
+/// Rejects a KDF change. First login has no baseline and is not routed here;
+/// a genuine change on a later re-authentication fails closed until the
+/// interactive confirmation UI exists.
+struct RejectKDFChangePolicy: VaultwardenKDFChangePolicy {
+    func confirmChange(
+        from last: VaultwardenKDFConfiguration?,
+        to next: VaultwardenKDFConfiguration
+    ) async -> VaultwardenKDFChangeDecision {
+        .reject
+    }
+}
+
+/// Drives the add-account and 2FA flow for the UI. It validates the entered
+/// server URL locally, runs the M03 login transaction, stores the resulting
+/// tokens in the credential store, and exposes only non-secret display state.
+/// The master password is held for the shortest time needed to derive the
+/// login proof and is cleared immediately afterward.
+@MainActor
+final class AddAccountModel: ObservableObject, Identifiable {
+    nonisolated let id = UUID()
+
+    enum Phase: Equatable {
+        case editing
+        case connecting
+        case challenged
+        case succeeded
+        case failed(String)
+    }
+
+    @Published var serverURL: String = ""
+    @Published var email: String = ""
+    @Published var masterPassword: String = ""
+    @Published private(set) var phase: Phase = .editing
+
+    /// The user-completable providers offered by the server, populated when a
+    /// challenge is presented.
+    @Published private(set) var offeredProviders: [VaultwardenTwoFactorProvider] = []
+    @Published private(set) var hasUnsupportedOnlyChallenge = false
+    @Published var twoFactorCode: String = ""
+    @Published var selectedProvider: VaultwardenTwoFactorProvider?
+    @Published var rememberDevice = false
+    /// A non-blocking failure message shown on the challenge screen without
+    /// leaving it.
+    @Published private(set) var failureMessage: String?
+
+    private let makeTransport: @Sendable (VaultwardenEnvironment) -> VaultwardenTransport
+    private let credentialStore: any VaultwardenCredentialStore
+    private let deviceIdentity: VaultwardenDeviceIdentity
+    private let onAccountConfigured: @MainActor (URL) -> Void
+
+    private var pending: VaultwardenPendingTwoFactor?
+    private var authenticator: VaultwardenAuthenticator?
+
+    init(
+        credentialStore: any VaultwardenCredentialStore,
+        deviceIdentity: VaultwardenDeviceIdentity,
+        makeTransport: @escaping @Sendable (VaultwardenEnvironment) -> VaultwardenTransport = { VaultwardenTransport(environment: $0) },
+        onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in }
+    ) {
+        self.credentialStore = credentialStore
+        self.deviceIdentity = deviceIdentity
+        self.makeTransport = makeTransport
+        self.onAccountConfigured = onAccountConfigured
+    }
+
+    var canSubmit: Bool {
+        !serverURL.trimmingCharacters(in: .whitespaces).isEmpty
+            && !email.trimmingCharacters(in: .whitespaces).isEmpty
+            && !masterPassword.isEmpty
+            && phase != .connecting
+    }
+
+    /// Validates the URL and runs the login transaction. On a 2FA challenge the
+    /// phase moves to `.challenged`; on success the credentials are stored.
+    func signIn() async {
+        phase = .connecting
+
+        let environment: VaultwardenEnvironment
+        do {
+            environment = try VaultwardenEnvironment(configuredURL: serverURL)
+        } catch {
+            fail(with: Self.message(forURLError: error))
+            return
+        }
+
+        let authenticator = VaultwardenAuthenticator(
+            transport: makeTransport(environment),
+            kdfChangePolicy: RejectKDFChangePolicy(),
+            originApprovalPolicy: RejectDifferingOriginPolicy()
+        )
+        self.authenticator = authenticator
+
+        // Copy the password bytes and clear the stored String promptly.
+        let passwordBytes = Data(masterPassword.utf8)
+        masterPassword = ""
+
+        do {
+            let outcome = try await authenticator.login(
+                email: email,
+                masterPasswordBytes: passwordBytes,
+                device: deviceIdentity,
+                lastAcceptedKDF: nil
+            )
+            switch outcome {
+            case .authenticated(let session):
+                try store(session)
+                phase = .succeeded
+                onAccountConfigured(environment.base)
+            case .twoFactorRequired(let challenge, let pending):
+                self.pending = pending
+                presentChallenge(challenge)
+            }
+        } catch let error as VaultwardenAPIError {
+            fail(with: error.safeDisplayMessage)
+        } catch {
+            fail(with: "Sign in could not be completed.")
+        }
+    }
+
+    /// Requests the email second-factor challenge for the selected provider.
+    func sendEmailChallengeIfNeeded() async {
+        guard let authenticator, let pending,
+              selectedProvider?.requiresChallengeDispatch == true else {
+            return
+        }
+
+        do {
+            try await authenticator.sendEmailChallenge(pending: pending)
+        } catch let error as VaultwardenAPIError {
+            fail(with: error.safeDisplayMessage)
+        } catch {
+            fail(with: "The verification email could not be sent.")
+        }
+    }
+
+    /// Submits the entered second-factor code for the selected provider.
+    func submitTwoFactor() async {
+        guard let authenticator, let pending, let provider = selectedProvider else {
+            return
+        }
+        phase = .connecting
+
+        let proof = VaultwardenTwoFactorProof(
+            provider: provider,
+            token: twoFactorCode,
+            rememberDevice: rememberDevice
+        )
+        do {
+            let session = try await authenticator.completeTwoFactor(pending, proof: proof)
+            twoFactorCode = ""
+            try store(session)
+            phase = .succeeded
+            if let environment = try? VaultwardenEnvironment(configuredURL: serverURL) {
+                onAccountConfigured(environment.base)
+            }
+        } catch let error as VaultwardenAPIError {
+            phase = .challenged
+            self.failureMessage = error.safeDisplayMessage
+        } catch {
+            phase = .challenged
+            self.failureMessage = "The verification code was not accepted."
+        }
+    }
+
+    /// Returns from the challenge to the form, preserving the non-secret URL
+    /// and email fields.
+    func returnToForm() {
+        pending = nil
+        offeredProviders = []
+        selectedProvider = nil
+        twoFactorCode = ""
+        rememberDevice = false
+        failureMessage = nil
+        phase = .editing
+    }
+
+    // MARK: - Private
+
+    private func presentChallenge(_ challenge: VaultwardenTwoFactorChallenge) {
+        offeredProviders = challenge.completableProviders
+        hasUnsupportedOnlyChallenge = challenge.hasNoCompletableProvider
+        selectedProvider = challenge.completableProviders.first
+        phase = .challenged
+    }
+
+    private func store(_ session: VaultwardenAuthSession) throws {
+        guard let refreshToken = session.refreshToken else {
+            // Without a refresh token there is nothing durable to persist; the
+            // access token stays in memory only.
+            return
+        }
+
+        let credentials = VaultwardenStoredCredentials(
+            refreshToken: refreshToken,
+            rememberedTwoFactorToken: session.rememberTwoFactorToken
+        )
+        try credentialStore.save(credentials, for: .primary)
+    }
+
+    private func fail(with message: String) {
+        phase = .failed(message)
+    }
+
+    private static func message(forURLError error: Error) -> String {
+        guard let environmentError = error as? VaultwardenEnvironmentError else {
+            return "Enter a valid server URL."
+        }
+
+        switch environmentError {
+        case .schemeNotHTTPS:
+            return "The server URL must use HTTPS."
+        case .userInfoNotAllowed:
+            return "Remove the username and password from the server URL."
+        case .queryNotAllowed, .fragmentNotAllowed:
+            return "Remove the query or fragment from the server URL."
+        case .unsupportedScheme, .invalidURL:
+            return "Enter a valid HTTPS server URL."
+        }
+    }
+}

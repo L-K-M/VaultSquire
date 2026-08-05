@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LockedShellView: View {
     @EnvironmentObject private var appModel: AppModel
+    @State private var addAccountModel: AddAccountModel?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -12,6 +13,9 @@ struct LockedShellView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("locked-shell")
+        .sheet(item: $addAccountModel) { model in
+            AddAccountView(model: model) { addAccountModel = nil }
+        }
     }
 
     private var identityRail: some View {
@@ -84,11 +88,21 @@ struct LockedShellView: View {
 
             HStack(spacing: 12) {
                 Button {
+                    addAccountModel = AddAccountModel(
+                        credentialStore: KeychainCredentialStore(),
+                        deviceIdentity: VaultwardenDeviceIdentityStore.current()
+                    )
+                } label: {
+                    Label("Add Account", systemImage: "person.badge.plus")
+                }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("open-add-account")
+
+                Button {
                     ApplicationCoordinator.shared.showQuickSearch()
                 } label: {
                     Label("Quick Search", systemImage: "magnifyingglass")
                 }
-                .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("open-quick-search")
 
                 SettingsLink {
