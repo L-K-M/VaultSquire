@@ -51,32 +51,66 @@ candidate_developer_dirs() {
     return 0
 }
 
-resolve_developer_dir() {
-    local candidate
+# Survey every distinct candidate once, emitting "path<TAB>version-or-status" in
+# search order. The candidate list overlaps by design — the xcode-select
+# selection is usually /Applications/Xcode.app, which the glob finds again — so
+# deduplicating here keeps one real Xcode from being reported as three.
+developer_dir_survey() {
+    local candidate previous seen
     local considered=""
     while IFS= read -r candidate; do
-        [[ -n "$candidate" && -d "$candidate" ]] || continue
-        case "$considered" in
-            *"|$candidate|"*) continue ;;
-        esac
-        considered="$considered|$candidate|"
-        if [[ "$(developer_dir_version "$candidate" || true)" == "Xcode $REQUIRED_XCODE_VERSION" ]]; then
-            printf '%s\n' "$candidate"
+        [[ -n "$candidate" ]] || continue
+        seen=false
+        while IFS= read -r previous; do
+            [[ "$previous" == "$candidate" ]] && { seen=true; break; }
+        done <<<"$considered"
+        $seen && continue
+        considered="$considered$candidate"$'\n'
+        if [[ -d "$candidate" ]]; then
+            printf '%s\t%s\n' "$candidate" "$(developer_dir_version "$candidate" || echo 'no xcodebuild')"
+        else
+            printf '%s\tabsent\n' "$candidate"
+        fi
+    done < <(candidate_developer_dirs)
+    return 0
+}
+
+resolve_developer_dir() {
+    local survey path status found_an_xcode=false
+    survey="$(developer_dir_survey)"
+
+    while IFS=$'\t' read -r path status; do
+        [[ -n "$path" ]] || continue
+        if [[ "$status" == "Xcode $REQUIRED_XCODE_VERSION" ]]; then
+            printf '%s\n' "$path"
             return 0
         fi
-    done < <(candidate_developer_dirs)
+        [[ "$status" == Xcode\ * ]] && found_an_xcode=true
+    done <<<"$survey"
 
     printf 'No Xcode %s developer directory was found. Searched:\n' "$REQUIRED_XCODE_VERSION" >&2
-    while IFS= read -r candidate; do
-        [[ -n "$candidate" ]] || continue
-        if [[ -d "$candidate" ]]; then
-            printf '  %s (%s)\n' "$candidate" "$(developer_dir_version "$candidate" || echo 'no xcodebuild')" >&2
-        else
-            printf '  %s (absent)\n' "$candidate" >&2
-        fi
-    done < <(candidate_developer_dirs)
-    printf 'Install Xcode %s, or point at it explicitly:\n' "$REQUIRED_XCODE_VERSION" >&2
-    printf '  DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer %s\n' "$0" >&2
+    while IFS=$'\t' read -r path status; do
+        [[ -n "$path" ]] || continue
+        printf '  %s (%s)\n' "$path" "$status" >&2
+    done <<<"$survey"
+
+    if $found_an_xcode; then
+        # DEVELOPER_DIR is not an escape hatch here: the version check below runs
+        # against whatever it selects, so pointing at the wrong version still
+        # fails. Say so instead of suggesting a remedy that cannot work.
+        printf 'Xcode is installed but not at the pinned version. %s is pinned exactly\n' "$REQUIRED_XCODE_VERSION" >&2
+        printf '(WORKSTREAM_1.md), and DEVELOPER_DIR does not bypass that check.\n' >&2
+        printf 'Install Xcode %s alongside the one you have, from\n' "$REQUIRED_XCODE_VERSION" >&2
+        printf 'https://developer.apple.com/download/all/?q=xcode, as\n' >&2
+        printf '  /Applications/Xcode_%s.app\n' "$REQUIRED_XCODE_VERSION" >&2
+        printf 'which is searched first and is the name the hosted runner uses. Keep the\n' >&2
+        printf 'existing Xcode: this never changes the xcode-select selection. Changing the\n' >&2
+        printf 'pin instead is a reviewed change across this script, the workflows, and\n' >&2
+        printf 'WORKSTREAM_1.md, and it also has to fit the runner image.\n' >&2
+    else
+        printf 'Install Xcode %s, or point at it explicitly:\n' "$REQUIRED_XCODE_VERSION" >&2
+        printf '  DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer %s\n' "$0" >&2
+    fi
     return 2
 }
 
