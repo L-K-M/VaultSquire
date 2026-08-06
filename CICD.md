@@ -27,7 +27,11 @@ GitHub Releases are enabled. Those repository controls are not configured yet.
 
 ## Local Builds
 
-On native Apple Silicon with Xcode 26.3:
+On native Apple Silicon with Xcode 26.3 installed anywhere the scripts can find
+it — `/Applications/Xcode.app`, the `xcode-select` selection, the hosted
+runner's `/Applications/Xcode_26.3.app`, or any other `/Applications/Xcode*.app`
+— or with `DEVELOPER_DIR` pointing at it explicitly. The version is pinned; the
+path is not, and no other version is accepted:
 
 ```sh
 ./scripts/build.sh

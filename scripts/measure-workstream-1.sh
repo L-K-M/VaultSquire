@@ -3,7 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$ROOT/DerivedData/Performance}"
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode_26.3.app/Contents/Developer}"
+# The pinned Xcode version is fixed; its install path is not. Resolution and
+# the version pin both live in verify-toolchain.sh.
+DEVELOPER_DIR="${DEVELOPER_DIR:-$("$ROOT/scripts/verify-toolchain.sh" --print-developer-dir)}"
+export DEVELOPER_DIR
 
 "$ROOT/scripts/verify-toolchain.sh"
 

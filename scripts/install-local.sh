@@ -16,7 +16,6 @@ INSTALL_PATH="${INSTALL_PATH:-/Applications/VaultSquire.app}"
 RUN=false
 REVEAL=true
 PRINT_TEAM=false
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode_26.3.app/Contents/Developer}"
 
 usage() {
     printf 'Usage: [DEVELOPMENT_TEAM=XXXXXXXXXX] %s [--run|--reveal|--no-reveal]\n' "$0" >&2
@@ -67,6 +66,10 @@ fi
     printf 'INSTALL_PATH is fixed to /Applications/VaultSquire.app.\n' >&2
     exit 2
 }
+# Resolved after --print-team exits, so that mode stays portable for
+# `build.sh --check --install` on a host with no Xcode at all.
+DEVELOPER_DIR="${DEVELOPER_DIR:-$("$ROOT/scripts/verify-toolchain.sh" --print-developer-dir)}"
+export DEVELOPER_DIR
 printf 'Signing with Apple Developer Team %s from %s.\n' "$DEVELOPMENT_TEAM" "$TEAM_SOURCE"
 
 "$ROOT/scripts/verify-toolchain.sh"
