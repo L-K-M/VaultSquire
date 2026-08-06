@@ -47,7 +47,7 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 | Property | Required value | Observed value |
 |---|---|---|
 | Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30696406614` |
-| Xcode | `26.3` at `/Applications/Xcode_26.3.app/Contents/Developer` | `26.3` build `17C529` |
+| Xcode | version exactly `26.3`; install path is not pinned | `26.3` build `17C529` at `/Applications/Xcode_26.3.app/Contents/Developer` on the hosted runner |
 | Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.2.4` (`swiftlang-6.2.4.1.4`, Clang `1700.6.4.2`) |
 | macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.2` build `25C58` |
 | Deployment target | macOS `14.0` | Confirmed by the Release compiler target and binary build |
@@ -56,6 +56,14 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 The observed values come from the immutable successful product-workflow log. A later
 toolchain change requires updating both the pin and this record; do not infer
 build numbers from marketing versions.
+
+The version is the pin; where Xcode is installed is not.
+`/Applications/Xcode_26.3.app` is the hosted runner's naming convention, and the
+workflows still set `DEVELOPER_DIR` to it explicitly. When `DEVELOPER_DIR` is
+unset, `scripts/verify-toolchain.sh` searches that path, the `xcode-select`
+selection, `/Applications/Xcode.app`, and any other `/Applications/Xcode*.app`,
+and uses the first one that reports exactly `26.3`. It never accepts another
+version: if none matches it lists what each candidate reported and exits.
 
 ## Reproducible Commands
 
