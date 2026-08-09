@@ -74,38 +74,72 @@ final class VaultSquireUITests: XCTestCase {
         // The provider choice defaults to Vaultwarden with its form visible.
         XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 2))
 
-        clickProviderSegment("Proton Pass", in: app)
+        selectProvider("Proton Pass", expecting: element("add-account-proton", in: app), in: app)
 
-        XCTAssertTrue(element("add-account-proton", in: app).waitForExistence(timeout: 3))
         // The staged pane collects nothing: no plain or secure fields anywhere
         // in the sheet while Proton Pass is selected.
         XCTAssertEqual(sheet.textFields.count, 0)
         XCTAssertEqual(sheet.secureTextFields.count, 0)
 
-        clickProviderSegment("Vaultwarden", in: app)
-        XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 3))
+        selectProvider("Vaultwarden", expecting: app.textFields["add-account-url"], in: app)
     }
 
-    /// Clicks one segment of the provider picker. macOS exposes a SwiftUI
-    /// segmented control differently across releases (radio buttons in a radio
-    /// group, a segmented control with child buttons, or plain buttons), so
-    /// the plausible queries are tried in order; a total miss fails with the
-    /// live hierarchy so the real shape is in the log.
+    /// Selects one provider segment and waits for its content to appear.
+    ///
+    /// Two defenses, both observed necessary on hosted runners (run
+    /// 31336737076): a stray `UserNotificationCenter` dialog can float over
+    /// the sheet so a synthesized click lands on the dialog instead of the
+    /// segment — dialogs are dismissed before each attempt and the click is
+    /// retried until the expected content appears. And macOS exposes a
+    /// SwiftUI segmented control differently across releases, so the
+    /// plausible queries are tried in order (the radio-button form is the one
+    /// macOS 26 uses). A total miss fails with the live hierarchy in the
+    /// message.
     @MainActor
-    private func clickProviderSegment(_ label: String, in app: XCUIApplication) {
-        let candidates: [XCUIElement] = [
-            app.radioButtons[label],
-            app.segmentedControls.buttons[label],
-            app.buttons[label],
-            app.staticTexts[label],
-        ]
-        for candidate in candidates where candidate.waitForExistence(timeout: 1) {
-            candidate.click()
-            return
+    private func selectProvider(
+        _ label: String,
+        expecting marker: XCUIElement,
+        in app: XCUIApplication
+    ) {
+        for _ in 0..<3 {
+            dismissStrayNotificationDialogs()
+            let candidates: [XCUIElement] = [
+                app.radioButtons[label],
+                app.segmentedControls.buttons[label],
+                app.buttons[label],
+                app.staticTexts[label],
+            ]
+            guard let segment = candidates.first(where: { $0.waitForExistence(timeout: 1) }) else {
+                continue
+            }
+            segment.click()
+            if marker.waitForExistence(timeout: 3) {
+                return
+            }
         }
         XCTFail(
-            "No provider segment matched '\(label)'. Hierarchy: \(app.debugDescription)"
+            "Selecting '\(label)' never presented its content. Hierarchy: \(app.debugDescription)"
         )
+    }
+
+    /// Closes any dialog the system notification agent floated over the app,
+    /// preferring its close-style button and falling back to Escape.
+    @MainActor
+    private func dismissStrayNotificationDialogs() {
+        let center = XCUIApplication(bundleIdentifier: "com.apple.UserNotificationCenter")
+        for _ in 0..<3 {
+            let dialog = center.dialogs.firstMatch
+            guard dialog.exists else { return }
+            let close = dialog.buttons["Close"].exists
+                ? dialog.buttons["Close"]
+                : dialog.buttons.firstMatch
+            if close.exists {
+                close.click()
+            } else {
+                dialog.typeKey(.escape, modifierFlags: [])
+            }
+            _ = dialog.waitForNonExistence(timeout: 2)
+        }
     }
 
     @MainActor

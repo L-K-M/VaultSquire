@@ -26,6 +26,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # Hosted runners sometimes float a UserNotificationCenter dialog over
+      # the app under UI test; a synthesized click then lands on the dialog
+      # instead of the control (observed in run 31336737076). Clearing the
+      # agent before the suite removes the stray dialogs; it respawns on
+      # demand.
+      - name: Dismiss stray notification dialogs
+        run: killall UserNotificationCenter || true
+
       - name: Build, test, sign, and inspect
         run: ./scripts/ci.sh
 
