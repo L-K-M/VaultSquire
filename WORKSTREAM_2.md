@@ -75,7 +75,7 @@ No dependency is added.
 | Fidelity metadata and unknown-field pass-through | `ProviderCacheEnvelopeTests`: lossy labeling is explicit, payloads round-trip byte for byte including fields no VaultSquire version understands, and sync state stays opaque |
 
 The merge condition in `DELIVERY.md` row 2 is the race/capability/identity
-test set above, which runs in the hosted `macos-15` lane via `scripts/ci.sh`.
+test set above, which runs in the hosted `macos-26` lane via `scripts/ci.sh`.
 
 ## Outstanding Workstream 1 Exit Evidence
 

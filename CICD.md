@@ -12,7 +12,7 @@ remain outstanding.
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `repository-hygiene.yml` | Pull requests, pushes to `main`, manual | Portable governance, secret-material, version, and repository checks. |
-| `macos-product.yml` | Pull requests, pushes to `main`, manual, reusable call | Xcode 26.3 tests, three ad-hoc products, binary inspection, and Workstream 1 trend fixtures. |
+| `macos-product.yml` | Pull requests, pushes to `main`, manual, reusable call | Xcode 26.6 tests, three ad-hoc products, binary inspection, and Workstream 1 trend fixtures. |
 | `release.yml` | Strict release tags once eligible | Re-prove, Developer ID sign, provision, notarize, inspect, attest, and create a draft prerelease. It currently stops at its first gate. |
 | `zai-code-review.yml` | Eligible same-repository pull requests with `glm-review` | Optional external GLM review. |
 
@@ -27,9 +27,9 @@ GitHub Releases are enabled. Those repository controls are not configured yet.
 
 ## Local Builds
 
-On native Apple Silicon with Xcode 26.3 installed anywhere the scripts can find
+On native Apple Silicon with Xcode 26.6 installed anywhere the scripts can find
 it — `/Applications/Xcode.app`, the `xcode-select` selection, the hosted
-runner's `/Applications/Xcode_26.3.app`, or any other `/Applications/Xcode*.app`
+runner's `/Applications/Xcode_26.6.app`, or any other `/Applications/Xcode*.app`
 — or with `DEVELOPER_DIR` pointing at it explicitly. The version is pinned; the
 path is not, and no other version is accepted:
 

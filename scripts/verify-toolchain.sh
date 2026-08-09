@@ -2,15 +2,19 @@
 # Verify the pinned toolchain and print it as build evidence.
 #
 # The Xcode version is a hard pin (WORKSTREAM_1.md); its install path is not.
-# `/Applications/Xcode_26.3.app` is the GitHub-hosted runner's naming
+# `/Applications/Xcode_<version>.app` is the GitHub-hosted runner's naming
 # convention, so hardcoding it as the only default made every product command
 # fail on an ordinary Mac, where Xcode lives at `/Applications/Xcode.app`.
 # DEVELOPER_DIR still wins when set, which is how CI pins the runner's copy.
 #
+# Changing the version below is a reviewed change: the workflows' runner image
+# must actually ship it, and WORKSTREAM_1.md's pin and observed values must be
+# re-derived from the first successful run on that image.
+#
 # Usage: scripts/verify-toolchain.sh [--print-developer-dir]
 set -euo pipefail
 
-REQUIRED_XCODE_VERSION="26.3"
+REQUIRED_XCODE_VERSION="26.6"
 PRINT_DEVELOPER_DIR=false
 
 case "${1:-}" in

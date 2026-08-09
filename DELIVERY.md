@@ -28,8 +28,8 @@ must not receive the external `glm-review` label.
 
 ## Current Infrastructure
 
-The account can allocate GitHub-hosted Apple Silicon `macos-15` jobs and the
-Workstream 1 workflow pins Xcode 26.3. Hosted CI can compile AppKit/SwiftUI, run
+The account can allocate GitHub-hosted Apple Silicon `macos-26` jobs and the
+Workstream 1 workflow pins Xcode 26.6. Hosted CI can compile AppKit/SwiftUI, run
 automated tests, create ad-hoc Hardened Runtime artifacts, and inspect binaries
 and entitlements through the same scripts used locally.
 

@@ -122,7 +122,7 @@ history-isolation gate.
 
 ## Build And Verification
 
-The project is pinned to Xcode 26.3 on native Apple Silicon. On a matching Mac,
+The project is pinned to Xcode 26.6 on native Apple Silicon. On a matching Mac,
 run `./scripts/ci.sh` for unit/UI tests plus direct and sandbox-feasibility
 artifacts. Run `./scripts/measure-workstream-1.sh` separately to exercise the
 launch and Quick Search performance fixtures; that lane detects crashes and

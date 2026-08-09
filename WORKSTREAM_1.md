@@ -46,10 +46,10 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 
 | Property | Required value | Observed value |
 |---|---|---|
-| Runner | GitHub-hosted Apple Silicon `macos-15` | macOS `15.7.7`, `arm64` in workflow run `30696406614` |
-| Xcode | version exactly `26.3`; install path is not pinned | `26.3` build `17C529` at `/Applications/Xcode_26.3.app/Contents/Developer` on the hosted runner |
-| Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.2.4` (`swiftlang-6.2.4.1.4`, Clang `1700.6.4.2`) |
-| macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.2` build `25C58` |
+| Runner | GitHub-hosted Apple Silicon `macos-26` | Pending; re-derive from the first successful run on this image |
+| Xcode | version exactly `26.6`; install path is not pinned | Pending; expected build `17F113` at `/Applications/Xcode_26.6.app/Contents/Developer` on the hosted runner, to be confirmed from the run log |
+| Swift compiler build | Emitted by `xcrun swiftc --version` | Pending; re-derive from the first successful run on this image |
+| macOS SDK version/build | Emitted by `xcrun --sdk macosx` | Pending; re-derive from the first successful run on this image |
 | Deployment target | macOS `14.0` | Confirmed by the Release compiler target and binary build |
 | Product architecture | exactly `arm64` | Confirmed by post-signing `lipo` inspection |
 
@@ -57,12 +57,22 @@ The observed values come from the immutable successful product-workflow log. A l
 toolchain change requires updating both the pin and this record; do not infer
 build numbers from marketing versions.
 
+The pin moved from Xcode `26.3` on `macos-15` to `26.6` on `macos-26`. The
+`macos-15` image does not ship `26.6` at all, so the move required the runner
+image to move with it; `macos-26` carries `26.6` build `17F113` and still
+carries `26.3`, so the previous toolchain remains reachable if this is reverted.
+The rows above are marked pending on purpose: the superseded values came from
+run `30696406614` on `macos-15`, and this document's own rule is that observed
+values come from a real successful run, not from a marketing version. They are
+filled in from the first green run on the new image, and until then no row here
+is evidence of anything.
+
 The version is the pin; where Xcode is installed is not.
-`/Applications/Xcode_26.3.app` is the hosted runner's naming convention, and the
+`/Applications/Xcode_26.6.app` is the hosted runner's naming convention, and the
 workflows still set `DEVELOPER_DIR` to it explicitly. When `DEVELOPER_DIR` is
 unset, `scripts/verify-toolchain.sh` searches that path, the `xcode-select`
 selection, `/Applications/Xcode.app`, and any other `/Applications/Xcode*.app`,
-and uses the first one that reports exactly `26.3`. It never accepts another
+and uses the first one that reports exactly `26.6`. It never accepts another
 version: if none matches it lists what each candidate reported and exits.
 
 ## Reproducible Commands
@@ -83,7 +93,7 @@ version: if none matches it lists what each candidate reported and exits.
 
 The hosted job runs `./scripts/ci.sh` and then
 `./scripts/measure-workstream-1.sh`; `ci.sh` alone does not include the
-performance lane. Product commands require native Apple Silicon and Xcode 26.3.
+performance lane. Product commands require native Apple Silicon and Xcode 26.6.
 The current Linux host cannot substitute for them.
 `build.sh --check`, `version.sh`, repository checks, and release-gate status are
 portable; actual release execution remains prohibited and fail-closed as
