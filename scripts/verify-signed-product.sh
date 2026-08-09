@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+# Several checks below silence a tool's own diagnostics so a passing run stays
+# quiet. That makes a mute death possible: under `set -e` one of them can abort
+# the script having printed nothing, which is the one thing a verification
+# script must never do — a silent non-zero exit is indistinguishable from a
+# check that was never reached. Anything that fails without reporting itself
+# gets named here.
+trap 'printf "%s: unreported failure (exit %s) at line %s: %s\n" \
+    "${BASH_SOURCE[0]}" "$?" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 if [[ "$#" -lt 3 || "$#" -gt 5 ]]; then
     printf 'Usage: %s APP_PATH TEAM_ID development|developer-id [VERSION BUILD]\n' "$0" >&2
@@ -45,10 +54,19 @@ codesign --verify --strict --verbose=2 \
 
 actual_entitlements="$(mktemp)"
 profile_plist="$(mktemp)"
-trap 'rm -f "$actual_entitlements" "$profile_plist"' EXIT
-codesign --display --entitlements :- "$APP_PATH" >"$actual_entitlements" 2>/dev/null
+tool_errors="$(mktemp)"
+trap 'rm -f "$actual_entitlements" "$profile_plist" "$tool_errors"' EXIT
+codesign --display --entitlements :- "$APP_PATH" >"$actual_entitlements" 2>"$tool_errors" || {
+    printf 'Could not read the signed entitlements from %s\n' "$APP_PATH" >&2
+    cat "$tool_errors" >&2
+    exit 1
+}
 security cms -D -i "$PROFILE" >"$profile_plist"
-plutil -lint "$actual_entitlements" "$profile_plist" >/dev/null
+plutil -lint "$actual_entitlements" "$profile_plist" >/dev/null || {
+    printf 'The signed entitlements or the provisioning profile is not a valid plist:\n' >&2
+    plutil -lint "$actual_entitlements" "$profile_plist" >&2 || true
+    exit 1
+}
 
 actual_keys="$(/usr/bin/grep -o '<key>[^<]*</key>' "$actual_entitlements" | /usr/bin/sed -e 's/<key>//' -e 's#</key>##' | /usr/bin/sort)"
 allowed_keys=$'com.apple.application-identifier\ncom.apple.developer.team-identifier\ncom.apple.security.application-groups'
@@ -134,10 +152,26 @@ fi
 leaf_certificate="$(mktemp)"
 profile_certificate="$(mktemp)"
 certificates_directory="$(mktemp -d)"
-trap 'rm -f "$actual_entitlements" "$profile_plist" "$leaf_certificate" "$profile_certificate"; rm -rf "$certificates_directory"' EXIT
-codesign --display --extract-certificates "$certificates_directory/cert" "$APP_PATH" >/dev/null 2>&1
+trap 'rm -f "$actual_entitlements" "$profile_plist" "$tool_errors" "$leaf_certificate" "$profile_certificate"; rm -rf "$certificates_directory"' EXIT
+codesign --display --extract-certificates "$certificates_directory/cert" "$APP_PATH" >/dev/null 2>"$tool_errors" || {
+    printf 'Could not extract the signing certificate chain from %s\n' "$APP_PATH" >&2
+    cat "$tool_errors" >&2
+    exit 1
+}
+[[ -f "$certificates_directory/cert0" ]] || {
+    printf 'codesign extracted no leaf certificate from %s\n' "$APP_PATH" >&2
+    exit 1
+}
 cp "$certificates_directory/cert0" "$leaf_certificate"
-certificate_count="$(plutil -extract DeveloperCertificates raw -o - "$profile_plist")"
+certificate_count="$(plutil -extract DeveloperCertificates raw -o - "$profile_plist" 2>"$tool_errors")" || {
+    printf 'Could not read DeveloperCertificates from the provisioning profile:\n' >&2
+    cat "$tool_errors" >&2
+    exit 1
+}
+[[ "$certificate_count" =~ ^[0-9]+$ ]] || {
+    printf 'Expected a DeveloperCertificates count, got: %s\n' "$certificate_count" >&2
+    exit 1
+}
 certificate_match=false
 for ((index = 0; index < certificate_count; index++)); do
     plutil -extract "DeveloperCertificates.$index" raw -o - "$profile_plist" \
