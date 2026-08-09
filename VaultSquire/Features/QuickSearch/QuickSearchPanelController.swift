@@ -50,6 +50,9 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         }
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
+        // Announced only after the panel is key, so the view's focus assignment
+        // cannot run while first responder still belongs to the window.
+        model.notePresented()
         PerformanceTrace.record(.quickSearchVisible)
         AppLog.record(.quickSearchPresented)
     }
