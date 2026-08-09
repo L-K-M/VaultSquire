@@ -396,7 +396,8 @@ final class AddAccountModelTests: XCTestCase {
         stubCrossOriginServer()
 
         beginCrossOriginSignIn(model)
-        XCTAssertTrue(await waitUntil { model.originApproval != nil })
+        let presented = await waitUntil { model.originApproval != nil }
+        XCTAssertTrue(presented)
 
         model.resolveOriginApproval(approved: false)
 
@@ -416,7 +417,8 @@ final class AddAccountModelTests: XCTestCase {
         stubCrossOriginServer()
 
         beginCrossOriginSignIn(model)
-        XCTAssertTrue(await waitUntil { model.originApproval != nil })
+        let presented = await waitUntil { model.originApproval != nil }
+        XCTAssertTrue(presented)
 
         model.resolveOriginApproval(approved: true)
 
@@ -441,7 +443,8 @@ final class AddAccountModelTests: XCTestCase {
         stubCrossOriginServer()
 
         beginCrossOriginSignIn(model)
-        XCTAssertTrue(await waitUntil { model.originApproval != nil })
+        let presented = await waitUntil { model.originApproval != nil }
+        XCTAssertTrue(presented)
 
         // Sheet dismissal: the pending continuation must resolve (declined) so
         // the suspended task ends instead of leaking.

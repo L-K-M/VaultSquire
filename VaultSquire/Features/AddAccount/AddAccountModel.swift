@@ -162,9 +162,14 @@ final class AddAccountModel: ObservableObject, Identifiable {
 
     /// Publishes the approval request and suspends the login transaction until
     /// the user decides. A restarted flow or a dismissed sheet resolves the
-    /// pending request as declined before anything else happens.
+    /// pending request as declined before anything else happens. A task whose
+    /// cancellation landed while it was still in flight declines immediately
+    /// instead of installing a continuation nothing would ever resume — the
+    /// check and the installation share the main actor with `cancel()`, so no
+    /// cancellation can slip between them.
     func requestOriginApproval(_ request: OriginApprovalRequest) async -> Bool {
         resolveOriginApproval(approved: false)
+        guard !Task.isCancelled else { return false }
         return await withCheckedContinuation { continuation in
             originDecision = continuation
             originApproval = request

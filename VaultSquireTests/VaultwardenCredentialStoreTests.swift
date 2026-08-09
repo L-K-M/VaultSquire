@@ -107,15 +107,20 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
         // skip, so a host that loses Keychain access partway through skips
         // rather than fails.
         // Register cleanup before the first write so a record is never leaked.
+        // The existence checks stay statement-level `try` so an XCTSkip from an
+        // unavailable store propagates as a skip instead of being captured by
+        // an assertion autoclosure and reported as a failure.
         addTeardownBlock { try? store.delete(for: keychainAccount) }
-        XCTAssertFalse(
-            try skippingIfUnavailable { try store.hasCredentials(for: keychainAccount) }
-        )
+        let presentBeforeSave = try skippingIfUnavailable {
+            try store.hasCredentials(for: keychainAccount)
+        }
+        XCTAssertFalse(presentBeforeSave)
         try skippingIfUnavailable { try store.save(credentials, for: keychainAccount) }
 
-        XCTAssertTrue(
-            try skippingIfUnavailable { try store.hasCredentials(for: keychainAccount) }
-        )
+        let presentAfterSave = try skippingIfUnavailable {
+            try store.hasCredentials(for: keychainAccount)
+        }
+        XCTAssertTrue(presentAfterSave)
         XCTAssertEqual(
             try skippingIfUnavailable { try store.load(for: keychainAccount) }, credentials
         )
@@ -129,9 +134,10 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
 
         try skippingIfUnavailable { try store.delete(for: keychainAccount) }
         XCTAssertNil(try skippingIfUnavailable { try store.load(for: keychainAccount) })
-        XCTAssertFalse(
-            try skippingIfUnavailable { try store.hasCredentials(for: keychainAccount) }
-        )
+        let presentAfterDelete = try skippingIfUnavailable {
+            try store.hasCredentials(for: keychainAccount)
+        }
+        XCTAssertFalse(presentAfterDelete)
     }
 
     /// Runs a Keychain operation, converting a store-unavailable status into an
