@@ -144,8 +144,9 @@ real team.
 release execution is deliberately blocked in both the script and GitHub Actions
 while `.github/release-eligibility.env` is false. See [`CICD.md`](CICD.md).
 
-The generated app-icon catalog remains intentionally absent until the visual
-review in `ICON_PROVENANCE.md` passes. No application package dependency has
+The app-icon catalog is derived from the attested source by
+`scripts/generate-app-icon.py` and recorded in `ICON_PROVENANCE.md`, whose
+small-size visual review remains open. No application package dependency has
 been adopted.
 
 ## Research Baseline

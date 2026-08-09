@@ -40,7 +40,9 @@ account data is valid test input.
 
 No third-party application package is adopted. The global shortcut remains an
 in-app menu shortcut until the candidate comparison and manual interaction gate
-pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
+pass. Generated app icons are derived and recorded in `ICON_PROVENANCE.md`
+(2026-08-09, at the owner's direction); its small-size visual review remains
+open.
 
 ## Toolchain Pin
 
@@ -193,7 +195,7 @@ outside VaultSquire.
 | Security-scoped bookmark round trip across launches | Not implemented. The harness exercises only live same-launch selections |
 | Executable code signature and notarization status recorded at approval | Not implemented. Symlinks are resolved before approval; signature inspection is deferred |
 | Descendant holding the probe pipes open | Bounded and reported as `outputRemainedOpen`; covered by an automated fixture |
-| Generated 16/32/64 px icon review | Blocked; no derived icon is included |
+| Generated 16/32/64 px icon review | Open; assets derived and recorded in `ICON_PROVENANCE.md` (2026-08-09), 1:1 review still owed |
 
 Workstream 1 merged into `main` as PR #5 on 2026-08-01 with the rows above still
 outstanding. That was a deliberate owner decision, recorded in

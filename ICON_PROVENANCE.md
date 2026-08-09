@@ -1,6 +1,7 @@
 # Canonical Icon Provenance And Technical Review
 
-- Status: source ownership attested; generated assets not yet approved
+- Status: source ownership attested; assets generated at the owner's direction;
+  small-size visual review pending
 - Canonical file: `media-sources/icon.png`
 - SHA-256: `438060d1a8740e69cb1330ee60c218e23556edcf6c4a5d6333ee21b051201eeb`
 - Attesting owner: `L-K-M`
@@ -50,3 +51,44 @@ must address:
 Do not replace this source, strip its provenance metadata, or generate shipping
 assets before that review. Derived assets must record tool, exact command,
 profile, dimensions, output hashes, reviewer, and source hash.
+
+## Derived Asset Record (2026-08-09)
+
+Generated at the attesting owner's explicit direction ahead of the visual
+review, which remains open: the owner reviews the 16, 32, and 64 pixel
+renderings at 1:1 in Finder and the Dock per the gate above.
+
+- Tool: `scripts/generate-app-icon.py` (Python 3.11.15, Pillow 12.3.0,
+  Lanczos resampling)
+- Exact command: `python3 scripts/generate-app-icon.py`
+- Verification: `python3 scripts/generate-app-icon.py --check` re-derives and
+  compares pixels; the script refuses any source whose SHA-256 differs from the
+  attested hash below
+- Source: `media-sources/icon.png`, SHA-256
+  `438060d1a8740e69cb1330ee60c218e23556edcf6c4a5d6333ee21b051201eeb`
+  (unmodified; its C2PA manifest stays intact in the source file)
+- Color profile: none embedded in source or outputs; pixels are copied under
+  default (sRGB-assumed) interpretation with no conversion
+- Outputs: `VaultSquire/Resources/Assets.xcassets/AppIcon.appiconset/`, all
+  derived by downscaling (no slot upscales); derived PNGs carry no C2PA or
+  other source metadata
+- Reviewer: pending (owner)
+
+| Output | Pixels | SHA-256 |
+|---|---|---|
+| `icon_16x16.png` | 16 | `4cff67f9414de8f4c41e3fc8695180e5378512093ddd7cfc6ae7c50f5efa28ce` |
+| `icon_16x16@2x.png` | 32 | `cba6a50eea52de2b209f974afce4e69e2cac4e604a827856f17d97b4e9387087` |
+| `icon_32x32.png` | 32 | `cba6a50eea52de2b209f974afce4e69e2cac4e604a827856f17d97b4e9387087` |
+| `icon_32x32@2x.png` | 64 | `fdd581f1adddbbb1439585b546b8ca915b5bbab5f58518140b1fedd6f1587056` |
+| `icon_128x128.png` | 128 | `e569925dd0bbc9c8121f72abff460574b02f366462595aca074c3e76d340447e` |
+| `icon_128x128@2x.png` | 256 | `af0e36a247286a7ebf138cfd160709294445e883331c8da0a3a4a6547d928b52` |
+| `icon_256x256.png` | 256 | `af0e36a247286a7ebf138cfd160709294445e883331c8da0a3a4a6547d928b52` |
+| `icon_256x256@2x.png` | 512 | `2c2cc14f9c8c49ec99516ce6afb1400f4650505135cef982dccf0036320ffd66` |
+| `icon_512x512.png` | 512 | `2c2cc14f9c8c49ec99516ce6afb1400f4650505135cef982dccf0036320ffd66` |
+| `icon_512x512@2x.png` | 1024 | `f808ac6e2437b7af72dc32d788e1f06bdd2c58a652a077edbcbdea62fd130a43` |
+
+Same-pixel-count slots are byte-identical by construction, which is the
+determinism the `--check` mode verifies. The artwork ships full-bleed with no
+pre-applied mask: macOS 26 applies the system icon mask itself, and earlier
+macOS versions in the support range render the unmasked square, which the open
+visual review covers.

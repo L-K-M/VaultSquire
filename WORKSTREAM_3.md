@@ -114,7 +114,8 @@ certification and any release, and are restated here unchanged:
   Workstream 10).
 - Executable code signature and notarization status recorded at approval (not
   implemented; blocks Workstream 10).
-- Generated 16/32/64 px icon review (blocked by `ICON_PROVENANCE.md`).
+- Generated 16/32/64 px icon review (assets derived and recorded in
+  `ICON_PROVENANCE.md` on 2026-08-09; the 1:1 review remains owed).
 
 The Phase 0 crypto proof additionally owes the pinned Vaultwarden 1.37.1
 cross-client differential named above. Presence in `main` is not evidence

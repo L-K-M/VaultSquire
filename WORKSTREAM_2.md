@@ -97,7 +97,8 @@ certification and any release, and are restated here unchanged:
   Workstream 10).
 - Executable code signature and notarization status recorded at approval (not
   implemented; blocks Workstream 10).
-- Generated 16/32/64 px icon review (blocked by `ICON_PROVENANCE.md`).
+- Generated 16/32/64 px icon review (assets derived and recorded in
+  `ICON_PROVENANCE.md` on 2026-08-09; the 1:1 review remains owed).
 
 Presence in `main` is not evidence that a criterion passed; a row is marked
 passed only when the evidence exists.

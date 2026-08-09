@@ -94,5 +94,7 @@ reproducible local command it runs.
 - `.claude/settings.json` enables the shared Claude cloud MCP tools but does not
   supersede the clean-room and secret-handling rules above.
 
-Preserve `media-sources/icon.png` as the canonical source artwork. Generated
-assets must wait for the implementation context and a recorded ownership review.
+Preserve `media-sources/icon.png` as the canonical source artwork. Derived
+assets exist and are recorded in `ICON_PROVENANCE.md` (derivation tool,
+command, and per-file hashes); its small-size visual review gate remains open,
+and any regeneration must refresh that record.
