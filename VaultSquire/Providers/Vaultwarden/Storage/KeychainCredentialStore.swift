@@ -116,6 +116,25 @@ struct KeychainCredentialStore: VaultwardenCredentialStore {
         }
     }
 
+    func hasCredentials(for account: VaultwardenAccountKey) throws -> Bool {
+        // Ask for attributes, not data, so the secret bytes stay untouched by
+        // an existence check.
+        var query = baseQuery(for: account)
+        query[kSecReturnAttributes] = kCFBooleanTrue
+        query[kSecMatchLimit] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            return true
+        case errSecItemNotFound:
+            return false
+        default:
+            throw Self.mapReadError(status)
+        }
+    }
+
     func delete(for account: VaultwardenAccountKey) throws {
         let status = SecItemDelete(baseQuery(for: account) as CFDictionary)
         switch status {

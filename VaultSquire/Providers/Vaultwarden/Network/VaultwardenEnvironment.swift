@@ -26,6 +26,16 @@ struct VaultwardenOrigin: Hashable, Sendable {
     static func path(_ url: URL) -> String {
         url.path.isEmpty ? "/" : url.path
     }
+
+    /// The user-facing rendering of the origin for the approval panel,
+    /// omitting a scheme-default port. Origins are user-visible server
+    /// configuration, not secrets, but they still belong only in dedicated
+    /// approval UI — never in an error message.
+    var displayString: String {
+        let isDefaultPort = (scheme == "https" && port == 443)
+            || (scheme == "http" && port == 80)
+        return isDefaultPort ? "\(scheme)://\(host)" : "\(scheme)://\(host):\(port)"
+    }
 }
 
 enum VaultwardenEnvironmentError: Error, Equatable, Sendable {

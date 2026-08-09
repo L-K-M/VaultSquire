@@ -63,6 +63,30 @@ final class VaultSquireUITests: XCTestCase {
     }
 
     @MainActor
+    func testAddAccountListsProtonPassAsStagedWithoutCredentialFields() {
+        let app = launchApp()
+        defer { app.terminate() }
+
+        app.buttons["open-add-account"].click()
+        let sheet = element("add-account-view", in: app)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 2))
+
+        // The provider choice defaults to Vaultwarden with its form visible.
+        XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 2))
+
+        app.radioButtons["Proton Pass"].click()
+
+        XCTAssertTrue(element("add-account-proton", in: app).waitForExistence(timeout: 2))
+        // The staged pane collects nothing: no plain or secure fields anywhere
+        // in the sheet while Proton Pass is selected.
+        XCTAssertEqual(sheet.textFields.count, 0)
+        XCTAssertEqual(sheet.secureTextFields.count, 0)
+
+        app.radioButtons["Vaultwarden"].click()
+        XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
     private func launchApp() -> XCUIApplication {
         continueAfterFailure = false
 

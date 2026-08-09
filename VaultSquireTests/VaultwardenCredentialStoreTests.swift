@@ -50,6 +50,19 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
         XCTAssertNil(try store.load(for: account))
     }
 
+    func testHasCredentialsReflectsExistence() throws {
+        let store = InMemoryCredentialStore()
+        XCTAssertFalse(try store.hasCredentials(for: account))
+
+        try store.save(
+            VaultwardenStoredCredentials(refreshToken: "r"), for: account
+        )
+        XCTAssertTrue(try store.hasCredentials(for: account))
+
+        try store.delete(for: account)
+        XCTAssertFalse(try store.hasCredentials(for: account))
+    }
+
     func testReplaceRefreshTokenOnMissingRecordThrows() {
         let store = InMemoryCredentialStore()
         XCTAssertThrowsError(try store.replaceRefreshToken("new", for: account)) { error in
@@ -95,8 +108,14 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
         // rather than fails.
         // Register cleanup before the first write so a record is never leaked.
         addTeardownBlock { try? store.delete(for: keychainAccount) }
+        XCTAssertFalse(
+            try skippingIfUnavailable { try store.hasCredentials(for: keychainAccount) }
+        )
         try skippingIfUnavailable { try store.save(credentials, for: keychainAccount) }
 
+        XCTAssertTrue(
+            try skippingIfUnavailable { try store.hasCredentials(for: keychainAccount) }
+        )
         XCTAssertEqual(
             try skippingIfUnavailable { try store.load(for: keychainAccount) }, credentials
         )
@@ -110,6 +129,9 @@ final class VaultwardenCredentialStoreTests: XCTestCase {
 
         try skippingIfUnavailable { try store.delete(for: keychainAccount) }
         XCTAssertNil(try skippingIfUnavailable { try store.load(for: keychainAccount) })
+        XCTAssertFalse(
+            try skippingIfUnavailable { try store.hasCredentials(for: keychainAccount) }
+        )
     }
 
     /// Runs a Keychain operation, converting a store-unavailable status into an

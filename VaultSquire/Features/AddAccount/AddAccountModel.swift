@@ -9,17 +9,35 @@ enum AddAccountError: Error {
     case missingRefreshToken
 }
 
-/// Rejects a differing effective origin. Interactive approval of a
-/// cross-origin server is a later enhancement; until then the sign-in fails
-/// closed with a clear message, and credentials never leave for an
-/// unconfirmed origin. First-login same-origin servers never invoke this.
-struct RejectDifferingOriginPolicy: VaultwardenOriginApprovalPolicy {
+/// A cross-origin service advertisement awaiting the user's decision. The
+/// origins are display values for the approval panel only; the panel is the
+/// one sanctioned place they appear — they are never folded into an error
+/// message. Non-HTTPS advertisements never reach this point: the
+/// authenticator discards them and stays on the entered origin.
+struct OriginApprovalRequest: Equatable {
+    let entered: VaultwardenOrigin
+    let effectiveIdentity: VaultwardenOrigin
+    let effectiveAPI: VaultwardenOrigin
+}
+
+/// Surfaces a differing effective origin to the add-account UI and suspends
+/// the login transaction until the user decides. The handler is main-actor
+/// isolated; the authenticator awaits into it from its own context, and
+/// credentials never leave for an unconfirmed origin. First-login same-origin
+/// servers never invoke this.
+struct PromptingOriginApprovalPolicy: VaultwardenOriginApprovalPolicy {
+    let handler: @MainActor (OriginApprovalRequest) async -> Bool
+
     func approve(
         entered: VaultwardenOrigin,
         effectiveIdentity: VaultwardenOrigin,
         effectiveAPI: VaultwardenOrigin
     ) async -> Bool {
-        false
+        await handler(OriginApprovalRequest(
+            entered: entered,
+            effectiveIdentity: effectiveIdentity,
+            effectiveAPI: effectiveAPI
+        ))
     }
 }
 
@@ -70,6 +88,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// True while an emailed-code request is in flight, so the challenge screen
     /// can disable its send control and avoid duplicate sends from double taps.
     @Published private(set) var isSendingEmailChallenge = false
+    /// The pending cross-origin approval, published for the sheet to present.
+    @Published private(set) var originApproval: OriginApprovalRequest?
+    private var originDecision: CheckedContinuation<Bool, Never>?
 
     private let makeTransport: @Sendable (VaultwardenEnvironment) -> VaultwardenTransport
     private let credentialStore: any VaultwardenCredentialStore
@@ -104,13 +125,13 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// dismissal, so a dismissed flow never persists credentials. Any prior
     /// task is cancelled first so it cannot mutate state behind the new one.
     func beginSignIn() {
-        activeTask?.cancel()
+        cancelActiveWork()
         activeTask = Task { await signIn() }
     }
 
     /// Starts the second-factor submission in the same tracked task.
     func beginSubmitTwoFactor() {
-        activeTask?.cancel()
+        cancelActiveWork()
         activeTask = Task { await submitTwoFactor() }
     }
 
@@ -126,8 +147,37 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// Cancels any in-flight sign-in, two-factor, or email-send task. Called
     /// when the sheet is dismissed.
     func cancel() {
-        activeTask?.cancel()
+        cancelActiveWork()
         activeTask = nil
+    }
+
+    /// Declines any pending origin approval and cancels the tracked task.
+    /// Resolving the approval first guarantees a suspended sign-in resumes
+    /// (as declined) and observes its cancellation, so a continuation can
+    /// never leak past a dismissal or a restarted flow.
+    private func cancelActiveWork() {
+        resolveOriginApproval(approved: false)
+        activeTask?.cancel()
+    }
+
+    /// Publishes the approval request and suspends the login transaction until
+    /// the user decides. A restarted flow or a dismissed sheet resolves the
+    /// pending request as declined before anything else happens.
+    func requestOriginApproval(_ request: OriginApprovalRequest) async -> Bool {
+        resolveOriginApproval(approved: false)
+        return await withCheckedContinuation { continuation in
+            originDecision = continuation
+            originApproval = request
+        }
+    }
+
+    /// Resolves the pending approval; a no-op when none is pending, so the
+    /// approval buttons, dismissal, and flow restarts can all call it without
+    /// coordinating. Each request resumes exactly once.
+    func resolveOriginApproval(approved: Bool) {
+        originApproval = nil
+        originDecision?.resume(returning: approved)
+        originDecision = nil
     }
 
     /// Validates the URL and runs the login transaction. On a 2FA challenge the
@@ -146,7 +196,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
         let authenticator = VaultwardenAuthenticator(
             transport: makeTransport(environment),
             kdfChangePolicy: RejectKDFChangePolicy(),
-            originApprovalPolicy: RejectDifferingOriginPolicy()
+            originApprovalPolicy: PromptingOriginApprovalPolicy { [weak self] request in
+                // A deallocated model can approve nothing.
+                await self?.requestOriginApproval(request) ?? false
+            }
         )
         self.authenticator = authenticator
         self.environment = environment
@@ -292,6 +345,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
     }
 
     private func fail(with message: String) {
+        // A cancelled flow (dismissed sheet, restarted sign-in) must not
+        // repaint the form with a stale failure from behind the new state.
+        guard !Task.isCancelled else { return }
         phase = .failed(message)
     }
 

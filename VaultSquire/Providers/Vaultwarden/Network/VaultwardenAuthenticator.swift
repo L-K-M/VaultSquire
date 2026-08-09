@@ -370,14 +370,16 @@ struct VaultwardenAuthenticator: Sendable {
     }
 
     /// Resolves a config-advertised service URL to a usable base URL. A value
-    /// that is not a valid absolute URL with a host falls back to the entered
-    /// service URL, so a malformed or relative advertisement never redirects
-    /// credentials somewhere unexpected.
+    /// that is not a valid absolute HTTPS URL with a host falls back to the
+    /// entered service URL, so a malformed, relative, or plaintext-http
+    /// advertisement never redirects credentials somewhere unexpected. The
+    /// http case matters in practice: a server whose DOMAIN setting is unset
+    /// advertises `http://localhost` service URLs, and treating those as
+    /// unusable keeps login on the entered origin instead of failing it.
     private func baseURL(from urlString: String?, fallback: URL) -> URL {
         guard let urlString, !urlString.isEmpty,
               let url = URL(string: urlString),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
+              url.scheme?.lowercased() == "https",
               url.host != nil else {
             return fallback
         }

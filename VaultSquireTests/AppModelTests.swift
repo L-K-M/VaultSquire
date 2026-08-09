@@ -19,4 +19,35 @@ final class AppModelTests: XCTestCase {
 
         XCTAssertTrue(model.isLocked)
     }
+
+    @MainActor
+    func testAccountPresenceStartsUnknownAndRefreshQueriesTheStore() {
+        var presence = AppModel.AccountPresence.none
+        let model = AppModel(queryAccountPresence: { presence })
+
+        XCTAssertEqual(model.accountPresence, .unknown)
+        XCTAssertFalse(model.hasNoAccounts, "unknown must not claim absence")
+
+        model.refreshAccountPresence()
+        XCTAssertEqual(model.accountPresence, .none)
+        XCTAssertTrue(model.hasNoAccounts)
+
+        presence = .present
+        model.refreshAccountPresence()
+        XCTAssertEqual(model.accountPresence, .present)
+        XCTAssertFalse(model.hasNoAccounts)
+    }
+
+    @MainActor
+    func testNoteAccountConfiguredMarksPresenceWithoutAStoreQuery() {
+        let model = AppModel(queryAccountPresence: {
+            XCTFail("noteAccountConfigured must not query the store")
+            return .unknown
+        })
+
+        model.noteAccountConfigured()
+
+        XCTAssertEqual(model.accountPresence, .present)
+        XCTAssertFalse(model.hasNoAccounts)
+    }
 }

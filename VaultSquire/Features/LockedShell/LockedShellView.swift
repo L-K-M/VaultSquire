@@ -13,9 +13,17 @@ struct LockedShellView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("locked-shell")
+        .onAppear { appModel.refreshAccountPresence() }
         .sheet(item: $addAccountModel) { model in
             AddAccountView(model: model) { addAccountModel = nil }
         }
+    }
+
+    /// True when the credential store definitively reported that no account
+    /// exists; the shell then presents the empty state instead of claiming a
+    /// nonexistent vault is locked.
+    private var hasNoAccounts: Bool {
+        appModel.hasNoAccounts
     }
 
     private var identityRail: some View {
@@ -45,11 +53,11 @@ struct LockedShellView: View {
 
                 Spacer()
 
-                Label("LOCKED", systemImage: "circle.fill")
+                Label(hasNoAccounts ? "NO ACCOUNTS" : "LOCKED", systemImage: "circle.fill")
                     .font(.caption.weight(.bold))
                     .tracking(1.2)
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Vault locked")
+                    .accessibilityLabel(hasNoAccounts ? "No accounts configured" : "Vault locked")
             }
             .padding(32)
         }
@@ -62,11 +70,13 @@ struct LockedShellView: View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 48)
 
-            Text("The vault is locked")
+            Text(hasNoAccounts ? "No accounts yet" : "The vault is locked")
                 .font(.system(size: 34, weight: .semibold, design: .rounded))
                 .accessibilityIdentifier("locked-shell-title")
 
-            Text("Account authentication and unlock arrive in their provider milestones. This shell keeps decrypted state closed.")
+            Text(hasNoAccounts
+                ? "Add an account to bring its vault under VaultSquire's watch. Nothing is stored until a sign-in completes."
+                : "Unlock arrives in its provider milestone. This shell keeps decrypted state closed.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .lineSpacing(4)
@@ -90,12 +100,17 @@ struct LockedShellView: View {
                 Button {
                     addAccountModel = AddAccountModel(
                         credentialStore: KeychainCredentialStore(),
-                        deviceIdentity: VaultwardenDeviceIdentityStore.current()
+                        deviceIdentity: VaultwardenDeviceIdentityStore.current(),
+                        onAccountConfigured: { [weak appModel] _ in
+                            appModel?.noteAccountConfigured()
+                        }
                     )
                 } label: {
                     Label("Add Account", systemImage: "person.badge.plus")
                 }
-                .keyboardShortcut("n", modifiers: .command)
+                // With no accounts, adding one is the primary action; with a
+                // configured account, Quick Search keeps that role.
+                .keyboardShortcut(hasNoAccounts ? .defaultAction : KeyboardShortcut("n", modifiers: .command))
                 .accessibilityIdentifier("open-add-account")
 
                 Button {
@@ -103,7 +118,7 @@ struct LockedShellView: View {
                 } label: {
                     Label("Quick Search", systemImage: "magnifyingglass")
                 }
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(hasNoAccounts ? nil : .defaultAction)
                 .accessibilityIdentifier("open-quick-search")
 
                 SettingsLink {

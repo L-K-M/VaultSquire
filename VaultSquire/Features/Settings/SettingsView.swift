@@ -7,7 +7,12 @@ struct SettingsView: View {
         TabView {
             Form {
                 LabeledContent("App shortcut", value: "Command-Shift-Space")
-                LabeledContent("Vault state", value: appModel.isLocked ? "Locked" : "Unavailable")
+                LabeledContent(
+                    "Vault state",
+                    value: appModel.hasNoAccounts
+                        ? "No accounts"
+                        : (appModel.isLocked ? "Locked" : "Unavailable")
+                )
 
                 Text("A configurable global shortcut and lock policy are enabled only after their interaction and security tests pass.")
                     .font(.callout)

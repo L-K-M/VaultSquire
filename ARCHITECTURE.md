@@ -581,10 +581,13 @@ tokens, authenticator codes, email codes, and recovery codes with an explicit
 warning. Other two-factor providers are reported as unsupported rather than
 misclassified as bad credentials.
 
-The user experience is one add-account form containing complete server URL,
-email, and master password. URL/TLS/config validation runs before account-derived
-material is transmitted. A 2FA challenge is a second step only when the server
-returns one. "Add account" does not mean remote Vaultwarden registration in P1.
+The user experience is one add-account sheet: a provider choice (Vaultwarden
+functional and default; Proton Pass staged/unavailable and credential-free
+until its workstream) over one Vaultwarden form containing complete server
+URL, email, and master password. URL/TLS/config validation runs before
+account-derived material is transmitted. A 2FA challenge is a second step only
+when the server returns one. "Add account" does not mean remote Vaultwarden
+registration in P1.
 
 The login transaction is:
 

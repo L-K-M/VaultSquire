@@ -346,6 +346,33 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
         XCTAssertEqual(grant.url.host, "identity.other.com")
     }
 
+    func testHTTPAdvertisedServiceURLsFallBackToEnteredOriginWithoutApproval() async throws {
+        // A server whose DOMAIN setting is unset advertises http://localhost
+        // service URLs. A plaintext-http advertisement is unusable, so login
+        // must stay on the entered origin without consulting the approval
+        // policy — proven with a policy that would reject any prompt.
+        StubServer.shared.on(
+            "/api/config",
+            respond: .json(200, "{\"environment\":{\"identity\":\"http://localhost/identity\",\"api\":\"http://localhost/api\"}}")
+        )
+        stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)
+        StubServer.shared.on("/connect/token", respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r\"}"))
+
+        let outcome = try await makeAuthenticator(origin: RejectAllOriginPolicy()).login(
+            email: email, masterPasswordBytes: passwordBytes, device: device, lastAcceptedKDF: nil
+        )
+
+        guard case .authenticated = outcome else {
+            return XCTFail("an http advertisement should fall back to the entered origin and authenticate")
+        }
+        let prelogin = try XCTUnwrap(
+            StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password")
+        )
+        XCTAssertEqual(prelogin.url.host, "vault.example.com")
+        let grant = try XCTUnwrap(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
+        XCTAssertEqual(grant.url.host, "vault.example.com")
+    }
+
     func testMalformedConfigFallsBackToEnteredOriginAndProceeds() async throws {
         // A config body that is not decodable must not abort login; the client
         // falls back to the entered origin (the safe same-origin default).

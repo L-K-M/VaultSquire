@@ -18,7 +18,8 @@ final class AddAccountModelTests: XCTestCase {
     }
 
     private func makeModel(
-        store: any VaultwardenCredentialStore
+        store: any VaultwardenCredentialStore,
+        onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in }
     ) -> AddAccountModel {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
@@ -28,7 +29,8 @@ final class AddAccountModelTests: XCTestCase {
             deviceIdentity: device,
             makeTransport: { environment in
                 VaultwardenTransport(environment: environment, session: session)
-            }
+            },
+            onAccountConfigured: onAccountConfigured
         )
     }
 
@@ -59,6 +61,43 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertEqual(
             store.record(for: .primary)?.refreshToken, "VSQ-refresh"
         )
+    }
+
+    func testSuccessfulSignInReportsAccountConfiguredOnce() async {
+        var configured: [URL] = []
+        let model = makeModel(store: InMemoryCredentialStore()) { configured.append($0) }
+        stubSuccessfulLogin()
+
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        await model.signIn()
+
+        XCTAssertEqual(configured.map(\.absoluteString), ["https://vault.example.com"])
+    }
+
+    func testFailedSignInNeverReportsAccountConfigured() async {
+        let model = makeModel(store: InMemoryCredentialStore()) { _ in
+            XCTFail("a failed sign-in must not report a configured account")
+        }
+        StubServer.shared.on("/api/config", respond: .json(200, "{}"))
+        StubServer.shared.on(
+            "/accounts/prelogin/password",
+            respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
+        )
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(400, "{\"error\":\"invalid_grant\"}")
+        )
+
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        await model.signIn()
+
+        guard case .failed = model.phase else {
+            return XCTFail("expected a failed phase")
+        }
     }
 
     func testMasterPasswordNeverReachesTheStoredRecord() async {
@@ -298,29 +337,125 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertTrue(model.offeredProviders.isEmpty)
     }
 
-    func testDifferingEffectiveOriginIsRejected() async {
-        let store = InMemoryCredentialStore()
-        let model = makeModel(store: store)
+    // MARK: - Effective-origin approval
+
+    /// Stubs a server whose config advertises the identity service on a
+    /// different https origin, plus the endpoints a fully approved login needs.
+    private func stubCrossOriginServer() {
         StubServer.shared.on(
             "/api/config",
             respond: .json(200, "{\"environment\":{\"identity\":\"https://identity.other.com\"}}")
         )
-        // Prelogin is stubbed but must never be reached: the differing origin
-        // fails closed before any credential-bearing request is sent.
         StubServer.shared.on(
             "/accounts/prelogin/password",
             respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
         )
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"VSQ-refresh\",\"TwoFactorToken\":null}")
+        )
+    }
 
+    private func beginCrossOriginSignIn(_ model: AddAccountModel) {
         model.serverURL = "https://vault.example.com"
         model.email = "user@example.com"
         model.masterPassword = "pw"
-        await model.signIn()
+        model.beginSignIn()
+    }
 
-        guard case .failed = model.phase else {
-            return XCTFail("a differing effective origin must fail closed")
+    /// Waits until the condition holds, sleeping briefly between checks so the
+    /// suspended sign-in task can make progress on the main actor. Bounded so
+    /// a regression fails the test instead of hanging it.
+    private func waitUntil(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<400 {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 5_000_000)
         }
-        // Prelogin (carrying the email) was never sent.
+        return condition()
+    }
+
+    func testDifferingEffectiveOriginPresentsApprovalBeforeAnyCredentialLeaves() async {
+        let model = makeModel(store: InMemoryCredentialStore())
+        stubCrossOriginServer()
+
+        beginCrossOriginSignIn(model)
+
+        let presented = await waitUntil { model.originApproval != nil }
+        XCTAssertTrue(presented, "a differing https origin must surface an approval request")
+        XCTAssertEqual(model.originApproval?.entered.host, "vault.example.com")
+        XCTAssertEqual(model.originApproval?.effectiveIdentity.host, "identity.other.com")
+        // While the decision is pending, nothing credential-bearing was sent.
         XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password"))
+
+        model.cancel()
+    }
+
+    func testDecliningOriginApprovalFailsClosedWithoutPrelogin() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        stubCrossOriginServer()
+
+        beginCrossOriginSignIn(model)
+        XCTAssertTrue(await waitUntil { model.originApproval != nil })
+
+        model.resolveOriginApproval(approved: false)
+
+        let failed = await waitUntil {
+            if case .failed = model.phase { return true }
+            return false
+        }
+        XCTAssertTrue(failed, "a declined origin must fail closed")
+        // Prelogin (carrying the email) was never sent, and nothing persisted.
+        XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password"))
+        XCTAssertNil(store.record(for: .primary))
+    }
+
+    func testApprovedOriginProceedsAgainstTheAdvertisedHostAndStores() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        stubCrossOriginServer()
+
+        beginCrossOriginSignIn(model)
+        XCTAssertTrue(await waitUntil { model.originApproval != nil })
+
+        model.resolveOriginApproval(approved: true)
+
+        let succeeded = await waitUntil { model.phase == .succeeded }
+        XCTAssertTrue(succeeded, "an approved origin must let the login finish")
+        XCTAssertNil(model.originApproval)
+        XCTAssertEqual(store.record(for: .primary)?.refreshToken, "VSQ-refresh")
+        // The approved advertised host actually served prelogin and the grant.
+        XCTAssertEqual(
+            StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password")?.url.host,
+            "identity.other.com"
+        )
+        XCTAssertEqual(
+            StubServer.shared.lastRequest(pathSuffix: "/connect/token")?.url.host,
+            "identity.other.com"
+        )
+    }
+
+    func testDismissalWhileApprovalPendingDeclinesAndSendsNothing() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        stubCrossOriginServer()
+
+        beginCrossOriginSignIn(model)
+        XCTAssertTrue(await waitUntil { model.originApproval != nil })
+
+        // Sheet dismissal: the pending continuation must resolve (declined) so
+        // the suspended task ends instead of leaking.
+        model.cancel()
+
+        XCTAssertNil(model.originApproval)
+        // Give the resumed task a bounded moment to finish; it must send
+        // nothing further and persist nothing. The cancelled task also must
+        // not repaint the form with a failure.
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password"))
+        XCTAssertNil(store.record(for: .primary))
+        XCTAssertEqual(model.phase, .connecting, "a dismissed flow leaves no stale failure behind")
     }
 }

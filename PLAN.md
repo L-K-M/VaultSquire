@@ -101,7 +101,10 @@ for every official Bitwarden client feature.
 The requested account-creation experience means adding an existing account to
 VaultSquire, not registering a new user on the Vaultwarden server.
 
-The first screen is one form with:
+The first screen offers a provider choice in which Vaultwarden is the default
+functional provider and Proton Pass appears as staged/unavailable (collecting
+no credentials) until Workstream 10 enables it. The Vaultwarden selection is
+one form with:
 
 | Field | Behavior |
 |---|---|

@@ -30,8 +30,10 @@ The intended product is small, fast, local-first, and explicit about its
 security boundaries:
 
 - one clean-room native Swift application named VaultSquire;
-- one Vaultwarden add-account form for server URL, email, and master password,
-  followed by a second-factor step only when the server requires one;
+- one add-account sheet whose provider choice lists Vaultwarden (a form for
+  server URL, email, and master password, followed by a second-factor step only
+  when the server requires one) and Proton Pass (staged and credential-free
+  until its workstream);
 - Proton Pass access through the official user-installed CLI, with required
   reads and writes enabled only per exact tested command/version when complete
   private input uses a protected non-argv, non-environment, non-filesystem

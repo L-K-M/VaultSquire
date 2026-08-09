@@ -73,6 +73,10 @@ enum VaultwardenCredentialStoreError: Error, Equatable, Sendable {
 protocol VaultwardenCredentialStore: Sendable {
     func save(_ credentials: VaultwardenStoredCredentials, for account: VaultwardenAccountKey) throws
     func load(for account: VaultwardenAccountKey) throws -> VaultwardenStoredCredentials?
+    /// Reports whether a record exists without exposing it. The Keychain
+    /// implementation answers from item metadata so secret bytes never load
+    /// for a mere existence check.
+    func hasCredentials(for account: VaultwardenAccountKey) throws -> Bool
     /// Replaces only the refresh token of an existing record, preserving any
     /// remembered second-factor token, and throws `recordNotFound` when no
     /// record exists. The write itself is atomic (no torn token), but the
@@ -80,4 +84,12 @@ protocol VaultwardenCredentialStore: Sendable {
     /// concurrent writes for one account.
     func replaceRefreshToken(_ token: String, for account: VaultwardenAccountKey) throws
     func delete(for account: VaultwardenAccountKey) throws
+}
+
+extension VaultwardenCredentialStore {
+    /// Default existence check by loading the record. Suitable for in-memory
+    /// stores; the Keychain store overrides it to avoid touching secret bytes.
+    func hasCredentials(for account: VaultwardenAccountKey) throws -> Bool {
+        try load(for: account) != nil
+    }
 }

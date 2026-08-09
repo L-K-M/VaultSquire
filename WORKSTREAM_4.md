@@ -44,11 +44,20 @@ credential storage on top of the headless authenticator:
 
 Scope boundaries for this slice:
 
-- **Interactive origin/KDF approval is deferred.** A differing effective origin
-  or a KDF change fails closed with a clear message (credentials never leave
-  for an unconfirmed origin). First-login same-origin servers — the common
-  case — invoke neither policy. Interactive approval of a different origin is a
-  follow-up.
+- **Interactive KDF-change approval is deferred.** A KDF change on a later
+  re-authentication fails closed with a clear message until its confirmation
+  UI exists. Interactive origin approval is implemented (2026-08-09): a
+  config-advertised HTTPS service origin that differs from the entered one
+  surfaces an in-sheet approval panel — the one place origins are displayed —
+  before any credential-derived data leaves, and a decline or dismissal still
+  fails closed. A plaintext-http advertisement (typically a server whose
+  `DOMAIN` setting is unset advertising `http://localhost`) is discarded in
+  favor of the entered origin without a prompt, since approving it would
+  downgrade the transport. First-login same-origin servers — the common case —
+  invoke neither policy. Evidence:
+  `VaultwardenAuthenticatorTests.testHTTPAdvertisedServiceURLsFallBackToEnteredOriginWithoutApproval`
+  and the `AddAccountModelTests` origin-approval cases (present, decline,
+  approve-and-use-advertised-host, dismiss-while-pending).
 - **No unlock or vault display.** The flow ends at "account configured,
   credentials stored"; unlock, sync, and the vault UI are Workstreams 5-7.
   Reloading the stored credentials on a later launch is Workstream 5.
@@ -59,6 +68,28 @@ Scope boundaries for this slice:
   in-memory store, and the add-account flow is driven end to end against the
   `URLProtocol` stub. Real-Keychain behavior on named hardware remains contract
   evidence.
+
+### Provider Choice And Shell Presence Addendum (2026-08-09)
+
+The add-account sheet now opens with a provider choice: Vaultwarden (the
+default, functional, its form unchanged) and Proton Pass, listed as staged and
+unavailable with an informational pane that collects no credentials, executes
+no CLI, performs no CLI presence or version detection, and consumes no
+outstanding Workstream 1 evidence. Proton Pass functionality remains gated by
+`PROTON_PASS_RESEARCH.md` and its workstream; the pane states that sign-in
+stays with the official user-installed CLI. `PLAN.md` ("Meaning Of Add
+Account"), `ARCHITECTURE.md`, and `README.md` were amended in the same change
+so the controlling documents and the implementation agree.
+
+The locked shell now distinguishes "no accounts yet" from "vault locked". On
+appearance it probes the credential store for record existence only
+(`hasCredentials`, a metadata query that loads no secret bytes); this is not
+the credential reloading that remains Workstream 5's boundary below. A store
+that reports itself unavailable (for example the ad-hoc-signed CI host) keeps
+the locked wording — the safe default that claims less than "no accounts
+exist" does. A successful add-account reports through `onAccountConfigured`;
+failed attempts leave nothing behind except the documented non-secret device
+identifier above.
 
 The headless slice's scope note below is retained unchanged.
 
