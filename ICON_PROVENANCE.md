@@ -48,9 +48,10 @@ must address:
 - whether the shield-shaped lower badge creates confusing third-party trade
   dress or contradicts the product's no-imitation branding rule.
 
-Do not replace this source, strip its provenance metadata, or generate shipping
-assets before that review. Derived assets must record tool, exact command,
-profile, dimensions, output hashes, reviewer, and source hash.
+Do not replace this source, strip its provenance metadata, or — except at the
+owner's recorded direction, as happened below — generate shipping assets before
+that review. Derived assets must record tool, exact command, profile,
+dimensions, output hashes, reviewer, and source hash.
 
 ## Derived Asset Record (2026-08-09)
 
@@ -59,7 +60,9 @@ review, which remains open: the owner reviews the 16, 32, and 64 pixel
 renderings at 1:1 in Finder and the Dock per the gate above.
 
 - Tool: `scripts/generate-app-icon.py` (Python 3.11.15, Pillow 12.3.0,
-  Lanczos resampling)
+  Lanczos resampling). Pillow is a derivation-host tool only: it never
+  executes inside the product or its build, no package manifest exists, and
+  the ADR 0003 in-process dependency gate is therefore not triggered
 - Exact command: `python3 scripts/generate-app-icon.py`
 - Verification: `python3 scripts/generate-app-icon.py --check` re-derives and
   compares pixels; the script refuses any source whose SHA-256 differs from the
