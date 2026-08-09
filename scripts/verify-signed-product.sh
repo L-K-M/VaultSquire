@@ -187,8 +187,27 @@ for ((index = 0; index < certificate_count; index++)); do
 done
 $certificate_match || { printf 'Provisioning profile does not contain the signing certificate.\n' >&2; exit 1; }
 
-requirement="$(codesign --display --requirements :- "$APP_PATH" 2>&1)"
-[[ "$requirement" == *'identifier "ch.lkmc.VaultSquire"'* ]] || { printf 'Unexpected designated requirement.\n' >&2; exit 1; }
+requirement="$(codesign --display --requirements :- "$APP_PATH" 2>"$tool_errors")" || {
+    printf 'Could not read the designated requirement from %s\n' "$APP_PATH" >&2
+    cat "$tool_errors" >&2
+    exit 1
+}
+[[ -n "$requirement" ]] || {
+    printf 'No designated requirement is embedded in %s, so nothing pins the signed identifier.\n' "$APP_PATH" >&2
+    cat "$tool_errors" >&2
+    exit 1
+}
+# codesign re-renders the stored requirement rather than echoing the source it
+# was signed with, and its printer quotes an identifier only when the string
+# needs quoting. `ch.lkmc.VaultSquire` is alphanumerics and dots, so both
+# spellings are faithful renderings of the same pinned identifier and both have
+# to be accepted; the trailing delimiter keeps the bare form from matching a
+# longer identifier that merely starts with ours.
+identifier_clause='identifier[[:space:]]+("ch\.lkmc\.VaultSquire"|ch\.lkmc\.VaultSquire([[:space:]]|$))'
+[[ "$requirement" =~ $identifier_clause ]] || {
+    printf 'Designated requirement does not pin the bundle identifier:\n%s\n' "$requirement" >&2
+    exit 1
+}
 
 unexpected_links="$(otool -L "$BINARY" | /usr/bin/sed -n '2,$s/^[[:space:]]*\([^[:space:]]*\).*/\1/p' | /usr/bin/grep -Ev '^(/System/Library/|/usr/lib/)' || true)"
 [[ -z "$unexpected_links" ]] || { printf 'Unexpected non-system linked images:\n%s\n' "$unexpected_links" >&2; exit 1; }
