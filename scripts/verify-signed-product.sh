@@ -187,7 +187,12 @@ for ((index = 0; index < certificate_count; index++)); do
 done
 $certificate_match || { printf 'Provisioning profile does not contain the signing certificate.\n' >&2; exit 1; }
 
-requirement="$(codesign --display --requirements :- "$APP_PATH" 2>"$tool_errors")" || {
+# `-r-`, not `--requirements :-`. The `:-` spelling means stdout for
+# `--entitlements` but not here: codesign takes it as a literal file name,
+# writes the requirement blob to a file called `:-` in the working directory,
+# and leaves stdout empty — a silent pass into an empty-string comparison, plus
+# a stray binary file in the repository.
+requirement="$(codesign --display -r- "$APP_PATH" 2>"$tool_errors")" || {
     printf 'Could not read the designated requirement from %s\n' "$APP_PATH" >&2
     cat "$tool_errors" >&2
     exit 1
