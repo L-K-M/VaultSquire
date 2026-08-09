@@ -34,7 +34,17 @@ fi
 # answer cannot depend on the caller's own DEVELOPER_DIR or xcode-select state.
 developer_dir_version() {
     [[ -x "$1/usr/bin/xcodebuild" ]] || return 1
-    "$1/usr/bin/xcodebuild" -version 2>/dev/null | /usr/bin/head -n 1
+
+    # Deliberately not a pipeline. `xcodebuild -version | head -n 1` makes head
+    # close the pipe after the first of xcodebuild's two lines; xcodebuild then
+    # dies on SIGPIPE and `pipefail` reports the whole pipeline as failed even
+    # though it printed the right answer. Read it all, then take the first line.
+    local output
+    output="$("$1/usr/bin/xcodebuild" -version 2>/dev/null)" || true
+    output="${output%%$'\n'*}"
+    [[ -n "$output" ]] || return 1
+
+    printf '%s\n' "$output"
 }
 
 # The hosted-runner path stays first so CI resolves exactly what it did before.
@@ -56,7 +66,7 @@ candidate_developer_dirs() {
 # selection is usually /Applications/Xcode.app, which the glob finds again — so
 # deduplicating here keeps one real Xcode from being reported as three.
 developer_dir_survey() {
-    local candidate previous seen
+    local candidate previous seen version
     local considered=""
     while IFS= read -r candidate; do
         [[ -n "$candidate" ]] || continue
@@ -66,11 +76,15 @@ developer_dir_survey() {
         done <<<"$considered"
         $seen && continue
         considered="$considered$candidate"$'\n'
-        if [[ -d "$candidate" ]]; then
-            printf '%s\t%s\n' "$candidate" "$(developer_dir_version "$candidate" || echo 'no xcodebuild')"
-        else
-            printf '%s\tabsent\n' "$candidate"
+
+        if [[ ! -d "$candidate" ]]; then
+            version="absent"
+        elif ! version="$(developer_dir_version "$candidate")"; then
+            version="no xcodebuild"
         fi
+        # Exactly one tab-separated row per candidate, whatever the probe
+        # emitted: a stray newline here becomes a bogus row in the report.
+        printf '%s\t%s\n' "$candidate" "${version%%$'\n'*}"
     done < <(candidate_developer_dirs)
     return 0
 }
