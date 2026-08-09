@@ -90,10 +90,31 @@ if [[ "$SIGNING_MODE" == "developer-id" ]]; then
 else
     [[ "$profile_application_identifier" == "$TEAM_ID.ch.lkmc.VaultSquire" || "$profile_application_identifier" == "$TEAM_ID.*" ]] || { printf 'Development profile application identifier mismatch.\n' >&2; exit 1; }
 fi
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$profile_plist")" == "group.ch.lkmc.VaultSquire" ]] || { printf 'Provisioning profile App Group mismatch.\n' >&2; exit 1; }
-if /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:1' "$profile_plist" >/dev/null 2>&1; then
-    printf 'Provisioning profile contains an additional App Group.\n' >&2
-    exit 1
+if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+    # A distribution profile is cut for exactly this app, so anything extra in
+    # it is unexplained and blocks the release.
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$profile_plist")" == "group.ch.lkmc.VaultSquire" ]] || { printf 'Provisioning profile App Group mismatch.\n' >&2; exit 1; }
+    if /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:1' "$profile_plist" >/dev/null 2>&1; then
+        printf 'Provisioning profile contains an additional App Group.\n' >&2
+        exit 1
+    fi
+else
+    # Xcode's automatic team profile enumerates every App Group registered to
+    # the Apple Developer account, so demanding exactly one is unsatisfiable for
+    # any team that owns more than this app — and it is not the control that
+    # matters. A profile authorizes; the signed entitlements bind. The signed
+    # set was asserted above to be exactly group.ch.lkmc.VaultSquire and nothing
+    # else, which is what the running app can actually reach. Require the
+    # profile to authorize that group, not to authorize nothing else. This
+    # mirrors the application-identifier check above, which already accepts the
+    # wildcard team profile on this path.
+    profile_groups="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups' "$profile_plist" 2>/dev/null \
+        | /usr/bin/sed -e '1d' -e '$d' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)"
+    printf '%s\n' "$profile_groups" | /usr/bin/grep -Fxq 'group.ch.lkmc.VaultSquire' || {
+        printf 'Development profile does not authorize group.ch.lkmc.VaultSquire.\n' >&2
+        printf 'Groups the profile authorizes:\n%s\n' "${profile_groups:-<none>}" >&2
+        exit 1
+    }
 fi
 profile_expiration="$(plutil -extract ExpirationDate raw -o - "$profile_plist")"
 [[ "$profile_expiration" > "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ]] || { printf 'Provisioning profile is expired.\n' >&2; exit 1; }
