@@ -153,7 +153,11 @@ leaf_certificate="$(mktemp)"
 profile_certificate="$(mktemp)"
 certificates_directory="$(mktemp -d)"
 trap 'rm -f "$actual_entitlements" "$profile_plist" "$tool_errors" "$leaf_certificate" "$profile_certificate"; rm -rf "$certificates_directory"' EXIT
-codesign --display --extract-certificates "$certificates_directory/cert" "$APP_PATH" >/dev/null 2>"$tool_errors" || {
+# The prefix must be attached with `=`. `--extract-certificates` takes an
+# optional argument, and getopt_long binds those only in the `--opt=value`
+# form; written as a separate word the prefix is left as a positional path and
+# codesign tries to verify it as if it were a second bundle.
+codesign --display --extract-certificates="$certificates_directory/cert" "$APP_PATH" >/dev/null 2>"$tool_errors" || {
     printf 'Could not extract the signing certificate chain from %s\n' "$APP_PATH" >&2
     cat "$tool_errors" >&2
     exit 1
