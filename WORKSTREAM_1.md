@@ -46,10 +46,10 @@ pass. Generated app icons remain blocked by `ICON_PROVENANCE.md`.
 
 | Property | Required value | Observed value |
 |---|---|---|
-| Runner | GitHub-hosted Apple Silicon `macos-26` | Pending; re-derive from the first successful run on this image |
-| Xcode | version exactly `26.6`; install path is not pinned | Pending; expected build `17F113` at `/Applications/Xcode_26.6.app/Contents/Developer` on the hosted runner, to be confirmed from the run log |
-| Swift compiler build | Emitted by `xcrun swiftc --version` | Pending; re-derive from the first successful run on this image |
-| macOS SDK version/build | Emitted by `xcrun --sdk macosx` | Pending; re-derive from the first successful run on this image |
+| Runner | GitHub-hosted Apple Silicon `macos-26` | macOS `26.5.2` build `25F84`, `arm64` in workflow run `31324255224` |
+| Xcode | version exactly `26.6`; install path is not pinned | `26.6` build `17F113` at `/Applications/Xcode_26.6.app/Contents/Developer` on the hosted runner |
+| Swift compiler build | Emitted by `xcrun swiftc --version` | Apple Swift `6.3.3` (`swiftlang-6.3.3.1.3`, Clang `2100.1.1.101`) |
+| macOS SDK version/build | Emitted by `xcrun --sdk macosx` | `26.5` build `25F70` |
 | Deployment target | macOS `14.0` | Confirmed by the Release compiler target and binary build |
 | Product architecture | exactly `arm64` | Confirmed by post-signing `lipo` inspection |
 
@@ -61,11 +61,13 @@ The pin moved from Xcode `26.3` on `macos-15` to `26.6` on `macos-26`. The
 `macos-15` image does not ship `26.6` at all, so the move required the runner
 image to move with it; `macos-26` carries `26.6` build `17F113` and still
 carries `26.3`, so the previous toolchain remains reachable if this is reverted.
-The rows above are marked pending on purpose: the superseded values came from
-run `30696406614` on `macos-15`, and this document's own rule is that observed
-values come from a real successful run, not from a marketing version. They are
-filled in from the first green run on the new image, and until then no row here
-is evidence of anything.
+The rows above were left pending across the move and then transcribed from the
+first green run on the new image, workflow run `31324255224`, rather than
+carried over or inferred. That mattered: the superseded values from run
+`30696406614` on `macos-15` were Swift `6.2.4` and SDK `26.2` build `25C58`,
+and the new image actually reports Swift `6.3.3` and SDK `26.5` build `25F70`,
+so anything inferred from the Xcode marketing version would have been wrong in
+this record.
 
 The version is the pin; where Xcode is installed is not.
 `/Applications/Xcode_26.6.app` is the hosted runner's naming convention, and the
