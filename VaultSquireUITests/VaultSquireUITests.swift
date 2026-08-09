@@ -74,16 +74,38 @@ final class VaultSquireUITests: XCTestCase {
         // The provider choice defaults to Vaultwarden with its form visible.
         XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 2))
 
-        app.radioButtons["Proton Pass"].click()
+        clickProviderSegment("Proton Pass", in: app)
 
-        XCTAssertTrue(element("add-account-proton", in: app).waitForExistence(timeout: 2))
+        XCTAssertTrue(element("add-account-proton", in: app).waitForExistence(timeout: 3))
         // The staged pane collects nothing: no plain or secure fields anywhere
         // in the sheet while Proton Pass is selected.
         XCTAssertEqual(sheet.textFields.count, 0)
         XCTAssertEqual(sheet.secureTextFields.count, 0)
 
-        app.radioButtons["Vaultwarden"].click()
-        XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 2))
+        clickProviderSegment("Vaultwarden", in: app)
+        XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 3))
+    }
+
+    /// Clicks one segment of the provider picker. macOS exposes a SwiftUI
+    /// segmented control differently across releases (radio buttons in a radio
+    /// group, a segmented control with child buttons, or plain buttons), so
+    /// the plausible queries are tried in order; a total miss fails with the
+    /// live hierarchy so the real shape is in the log.
+    @MainActor
+    private func clickProviderSegment(_ label: String, in app: XCUIApplication) {
+        let candidates: [XCUIElement] = [
+            app.radioButtons[label],
+            app.segmentedControls.buttons[label],
+            app.buttons[label],
+            app.staticTexts[label],
+        ]
+        for candidate in candidates where candidate.waitForExistence(timeout: 1) {
+            candidate.click()
+            return
+        }
+        XCTFail(
+            "No provider segment matched '\(label)'. Hierarchy: \(app.debugDescription)"
+        )
     }
 
     @MainActor

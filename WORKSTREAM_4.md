@@ -77,9 +77,13 @@ unavailable with an informational pane that collects no credentials, executes
 no CLI, performs no CLI presence or version detection, and consumes no
 outstanding Workstream 1 evidence. Proton Pass functionality remains gated by
 `PROTON_PASS_RESEARCH.md` and its workstream; the pane states that sign-in
-stays with the official user-installed CLI. `PLAN.md` ("Meaning Of Add
-Account"), `ARCHITECTURE.md`, and `README.md` were amended in the same change
-so the controlling documents and the implementation agree.
+stays with the official user-installed CLI. Its wording mirrors the factual
+compatibility statements `README.md` already carries — no logo, no
+official-client implication — and remains subject to the pre-availability
+Proton outreach and legal review `PROTON_PASS_RESEARCH.md` records. `PLAN.md`
+("Meaning Of Add Account" and the Workstream 4 deliverable line),
+`ARCHITECTURE.md`, and `README.md` were amended in the same change so the
+controlling documents and the implementation agree.
 
 The locked shell now distinguishes "no accounts yet" from "vault locked". On
 appearance it probes the credential store for record existence only

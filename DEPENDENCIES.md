@@ -36,6 +36,25 @@ recorded in
 binary, updater, or release-pipeline adoption requires an independent second
 reviewer.
 
+## Derivation-Host Tools
+
+Tools that run only on a derivation or CI host — never inside the product, its
+build, or a package manifest — are recorded here rather than adopted:
+
+| Field | Pillow |
+| --- | --- |
+| Name | Pillow (Python imaging library), invoked by `scripts/generate-app-icon.py` |
+| Purpose | Deterministic Lanczos downscaling of the attested icon source into the AppIcon slots; no Apple imaging tool is available on the Linux derivation host, and the product build consumes only the committed PNGs |
+| Exact version | `12.3.0` (with Python 3.11.15) |
+| Origin | PyPI `pillow` 12.3.0; wheel used on the derivation host: `pillow-12.3.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl` |
+| Integrity | Wheel SHA-256 `23d27a3e0307ec2244cc51e7287b919aa68d097504ebe19df4e76a98a3eea5bd`; independent of tool trust, every committed output's SHA-256 is recorded in `ICON_PROVENANCE.md` and `scripts/generate-app-icon.py --check` re-derives and compares pixels |
+| License | MIT-CMU |
+| Transitives | None imported by the script beyond the Python standard library |
+| Security owner | `L-K-M` |
+| Update policy | Re-record version and wheel hash whenever assets are regenerated |
+| Secret surface | None: reads one public image, writes public images; no keys, credentials, network, or release assets |
+| Removal plan | Any resampler reproducing the recorded output hashes (or a reviewed re-derivation with a fresh record) replaces it |
+
 ## Platform Surface
 
 The Apple registered-hot-key fallback is an OS/SDK surface, not a downloaded or

@@ -75,7 +75,7 @@ struct LockedShellView: View {
                 .accessibilityIdentifier("locked-shell-title")
 
             Text(hasNoAccounts
-                ? "Add an account to bring its vault under VaultSquire's watch. Nothing is stored until a sign-in completes."
+                ? "Add an account to bring its vault under VaultSquire's watch. Credentials are stored only after a sign-in completes."
                 : "Unlock arrives in its provider milestone. This shell keeps decrypted state closed.")
                 .font(.body)
                 .foregroundStyle(.secondary)

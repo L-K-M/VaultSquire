@@ -36,10 +36,11 @@ macOS icon slots without upscaling.
 
 ## Remaining Visual Gate
 
-Generated assets remain blocked until Workstream 1 records human review of
-actual 16, 32, and 64 pixel output at 1:1 scale in Finder and the Dock, on light
-and dark backgrounds, under the selected color profile and macOS mask. Review
-must address:
+Generated assets exist (see the Derived Asset Record below) but remain
+unshippable until Workstream 1 records human review of actual 16, 32, and 64
+pixel output at 1:1 scale in Finder and the Dock, on light and dark
+backgrounds, under the selected color profile and macOS mask. Review must
+address:
 
 - loss of chainmail, scratches, rivets, vents, highlights, and the small keyhole;
 - low-contrast dark steel against the dark vault interior;

@@ -579,7 +579,8 @@ Deliverables:
   proxy support, cancellation, and safe retry classification.
 - Configuration discovery, prelogin, password login, 2FA continuation, refresh
   replacement, and typed error mapping.
-- One-form add-account UI followed by an optional challenge screen.
+- Provider-choice add-account sheet: the Vaultwarden form followed by an
+  optional challenge screen, with Proton Pass staged and credential-free.
 - Keychain storage with atomic refresh-token replacement and remembered 2FA
   material.
 
