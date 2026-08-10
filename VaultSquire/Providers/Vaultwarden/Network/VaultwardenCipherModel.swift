@@ -46,6 +46,61 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
 
         struct URI: Sendable, Codable, Hashable {
             let uri: String?
+
+            init(uri: String?) { self.uri = uri }
+
+            // The wire is PascalCase from the API; a persisted snapshot is the
+            // lowerCamel form this encodes to. Both decode.
+            enum CodingKeys: String, CodingKey {
+                case uri
+                case uriP = "Uri"
+            }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                self.uri = try c.decodeIfPresent(String.self, forKey: .uri)
+                    ?? c.decodeIfPresent(String.self, forKey: .uriP)
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encodeIfPresent(uri, forKey: .uri)
+            }
+        }
+
+        init(username: String? = nil, password: String? = nil, totp: String? = nil, uris: [URI] = []) {
+            self.username = username
+            self.password = password
+            self.totp = totp
+            self.uris = uris
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case username, password, totp, uris
+            case usernameP = "Username", passwordP = "Password"
+            case totpP = "Totp", urisP = "Uris"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.username = try c.decodeIfPresent(String.self, forKey: .username)
+                ?? c.decodeIfPresent(String.self, forKey: .usernameP)
+            self.password = try c.decodeIfPresent(String.self, forKey: .password)
+                ?? c.decodeIfPresent(String.self, forKey: .passwordP)
+            self.totp = try c.decodeIfPresent(String.self, forKey: .totp)
+                ?? c.decodeIfPresent(String.self, forKey: .totpP)
+            // A login with no URIs omits the field entirely on the wire, so an
+            // absent list is the empty list, not a decode failure.
+            self.uris = try c.decodeIfPresent([URI].self, forKey: .uris)
+                ?? c.decodeIfPresent([URI].self, forKey: .urisP) ?? []
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeIfPresent(username, forKey: .username)
+            try c.encodeIfPresent(password, forKey: .password)
+            try c.encodeIfPresent(totp, forKey: .totp)
+            try c.encode(uris, forKey: .uris)
         }
     }
 
@@ -56,6 +111,48 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         let expMonth: String?
         let expYear: String?
         let code: String?
+
+        init(
+            cardholderName: String? = nil, brand: String? = nil, number: String? = nil,
+            expMonth: String? = nil, expYear: String? = nil, code: String? = nil
+        ) {
+            self.cardholderName = cardholderName
+            self.brand = brand
+            self.number = number
+            self.expMonth = expMonth
+            self.expYear = expYear
+            self.code = code
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case cardholderName, brand, number, expMonth, expYear, code
+            case cardholderNameP = "CardholderName", brandP = "Brand", numberP = "Number"
+            case expMonthP = "ExpMonth", expYearP = "ExpYear", codeP = "Code"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func str(_ camel: CodingKeys, _ pascal: CodingKeys) throws -> String? {
+                try c.decodeIfPresent(String.self, forKey: camel)
+                    ?? c.decodeIfPresent(String.self, forKey: pascal)
+            }
+            self.cardholderName = try str(.cardholderName, .cardholderNameP)
+            self.brand = try str(.brand, .brandP)
+            self.number = try str(.number, .numberP)
+            self.expMonth = try str(.expMonth, .expMonthP)
+            self.expYear = try str(.expYear, .expYearP)
+            self.code = try str(.code, .codeP)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeIfPresent(cardholderName, forKey: .cardholderName)
+            try c.encodeIfPresent(brand, forKey: .brand)
+            try c.encodeIfPresent(number, forKey: .number)
+            try c.encodeIfPresent(expMonth, forKey: .expMonth)
+            try c.encodeIfPresent(expYear, forKey: .expYear)
+            try c.encodeIfPresent(code, forKey: .code)
+        }
     }
 
     struct Identity: Sendable, Codable, Hashable {
@@ -64,6 +161,45 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         let lastName: String?
         let email: String?
         let phone: String?
+
+        init(
+            title: String? = nil, firstName: String? = nil, lastName: String? = nil,
+            email: String? = nil, phone: String? = nil
+        ) {
+            self.title = title
+            self.firstName = firstName
+            self.lastName = lastName
+            self.email = email
+            self.phone = phone
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case title, firstName, lastName, email, phone
+            case titleP = "Title", firstNameP = "FirstName", lastNameP = "LastName"
+            case emailP = "Email", phoneP = "Phone"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func str(_ camel: CodingKeys, _ pascal: CodingKeys) throws -> String? {
+                try c.decodeIfPresent(String.self, forKey: camel)
+                    ?? c.decodeIfPresent(String.self, forKey: pascal)
+            }
+            self.title = try str(.title, .titleP)
+            self.firstName = try str(.firstName, .firstNameP)
+            self.lastName = try str(.lastName, .lastNameP)
+            self.email = try str(.email, .emailP)
+            self.phone = try str(.phone, .phoneP)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeIfPresent(title, forKey: .title)
+            try c.encodeIfPresent(firstName, forKey: .firstName)
+            try c.encodeIfPresent(lastName, forKey: .lastName)
+            try c.encodeIfPresent(email, forKey: .email)
+            try c.encodeIfPresent(phone, forKey: .phone)
+        }
     }
 
     // Wire keys are PascalCase from the API and lowerCamel from some proxies;
