@@ -220,6 +220,41 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.isUnlocked)
     }
 
+    /// The shell calls refreshAccountPresence every time it appears, so the
+    /// rebuild must diff rather than recreate: recreating would silently lock
+    /// every open vault on each appearance.
+    @MainActor
+    func testRefreshPreservesAnOpenVault() async throws {
+        let executor = FakeProtonCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        model.refreshAccountPresence()
+        XCTAssertTrue(model.session(for: account)?.isOpen == true, "an open vault survives a refresh")
+        XCTAssertEqual(model.allOpenItems.count, 1)
+    }
+
     /// Scoping narrows the list; All Vaults merges. Quick Search always spans
     /// everything that is open regardless of the browser's scope.
     @MainActor

@@ -10,12 +10,12 @@ enum BiometricUnlockError: Error, Equatable, Sendable {
     /// The user dismissed the Touch ID prompt or chose another method. Not a
     /// failure to report as an error; the password prompt simply stays.
     case cancelled
-    /// No key is stored for this account (the user never opted in, or it was
-    /// revoked).
+    /// No enrollment exists for this account (never opted in, or revoked).
     case notEnrolled
-    /// A stored key exists but can no longer be used: the enrolled fingerprint
-    /// set changed, or the account's key material was rotated since it was
-    /// stored. The stale entry is deleted and the password prompt takes over.
+    /// An enrollment exists but can no longer be used: the enrolled fingerprint
+    /// set changed (which destroys the quick-unlock key), or the account's key
+    /// material was rotated since it was stored. Both records are deleted and
+    /// the password prompt takes over.
     case invalidated
     /// The Keychain refused the operation for another reason.
     case failed(OSStatus)
@@ -29,64 +29,93 @@ protocol BiometricVaultKeyStoring: Sendable {
     /// present and a fingerprint enrolled).
     var isBiometryAvailable: Bool { get }
 
-    /// Whether a key is stored for this account. Does not prompt.
+    /// Whether an enrollment exists for this account. Does not prompt.
     func hasKey(for account: AccountID) -> Bool
 
-    /// Stores the vault key behind biometry, bound to the wrapping this key
-    /// currently has on the server, so a later key rotation invalidates it.
+    /// Enrolls the vault key, bound to the wrapping that key currently has, so
+    /// a later rotation invalidates the enrollment.
     func store(userKey: Data, boundTo wrappedUserKey: String, for account: AccountID) throws
 
-    /// Prompts for Touch ID and returns the stored vault key. Throws
-    /// `.invalidated` when the stored entry no longer matches `wrappedUserKey`.
+    /// Prompts for Touch ID and returns the enrolled vault key. Throws
+    /// `.invalidated` when the enrollment no longer matches `wrappedUserKey`.
     func loadUserKey(
         for account: AccountID,
         boundTo wrappedUserKey: String,
         reason: String
     ) async throws -> Data
 
-    /// Removes the stored key. Called on opt-out and on account removal.
+    /// Removes the enrollment. Called on opt-out and on account removal.
     func remove(for account: AccountID) throws
 }
 
-/// Stores one account's **user key** behind Touch ID.
+/// Quick unlock for one account, built the way ARCHITECTURE.md §"Keychain and
+/// biometrics" requires rather than by putting a provider key in the Keychain.
 ///
-/// What is stored is deliberately the narrowest useful secret. The master
-/// password and the master key are not stored: the master key derives the
-/// server authentication hash, so holding it would let a thief with an unlocked
-/// Mac authenticate as the user and change their password. The user key only
-/// decrypts vault content — the RSA private key and every organization key are
-/// themselves wrapped under it inside the snapshot, so the whole keyring
-/// rebuilds from it without ever touching the password.
+/// Enrollment generates a random quick-unlock key `QK`, stores **only** `QK` in
+/// a generic-password Keychain item whose release is access controlled, and
+/// writes an AEAD-wrapped copy of the vault's user key — sealed under `QK`,
+/// authenticating provider, account, and schema version — beside the other
+/// at-rest caches. No plaintext key is ever persisted, and the Keychain holds
+/// nothing that decrypts anything on its own.
 ///
-/// The Keychain item is protected by a `SecAccessControl` requiring the current
-/// biometric set: adding or removing a fingerprint invalidates it, and it never
-/// leaves this device or syncs to iCloud. The stored payload is additionally
-/// bound to the wrapped-user-key string the account had when it was enrolled,
-/// so rotating the vault key makes the entry fail closed instead of decrypting
-/// a vault it no longer matches.
+/// What is wrapped is deliberately the narrowest useful secret: the user key,
+/// never the master password and never the master key. The user key only
+/// decrypts vault content; it sits below the master key, cannot re-derive it,
+/// and is not an input to the server authentication hash (which needs the
+/// master key *and* the raw password), so an enrollment cannot be turned into
+/// account access.
+///
+/// The Keychain read is the authorization: a dedicated `LAContext` carrying the
+/// operation prompt is attached to the read itself, so biometry gates the
+/// release of `QK`. VaultSquire deliberately does not run a standalone
+/// LocalAuthentication prompt first and then perform an unrestricted lookup —
+/// that would split authentication from secret release.
 struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
     let service: String
+    private let directory: URL
+    // FileManager is thread-safe for the operations used here but is not
+    // Sendable; vouch for it so the store stays Sendable.
+    nonisolated(unsafe) private let fileManager: FileManager
 
-    init(service: String = "ch.lkmc.VaultSquire.biometric-vault-keys") {
+    /// The wrapped copy's layout version, folded into the seal's authenticated
+    /// data so a payload sealed under one layout can never open as another.
+    private static let schemaVersion = 1
+
+    init(
+        service: String = "ch.lkmc.VaultSquire.quick-unlock-keys",
+        directory: URL? = nil,
+        fileManager: FileManager = .default
+    ) {
         self.service = service
+        self.fileManager = fileManager
+        if let directory {
+            self.directory = directory
+        } else {
+            let base = (try? fileManager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: false
+            )) ?? fileManager.temporaryDirectory
+            self.directory = base
+                .appendingPathComponent("VaultSquire", isDirectory: true)
+                .appendingPathComponent("QuickUnlock", isDirectory: true)
+        }
     }
 
-    /// The stored payload: the key plus what it was bound to. Versioned so a
-    /// later format change is recognizable rather than silently misread.
+    /// The wrapped payload. Sealed under `QK`, so none of it is readable
+    /// without a successful biometric release of that key.
     private struct Payload: Codable {
         let version: Int
         let userKey: Data
         /// SHA-256 of the account's wrapped user key at enrollment time.
         let boundTo: String
-
-        static let currentVersion = 1
     }
 
     /// Holds an `LAContext` — a non-Sendable reference type — so it can be
-    /// carried across the async evaluation and into the Keychain query without
-    /// tripping Swift 6 strict concurrency. One box is used by one call at a
-    /// time and never shared, which is what makes the unchecked conformance
-    /// sound.
+    /// carried into the Keychain query without tripping Swift 6 strict
+    /// concurrency. One box serves one call and is never shared, which is what
+    /// makes the unchecked conformance sound.
     private final class AuthenticationBox: @unchecked Sendable {
         let context = LAContext()
     }
@@ -101,21 +130,17 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
     }
 
     func hasKey(for account: AccountID) -> Bool {
-        var query = baseQuery(for: account)
-        query[kSecReturnData] = kCFBooleanFalse
-        query[kSecMatchLimit] = kSecMatchLimitOne
-        // Ask only whether the item exists; authentication must not be
-        // triggered by an existence check, so the UI can decide whether to
-        // offer the button without ever prompting.
-        query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return status == errSecSuccess || status == errSecInteractionNotAllowed
+        // Both halves must exist: the gated key and the wrapped copy it opens.
+        keychainItemExists(for: account)
+            && fileManager.fileExists(atPath: fileURL(for: account).path)
     }
 
     func store(userKey: Data, boundTo wrappedUserKey: String, for account: AccountID) throws {
         guard isBiometryAvailable else { throw BiometricUnlockError.unavailable }
 
         var controlError: Unmanaged<CFError>?
+        // The protection class is supplied to this call and carried by the
+        // resulting object; the item must not also set kSecAttrAccessible.
         guard let control = SecAccessControlCreateWithFlags(
             nil,
             kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -126,26 +151,42 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
             throw BiometricUnlockError.unavailable
         }
 
+        let quickUnlockKey = SymmetricKey(size: .bits256)
         let payload = Payload(
-            version: Payload.currentVersion,
+            version: Self.schemaVersion,
             userKey: userKey,
             boundTo: Self.digest(of: wrappedUserKey)
         )
-        guard let encoded = try? JSONEncoder().encode(payload) else {
+        guard let encoded = try? JSONEncoder().encode(payload),
+              let sealed = try? CacheEnvelopeCipher.seal(
+                  encoded,
+                  key: quickUnlockKey,
+                  context: CacheEnvelopeContext(account: account, schemaVersion: Self.schemaVersion)
+              ) else {
             throw BiometricUnlockError.failed(errSecParam)
         }
 
-        // Replace any previous entry: re-enrolling must not fail on a duplicate,
-        // and the old key must not linger behind a stale access control.
+        // Replace any previous enrollment: re-enrolling must not fail on a
+        // duplicate, and an old key must not linger behind a stale control.
         try? remove(for: account)
 
         var query = baseQuery(for: account)
-        query[kSecValueData] = encoded
+        query[kSecValueData] = quickUnlockKey.withUnsafeBytes { Data($0) }
         query[kSecAttrAccessControl] = control
         query[kSecAttrSynchronizable] = kCFBooleanFalse
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw BiometricUnlockError.failed(status)
+        }
+
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Self.write(sealed, to: fileURL(for: account))
+        } catch {
+            // Never leave a gated key with nothing to open: roll the whole
+            // enrollment back so the state stays consistent.
+            try? remove(for: account)
+            throw BiometricUnlockError.failed(errSecIO)
         }
     }
 
@@ -157,20 +198,13 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         guard hasKey(for: account) else { throw BiometricUnlockError.notEnrolled }
 
         let box = AuthenticationBox()
-        var availability: NSError?
-        guard box.context.canEvaluatePolicy(
-            .deviceOwnerAuthenticationWithBiometrics, error: &availability
-        ) else {
-            throw BiometricUnlockError.unavailable
-        }
-
-        try await Self.evaluate(box, reason: reason)
+        // The prompt belongs to the read itself, so biometry gates the release
+        // of the quick-unlock key rather than merely preceding it.
+        box.context.localizedReason = reason
 
         var query = baseQuery(for: account)
         query[kSecReturnData] = kCFBooleanTrue
         query[kSecMatchLimit] = kSecMatchLimitOne
-        // The policy was just satisfied on this context, so the item opens
-        // without a second prompt.
         query[kSecUseAuthenticationContext] = box.context
 
         var result: CFTypeRef?
@@ -183,16 +217,27 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         case errSecUserCanceled:
             throw BiometricUnlockError.cancelled
         case errSecAuthFailed, errSecInteractionNotAllowed:
-            // The stored entry no longer opens under the current biometric set.
+            // The gated key no longer opens under the current biometric set.
             try? remove(for: account)
             throw BiometricUnlockError.invalidated
         default:
             throw BiometricUnlockError.failed(status)
         }
 
-        guard let data = result as? Data,
-              let payload = try? JSONDecoder().decode(Payload.self, from: data),
-              payload.version == Payload.currentVersion else {
+        guard let keyBytes = result as? Data, keyBytes.count == 32 else {
+            try? remove(for: account)
+            throw BiometricUnlockError.invalidated
+        }
+        let quickUnlockKey = SymmetricKey(data: keyBytes)
+
+        guard let sealed = try? Data(contentsOf: fileURL(for: account)),
+              let opened = try? CacheEnvelopeCipher.open(
+                  sealed,
+                  key: quickUnlockKey,
+                  context: CacheEnvelopeContext(account: account, schemaVersion: Self.schemaVersion)
+              ),
+              let payload = try? JSONDecoder().decode(Payload.self, from: opened),
+              payload.version == Self.schemaVersion else {
             try? remove(for: account)
             throw BiometricUnlockError.invalidated
         }
@@ -206,6 +251,10 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
     }
 
     func remove(for account: AccountID) throws {
+        let url = fileURL(for: account)
+        if fileManager.fileExists(atPath: url.path) {
+            try? fileManager.removeItem(at: url)
+        }
         let status = SecItemDelete(baseQuery(for: account) as CFDictionary)
         switch status {
         case errSecSuccess, errSecItemNotFound:
@@ -217,37 +266,41 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
 
     // MARK: - Private
 
-    /// Runs the biometric policy, mapping every outcome onto a typed error so a
-    /// cancellation is never confused with a failure.
-    private static func evaluate(_ box: AuthenticationBox, reason: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            box.context.evaluatePolicy(
-                .deviceOwnerAuthenticationWithBiometrics,
-                localizedReason: reason
-            ) { success, error in
-                if success {
-                    continuation.resume()
-                    return
-                }
-                let code = (error as? LAError)?.code
-                switch code {
-                case .userCancel, .appCancel, .systemCancel, .userFallback:
-                    continuation.resume(throwing: BiometricUnlockError.cancelled)
-                case .biometryNotAvailable, .biometryNotEnrolled, .passcodeNotSet:
-                    continuation.resume(throwing: BiometricUnlockError.unavailable)
-                case .biometryLockout:
-                    continuation.resume(throwing: BiometricUnlockError.invalidated)
-                default:
-                    continuation.resume(throwing: BiometricUnlockError.cancelled)
-                }
-            }
+    /// Whether the gated Keychain record exists, without prompting: an
+    /// existence check must never put a fingerprint dialog on screen.
+    private func keychainItemExists(for account: AccountID) -> Bool {
+        var query = baseQuery(for: account)
+        query[kSecReturnData] = kCFBooleanFalse
+        query[kSecMatchLimit] = kSecMatchLimitOne
+        query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        // A gated item reports "interaction not allowed" precisely because it
+        // exists and would have prompted.
+        return status == errSecSuccess || status == errSecInteractionNotAllowed
+    }
+
+    /// Prefer complete file protection, falling back to a plain atomic write
+    /// when an unentitled build rejects the data-protection option. The payload
+    /// is already sealed under a key this file does not contain.
+    private static func write(_ sealed: Data, to url: URL) throws {
+        do {
+            try sealed.write(to: url, options: [.atomic, .completeFileProtection])
+        } catch {
+            try sealed.write(to: url, options: [.atomic])
         }
     }
 
-    /// Hex SHA-256, used to bind a stored key to the account's current wrapped
+    /// Hex SHA-256, used to bind an enrollment to the account's current wrapped
     /// user key without storing that value itself.
     static func digest(of value: String) -> String {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func fileURL(for account: AccountID) -> URL {
+        let material = "\(account.provider.rawValue)|\(account.rawValue)"
+        let name = SHA256.hash(data: Data(material.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent("\(name).quickunlock", isDirectory: false)
     }
 
     private func baseQuery(for account: AccountID) -> [CFString: Any] {

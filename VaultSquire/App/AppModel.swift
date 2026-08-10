@@ -77,7 +77,12 @@ final class AppModel: ObservableObject {
     /// True while any vault is syncing, for the toolbar's shared indicator.
     var isSyncing: Bool { sessions.contains(where: \.isSyncing) }
 
-    var primaryAccount: AccountDescriptor? { accounts.first }
+    /// The account a master-password prompt belongs to. Filtered to Vaultwarden
+    /// because Proton is configured too and has no password to prompt for;
+    /// returning it would offer a password field for a vault that has none.
+    var primaryAccount: AccountDescriptor? {
+        accounts.first { $0.account.provider == .vaultwarden }
+    }
 
     /// The vaults the item list is drawing from under the current scope.
     var scopedSessions: [VaultSession] {
