@@ -6,6 +6,13 @@ struct VaultView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var selection: VaultItemID?
     @State private var query = ""
+    @State private var editSession: EditSession?
+
+    /// Wraps a draft so it can drive an item-identified sheet.
+    private struct EditSession: Identifiable {
+        let id = UUID()
+        let draft: VaultItemDraft
+    }
 
     private var filteredItems: [VaultItemProjection] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -27,11 +34,24 @@ struct VaultView: View {
         }
         .toolbar { toolbarContent }
         .accessibilityIdentifier("vault-view")
+        .sheet(item: $editSession) { session in
+            VaultItemEditView(draft: session.draft) { editSession = nil }
+                .environmentObject(appModel)
+        }
         .onChange(of: appModel.quickSearchSelection) { _, newValue in
             guard let newValue else { return }
             selection = newValue
             appModel.clearQuickSearchSelection()
         }
+    }
+
+    private func presentCreate() {
+        editSession = EditSession(draft: VaultItemDraft())
+    }
+
+    private func presentEdit() {
+        guard let selection, let draft = appModel.draft(for: selection) else { return }
+        editSession = EditSession(draft: draft)
     }
 
     @ViewBuilder
@@ -89,6 +109,31 @@ struct VaultView: View {
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                presentCreate()
+            } label: {
+                Label("Add Item", systemImage: "plus")
+            }
+            .disabled(!appModel.canCreateItems || appModel.isWriting)
+            .keyboardShortcut("n", modifiers: .command)
+            .accessibilityIdentifier("vault-add")
+
+            Button {
+                presentEdit()
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .disabled(selection.map { !appModel.canEdit($0) } ?? true || appModel.isWriting)
+            .accessibilityIdentifier("vault-edit")
+
+            Button {
+                if let selection { appModel.archive(selection) }
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+            .disabled(selection == nil || appModel.isWriting)
+            .accessibilityIdentifier("vault-archive")
+
             Button {
                 appModel.syncNow()
             } label: {

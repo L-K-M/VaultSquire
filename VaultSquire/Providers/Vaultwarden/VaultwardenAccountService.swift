@@ -143,6 +143,32 @@ struct VaultwardenAccountService: Sendable {
         )
     }
 
+    /// Reconstructs an editable plaintext draft from a stored login cipher.
+    /// Returns nil for a missing item or a non-login type (only logins are
+    /// editable in this slice).
+    func draft(
+        for itemID: VaultItemID,
+        keyring: VaultwardenKeyring,
+        snapshot: VaultwardenVaultSnapshot
+    ) -> VaultItemDraft? {
+        guard let cipher = snapshot.ciphers.first(where: { $0.id == itemID.rawValue }),
+              cipher.type == .login else {
+            return nil
+        }
+        let org = cipher.organizationID
+        func decrypt(_ value: String?) -> String { keyring.decrypt(value, organizationID: org) ?? "" }
+        return VaultItemDraft(
+            itemID: itemID,
+            title: decrypt(cipher.name),
+            username: decrypt(cipher.login?.username),
+            password: decrypt(cipher.login?.password),
+            totp: decrypt(cipher.login?.totp),
+            websites: (cipher.login?.uris ?? []).compactMap { keyring.decrypt($0.uri, organizationID: org) },
+            notes: decrypt(cipher.notes),
+            favorite: cipher.favorite
+        )
+    }
+
     private func decryptFolderNames(
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot
@@ -154,6 +180,107 @@ struct VaultwardenAccountService: Sendable {
             }
         }
         return names
+    }
+
+    // MARK: - Capabilities and writes
+
+    /// The actions a Vaultwarden personal vault supports. Reads plus the writes
+    /// this release implements; archive is included because Vaultwarden exposes
+    /// per-user archiving. Every mutation is checked against this set through
+    /// `CapabilityGate`, so a disabled control is never the only guard.
+    static let capabilities: Set<ProviderCapability> = [
+        .viewItems, .searchItems, .revealSecret, .copySecret,
+        .createItem, .updateItem, .archiveItem,
+    ]
+
+    var capabilityGate: CapabilityGate { CapabilityGate(capabilities: Self.capabilities) }
+
+    /// Creates a login item from an unlocked draft, then the caller re-syncs.
+    func create(
+        draft: VaultItemDraft,
+        keyring: VaultwardenKeyring
+    ) async -> Result<Void, VaultwardenWriteError> {
+        let space = VaultSpaceID(account: account, scope: .personal)
+        guard (try? capabilityGate.authorize(.createItem(space), from: .menu)) != nil else {
+            return .failure(.rejected)
+        }
+        return await performWrite { token, transport in
+            await VaultwardenWriteService(transport: transport)
+                .createLogin(draft: draft, userKey: keyring.userKey, accessToken: token)
+        }
+    }
+
+    /// Updates an existing login item.
+    func update(
+        draft: VaultItemDraft,
+        keyring: VaultwardenKeyring
+    ) async -> Result<Void, VaultwardenWriteError> {
+        guard let itemID = draft.itemID else { return .failure(.rejected) }
+        guard (try? capabilityGate.authorize(.updateItem(itemID), from: .menu)) != nil else {
+            return .failure(.rejected)
+        }
+        return await performWrite { token, transport in
+            await VaultwardenWriteService(transport: transport)
+                .updateLogin(cipherID: itemID.rawValue, draft: draft, userKey: keyring.userKey, accessToken: token)
+        }
+    }
+
+    /// Archives an item where the server supports it.
+    func archive(itemID: VaultItemID) async -> Result<Void, VaultwardenWriteError> {
+        guard (try? capabilityGate.authorize(.archiveItem(itemID), from: .menu)) != nil else {
+            return .failure(.rejected)
+        }
+        return await performWrite { token, transport in
+            await VaultwardenWriteService(transport: transport)
+                .archive(cipherID: itemID.rawValue, accessToken: token)
+        }
+    }
+
+    /// Loads the account context, refreshes to an access token, runs a write,
+    /// and persists the rotated refresh token. A failed refresh reports
+    /// session-expired; the write itself never touches the sealed cache — the
+    /// caller re-syncs on success to pull the authoritative new state.
+    private func performWrite(
+        _ body: @Sendable (String, VaultwardenTransport) async -> Result<Void, VaultwardenWriteError>
+    ) async -> Result<Void, VaultwardenWriteError> {
+        let snapshot: VaultwardenVaultSnapshot
+        let refreshToken: String
+        do {
+            guard let loaded = try vaultCache.load(for: account),
+                  let stored = try credentialStore.load(for: .primary) else {
+                return .failure(.sessionExpired)
+            }
+            snapshot = loaded
+            refreshToken = stored.refreshToken
+        } catch {
+            return .failure(.transient)
+        }
+
+        let environment: VaultwardenEnvironment
+        do {
+            environment = try VaultwardenEnvironment(configuredURL: snapshot.serverBaseURL)
+        } catch {
+            return .failure(.transient)
+        }
+        let transport = makeTransport(environment)
+        let refresher = VaultwardenTokenRefresher(
+            transport: transport,
+            refreshToken: refreshToken,
+            identityBaseURL: URL(string: snapshot.identityBaseURL)
+        )
+        let token: String
+        switch await refresher.refresh() {
+        case .refreshed(let accessToken, _, _):
+            token = accessToken
+        case .sessionExpired:
+            return .failure(.sessionExpired)
+        case .transientFailure:
+            return .failure(.transient)
+        }
+        let rotatedRefreshToken = await refresher.currentRefreshToken
+        try? credentialStore.replaceRefreshToken(rotatedRefreshToken, for: .primary)
+
+        return await body(token, transport)
     }
 
     // MARK: - Sync

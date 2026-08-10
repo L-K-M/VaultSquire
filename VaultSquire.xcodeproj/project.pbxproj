@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C00000000000000000000060 /* VaultItemDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000063 /* VaultItemDraft.swift */; };
+		C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000064 /* VaultwardenWriteService.swift */; };
+		C00000000000000000000062 /* VaultItemEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* VaultItemEditView.swift */; };
+		C00000000000000000000063 /* VaultwardenWriteServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */; };
 		C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000060 /* VaultwardenAccountService.swift */; };
 		C0000000000000000000005E /* VaultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000061 /* VaultView.swift */; };
 		C0000000000000000000005F /* VaultItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000062 /* VaultItemDetailView.swift */; };
@@ -119,6 +123,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000063 /* VaultItemDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDraft.swift; path = VaultSquire/Domain/VaultItemDraft.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000064 /* VaultwardenWriteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteService.swift; path = VaultSquire/Providers/Vaultwarden/Network/VaultwardenWriteService.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000065 /* VaultItemEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemEditView.swift; path = VaultSquire/Features/Vault/VaultItemEditView.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteServiceTests.swift; path = VaultSquireTests/VaultwardenWriteServiceTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000060 /* VaultwardenAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenAccountService.swift; path = VaultSquire/Providers/Vaultwarden/VaultwardenAccountService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000061 /* VaultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultView.swift; path = VaultSquire/Features/Vault/VaultView.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000062 /* VaultItemDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDetailView.swift; path = VaultSquire/Features/Vault/VaultItemDetailView.swift; sourceTree = SOURCE_ROOT; };
@@ -246,6 +254,7 @@
 		A00000000000000000000018 /* Vault */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000065 /* VaultItemEditView.swift */,
 				B00000000000000000000061 /* VaultView.swift */,
 				B00000000000000000000062 /* VaultItemDetailView.swift */,
 			);
@@ -308,6 +317,7 @@
 		A00000000000000000000014 /* Network */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000064 /* VaultwardenWriteService.swift */,
 				B0000000000000000000005C /* VaultwardenSyncService.swift */,
 				B00000000000000000000058 /* VaultwardenKeyring.swift */,
 				B00000000000000000000059 /* VaultwardenVaultUnlock.swift */,
@@ -378,6 +388,7 @@
 		A00000000000000000000010 /* Domain */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000063 /* VaultItemDraft.swift */,
 				B00000000000000000000057 /* VaultItemDetail.swift */,
 				B0000000000000000000001C /* ProviderIdentity.swift */,
 				B0000000000000000000001D /* SessionState.swift */,
@@ -480,6 +491,7 @@
 		A0000000000000000000000E /* VaultSquireTests */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */,
 				B00000000000000000000011 /* AppModelTests.swift */,
 				B00000000000000000000012 /* DiagnosticsTests.swift */,
 				B00000000000000000000023 /* FakeVaultProvider.swift */,
@@ -651,6 +663,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C00000000000000000000060 /* VaultItemDraft.swift in Sources */,
+				C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */,
+				C00000000000000000000062 /* VaultItemEditView.swift in Sources */,
 				C00000000000000000000001 /* VaultSquireApp.swift in Sources */,
 				C00000000000000000000002 /* AppDelegate.swift in Sources */,
 				C00000000000000000000003 /* AppModel.swift in Sources */,
@@ -714,6 +729,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C00000000000000000000063 /* VaultwardenWriteServiceTests.swift in Sources */,
 				C00000000000000000000011 /* AppModelTests.swift in Sources */,
 				C00000000000000000000012 /* DiagnosticsTests.swift in Sources */,
 				C00000000000000000000020 /* FakeVaultProvider.swift in Sources */,

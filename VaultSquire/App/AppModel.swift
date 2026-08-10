@@ -34,6 +34,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var isSyncing = false
     @Published private(set) var syncError: String?
     @Published private(set) var lastSyncedAt: Date?
+    @Published private(set) var isWriting = false
+    @Published private(set) var writeError: String?
     /// Set when Quick Search opens an item; the vault view consumes it to select
     /// that item, then clears it.
     @Published var quickSearchSelection: VaultItemID?
@@ -129,6 +131,60 @@ final class AppModel: ObservableObject {
         return service.detail(for: itemID, keyring: unlocked.keyring, snapshot: unlocked.snapshot)
     }
 
+    // MARK: - Writes
+
+    /// Whether the unlocked account supports creating items.
+    var canCreateItems: Bool {
+        isUnlocked && VaultwardenAccountService.capabilities.contains(.createItem)
+    }
+
+    /// An editable draft for an item, or nil when locked or the item is not
+    /// editable (only login items are editable in this slice).
+    func draft(for itemID: VaultItemID) -> VaultItemDraft? {
+        guard let unlocked else { return nil }
+        return service.draft(for: itemID, keyring: unlocked.keyring, snapshot: unlocked.snapshot)
+    }
+
+    /// Whether a given item can be edited (an unlocked login item).
+    func canEdit(_ itemID: VaultItemID) -> Bool {
+        draft(for: itemID) != nil
+    }
+
+    /// Saves a create or edit, then re-syncs to pull the authoritative state.
+    func save(_ draft: VaultItemDraft) {
+        guard let vault = unlocked, !isWriting else { return }
+        isWriting = true
+        writeError = nil
+        Task { [service] in
+            let result = draft.isEditing
+                ? await service.update(draft: draft, keyring: vault.keyring)
+                : await service.create(draft: draft, keyring: vault.keyring)
+            self.isWriting = false
+            switch result {
+            case .success:
+                self.syncNow()
+            case .failure(let error):
+                self.writeError = Self.message(for: error)
+            }
+        }
+    }
+
+    func archive(_ itemID: VaultItemID) {
+        guard unlocked != nil, !isWriting else { return }
+        isWriting = true
+        writeError = nil
+        Task { [service] in
+            let result = await service.archive(itemID: itemID)
+            self.isWriting = false
+            switch result {
+            case .success:
+                self.syncNow()
+            case .failure(let error):
+                self.writeError = Self.message(for: error)
+            }
+        }
+    }
+
     // MARK: - Sync
 
     func syncNow() {
@@ -165,6 +221,19 @@ final class AppModel: ObservableObject {
             return "This account uses a key-derivation method VaultSquire can't run yet (Argon2id)."
         case .malformedVault:
             return "The stored vault is unreadable. Add the account again to rebuild it."
+        }
+    }
+
+    private static func message(for error: VaultwardenWriteError) -> String {
+        switch error {
+        case .sessionExpired:
+            return "Your session expired. Add the account again to make changes."
+        case .transient:
+            return "Couldn't reach the server. The change was not saved."
+        case .encryptionFailed:
+            return "The item could not be encrypted, so nothing was sent."
+        case .rejected:
+            return "The server rejected the change."
         }
     }
 
