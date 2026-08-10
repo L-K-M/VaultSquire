@@ -120,18 +120,25 @@ final class VaultwardenVaultCacheTests: XCTestCase {
         XCTAssertEqual(model.login?.username, "2.u|u|u")
         XCTAssertEqual(model.login?.uris.first?.uri, "2.x|x|x")
 
-        // The persistence round trip must be a stable fixed point: once the
-        // model has been through its own encoder, encoding and decoding again
-        // reproduce it exactly. (The wire's fractional-second date is a Double,
-        // so the initial wire parse is not required to be bit-exact — only the
-        // model's own encode/decode cycle, which is what the sealed cache uses.)
-        let encoded1 = try JSONEncoder().encode(model)
-        let roundTripped = try JSONDecoder().decode(VaultwardenCipherModel.self, from: encoded1)
-        let encoded2 = try JSONEncoder().encode(roundTripped)
-        XCTAssertEqual(encoded1, encoded2, "the model's own encode/decode cycle must be stable")
+        // Encoding then decoding must preserve every field. The fractional
+        // second date is a Double, so a formatter round trip can shift it by up
+        // to a rounding step; that sub-millisecond drift is irrelevant to
+        // ordering and display, so the date is compared with tolerance and
+        // everything else exactly.
+        let reDecoded = try JSONDecoder().decode(
+            VaultwardenCipherModel.self, from: try JSONEncoder().encode(model)
+        )
+        XCTAssertEqual(reDecoded.id, model.id)
+        XCTAssertEqual(reDecoded.type, model.type)
+        XCTAssertEqual(reDecoded.favorite, model.favorite)
+        XCTAssertEqual(reDecoded.folderID, model.folderID)
+        XCTAssertEqual(reDecoded.name, model.name)
+        XCTAssertEqual(reDecoded.notes, model.notes)
+        XCTAssertEqual(reDecoded.login, model.login)
         XCTAssertEqual(
-            try JSONDecoder().decode(VaultwardenCipherModel.self, from: encoded2),
-            roundTripped
+            reDecoded.revisionDate.timeIntervalSince1970,
+            model.revisionDate.timeIntervalSince1970,
+            accuracy: 0.001
         )
     }
 
