@@ -59,17 +59,38 @@ security boundaries:
 - **Vaultwarden — read and write.** Origin-approved sign-in with optional
   second factor, PBKDF2/HKDF key derivation and EncString decryption, sync into
   a ChaCha20-Poly1305 device-sealed cache, master-password unlock, item list and
-  detail with reveal, clipboard, and RFC 6238 TOTP, and create, edit, and
-  archive writes gated per capability. Argon2id KDF fails closed.
+  detail with reveal, clipboard, and RFC 6238 TOTP, custom fields (hidden ones
+  concealed), and create, edit, and archive writes gated per capability. An edit
+  preserves the item's folder and custom fields verbatim. Sync and writes target
+  the API origin approved at sign-in, so a split-origin server works. Argon2id
+  KDF fails closed.
 - **Proton Pass — read only, through your own CLI.** VaultSquire never asks for
-  a Proton credential; sign-in stays with the official user-installed CLI. The
-  provider locates an allowlisted absolute binary path (symlink resolved and
+  a Proton credential; sign-in stays with the official user-installed `pass-cli`.
+  The provider locates an allowlisted absolute binary path (symlink resolved and
   shown), runs it with no shell, a fixed environment (`HOME` passed through, not
   relocated), standard input bound to the null device, and bounded output, and
   gates the reported version against a fail-closed allowlist. It lists vaults and
-  items, hydrates item content, projects items into the shared read UI, and seals
-  a lossy snapshot with the same AEAD envelope for offline read. No write, argv
-  secret, or environment secret is ever produced.
+  items, projects them into the shared read UI, and seals a lossy snapshot with
+  the same AEAD envelope for offline read. Listing fetches no secrets — one CLI
+  call per item made opening a real vault take minutes — so an item's secret
+  fields are fetched when it is opened and held in memory for that session only.
+  No write, argv secret, or environment secret is ever produced.
+- **Several vaults open at once.** Each configured vault is its own session with
+  its own open state, items, and decrypted material, so locking one leaves the
+  others open. A sidebar lists every vault with per-vault unlock and lock, and an
+  "All Vaults" scope merges every open vault into one searchable list, tagging
+  each row with the vault it came from. Capabilities are gated per item, so a
+  read-only Proton item offers no Edit or Archive even beside a writable
+  Vaultwarden one. Quick Search always spans every open vault and never surfaces
+  a locked vault's items.
+- **Touch ID unlock (opt-in).** Enrolling generates a random quick-unlock key
+  stored in an access-controlled Keychain item requiring the current biometric
+  set, and seals the vault's user key under it in a separate at-rest file — the
+  construction ARCHITECTURE.md requires; no plaintext key is persisted and the
+  Keychain read itself is the authorization. The master password is never
+  stored, and what is stored decrypts vault content only: it cannot authenticate
+  to the server. Changing the enrolled fingerprints or rotating the vault key
+  invalidates it, and every failure falls back to the password prompt.
 - **Caveat.** The Proton CLI command and JSON contract is implemented against
   Proton's *documented* surface (PROTON_PASS_RESEARCH.md §5, §8) and gated to the
   releases recorded there; it has not been exercised against a live CLI in this
