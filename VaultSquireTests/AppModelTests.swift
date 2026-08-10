@@ -3,28 +3,57 @@ import XCTest
 @testable import VaultSquire
 
 final class AppModelTests: XCTestCase {
+    /// A model whose descriptor store is an isolated defaults suite, so tests
+    /// never read or write the real installation's vault list.
+    @MainActor
+    private func makeModel(
+        presence: @escaping () -> AppModel.AccountPresence = { .none },
+        descriptors: [AccountDescriptor] = [],
+        protonService: ProtonAccountService = ProtonAccountService()
+    ) -> (AppModel, AccountDescriptorStore) {
+        let defaults = UserDefaults(suiteName: "VSQ-appmodel-\(UUID().uuidString)")!
+        let store = AccountDescriptorStore(defaults: defaults)
+        for descriptor in descriptors {
+            store.upsert(descriptor)
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VSQ-appmodel-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let key = SymmetricKey(size: .bits256)
+        let service = VaultwardenAccountService(
+            credentialStore: InMemoryCredentialStore(),
+            vaultCache: VaultwardenVaultCache(keyProvider: { key }, directory: directory),
+            descriptorStore: store
+        )
+        let model = AppModel(
+            queryAccountPresence: presence,
+            service: service,
+            protonService: protonService,
+            biometricStore: FakeBiometricVaultKeyStore(available: false)
+        )
+        return (model, store)
+    }
+
     @MainActor
     func testNewModelIsLocked() {
-        let model = AppModel()
-
-        XCTAssertEqual(model.accessState, .locked)
+        let (model, _) = makeModel()
         XCTAssertTrue(model.isLocked)
+        XCTAssertFalse(model.isUnlocked)
+        XCTAssertTrue(model.sessions.isEmpty)
     }
 
     @MainActor
     func testLockIsIdempotent() {
-        let model = AppModel()
-
+        let (model, _) = makeModel()
         model.lock()
         model.lock()
-
         XCTAssertTrue(model.isLocked)
     }
 
     @MainActor
     func testAccountPresenceStartsUnknownAndRefreshQueriesTheStore() {
         var presence = AppModel.AccountPresence.none
-        let model = AppModel(queryAccountPresence: { presence })
+        let (model, _) = makeModel(presence: { presence })
 
         XCTAssertEqual(model.accountPresence, .unknown)
         XCTAssertFalse(model.hasNoAccounts, "unknown must not claim absence")
@@ -40,22 +69,58 @@ final class AppModelTests: XCTestCase {
     }
 
     @MainActor
-    func testNoteAccountConfiguredMarksPresenceWithoutAStoreQuery() {
-        let model = AppModel(queryAccountPresence: {
-            XCTFail("noteAccountConfigured must not query the store")
-            return .unknown
-        })
+    func testRefreshBuildsOneSessionPerConfiguredVault() {
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: .vaultwardenPrimary,
+                    serverDisplay: "vault.example.com",
+                    email: "user@example.com"
+                ),
+                AccountDescriptor(
+                    account: ProtonAccountService.accountID,
+                    serverDisplay: "Proton Pass",
+                    email: "Official Proton Pass CLI"
+                ),
+            ]
+        )
+        model.refreshAccountPresence()
 
-        model.noteAccountConfigured()
+        XCTAssertEqual(model.sessions.count, 2)
+        XCTAssertEqual(model.session(for: .vaultwardenPrimary)?.kind, .vaultwarden)
+        XCTAssertEqual(model.session(for: ProtonAccountService.accountID)?.kind, .proton)
+        // A closed vault contributes no items and no secrets.
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertTrue(model.allOpenItems.isEmpty)
+        XCTAssertFalse(model.isUnlocked)
+    }
 
-        XCTAssertEqual(model.accountPresence, .present)
-        XCTAssertFalse(model.hasNoAccounts)
+    // MARK: - Proton, read-only, per vault
+
+    @MainActor
+    private func makeProtonService(executor: FakeProtonCLIExecutor) -> ProtonAccountService {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VSQ-appmodel-proton-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let key = SymmetricKey(size: .bits256)
+        return ProtonAccountService(
+            locator: ProtonCLILocator(
+                candidatePaths: ["/opt/homebrew/bin/pass-cli"],
+                isExecutable: { _ in true },
+                resolveRealPath: { $0 }
+            ),
+            executor: executor,
+            versionGate: ProtonCLIVersionGate(supportedVersions: ["2.2.4"]),
+            cache: ProtonSnapshotCache(keyProvider: { key }, directory: directory),
+            now: { Date(timeIntervalSince1970: 1_700_000_000) }
+        )
     }
 
     @MainActor
-    func testOpenProtonVaultPopulatesItemsReadOnly() async throws {
+    func testOpeningProtonPopulatesItemsReadOnly() async throws {
         let executor = FakeProtonCLIExecutor()
-        await executor.stub(arguments: ["--version"], stdout: "proton-pass 2.2.4\n")
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
             stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
@@ -69,54 +134,137 @@ final class AppModelTests: XCTestCase {
             stdout: #"{"login":{"password":"VSQ-secret"}}"#
         )
 
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VaultSquireAppModelProton-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-        let key = SymmetricKey(size: .bits256)
-        let proton = ProtonAccountService(
-            locator: ProtonCLILocator(
-                candidatePaths: ["/opt/homebrew/bin/proton-pass"],
-                isExecutable: { _ in true },
-                resolveRealPath: { $0 }
-            ),
-            executor: executor,
-            versionGate: ProtonCLIVersionGate(supportedVersions: ["2.2.4"]),
-            cache: ProtonSnapshotCache(keyProvider: { key }, directory: directory),
-            now: { Date(timeIntervalSince1970: 1_700_000_000) }
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
         )
+        model.refreshAccountPresence()
 
-        let model = AppModel(queryAccountPresence: { .present }, protonService: proton)
-        model.openProtonVault()
-        try await pollUntil { model.isUnlocked }
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
 
-        XCTAssertEqual(model.activeVault, .proton)
         XCTAssertEqual(model.items.count, 1)
         XCTAssertEqual(model.items.first?.displayTitle, "GitHub")
-        // Proton is read-only: no create or archive is offered.
-        XCTAssertFalse(model.canCreateItems)
-        XCTAssertFalse(model.canArchiveItems)
-
-        // Opening the vault fetches no secrets: listing is fast and the password
-        // arrives only once the item is actually opened.
+        // Proton is read-only: nothing offers a write on its items.
         let id = try XCTUnwrap(model.items.first?.id)
-        let bare = try XCTUnwrap(model.detail(for: id))
-        XCTAssertNil(bare.fields.first { $0.label == "Password" })
+        XCTAssertFalse(model.canCreateItems)
+        XCTAssertFalse(model.canArchive(id))
+        XCTAssertFalse(model.canEdit(id))
+        XCTAssertNil(model.draft(for: id))
 
+        // Listing carries no secrets; opening the item fetches them.
+        XCTAssertNil(model.detail(for: id)?.fields.first { $0.label == "Password" })
         model.hydrateIfNeeded(id)
         try await pollUntil { model.detail(for: id)?.fields.contains { $0.label == "Password" } == true }
         XCTAssertEqual(
             model.detail(for: id)?.fields.first { $0.label == "Password" }?.value, "VSQ-secret"
         )
 
-        // Locking drops the Proton snapshot and returns to the shell.
-        model.lock()
-        XCTAssertEqual(model.activeVault, .none)
+        // Locking that vault drops its items and its fetched secrets, and the
+        // detail is no longer readable from the stale identifier.
+        model.lock(account)
+        XCTAssertFalse(model.isUnlocked)
         XCTAssertTrue(model.items.isEmpty)
         XCTAssertNil(model.detail(for: id))
     }
 
-    /// Polls a main-actor condition, yielding so a model's internal Task can
-    /// run, until it holds or a short timeout elapses.
+    /// The whole point of the multi-vault model: locking one vault must not
+    /// disturb another that is open.
+    @MainActor
+    func testLockingOneVaultLeavesTheOtherOpen() async throws {
+        let executor = FakeProtonCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+
+        let proton = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: .vaultwardenPrimary,
+                    serverDisplay: "vault.example.com",
+                    email: "user@example.com"
+                ),
+                AccountDescriptor(
+                    account: proton, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                ),
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(proton)
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+
+        XCTAssertTrue(model.isUnlocked)
+        XCTAssertEqual(model.allOpenItems.count, 1)
+
+        // Locking the (never opened) Vaultwarden vault leaves Proton alone.
+        model.lock(.vaultwardenPrimary)
+        XCTAssertTrue(model.session(for: proton)?.isOpen == true)
+        XCTAssertEqual(model.allOpenItems.count, 1)
+
+        model.lock(proton)
+        XCTAssertFalse(model.isUnlocked)
+    }
+
+    /// Scoping narrows the list; All Vaults merges. Quick Search always spans
+    /// everything that is open regardless of the browser's scope.
+    @MainActor
+    func testScopeNarrowsTheListButQuickSearchSpansEveryOpenVault() async throws {
+        let executor = FakeProtonCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+
+        let proton = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: .vaultwardenPrimary,
+                    serverDisplay: "vault.example.com",
+                    email: "user@example.com"
+                ),
+                AccountDescriptor(
+                    account: proton, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                ),
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(proton)
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+
+        model.scope = .allVaults
+        XCTAssertEqual(model.items.count, 1)
+
+        // Scoped to the closed Vaultwarden vault, the list is empty …
+        model.scope = .vault(.vaultwardenPrimary)
+        XCTAssertTrue(model.items.isEmpty)
+        // … but Quick Search still finds the open Proton item.
+        XCTAssertEqual(model.quickSearchItems.count, 1)
+        XCTAssertTrue(model.quickSearchIsUnlocked)
+    }
+
     @MainActor
     private func pollUntil(
         _ condition: () -> Bool,

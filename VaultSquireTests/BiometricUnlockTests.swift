@@ -15,11 +15,16 @@ final class BiometricUnlockTests: XCTestCase {
         let key = SymmetricKey(size: .bits256)
         let cache = VaultwardenVaultCache(keyProvider: { key }, directory: directory)
         let defaults = UserDefaults(suiteName: "VSQ-bio-\(UUID().uuidString)")!
+        let descriptors = AccountDescriptorStore(defaults: defaults)
+        // The vault must be configured for the model to build a session for it.
+        descriptors.upsert(AccountDescriptor(
+            account: account, serverDisplay: "vault.example.com", email: "user@example.com"
+        ))
         let service = VaultwardenAccountService(
             account: account,
             credentialStore: InMemoryCredentialStore(),
             vaultCache: cache,
-            descriptorStore: AccountDescriptorStore(defaults: defaults)
+            descriptorStore: descriptors
         )
         try cache.save(makeSnapshot(), for: account)
         return (service, cache)

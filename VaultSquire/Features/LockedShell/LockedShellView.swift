@@ -1,16 +1,18 @@
 import SwiftUI
 
+/// The app's root. With no vault configured it shows the empty shell and the
+/// Add Account affordance; once at least one vault exists it hands over to the
+/// multi-vault browser, which owns per-vault locking and unlocking.
 struct LockedShellView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var addAccountModel: AddAccountModel?
-    @State private var masterPassword = ""
 
     var body: some View {
         Group {
-            if appModel.isUnlocked {
-                VaultView()
+            if appModel.sessions.isEmpty {
+                emptyShell
             } else {
-                lockedShell
+                VaultBrowserView(onAddAccount: presentAddAccount)
             }
         }
         .sheet(item: $addAccountModel) { model in
@@ -19,25 +21,19 @@ struct LockedShellView: View {
                 onClose: { addAccountModel = nil },
                 onOpenProtonVault: {
                     addAccountModel = nil
-                    appModel.openProtonVault()
+                    appModel.addProtonVault()
                 }
             )
         }
         .onAppear {
             appModel.refreshAccountPresence()
             ApplicationCoordinator.shared.quickSearchDataSource = appModel
-            // Offer Touch ID immediately when it is set up, so the common case
-            // is a fingerprint rather than a retyped master password. The
-            // prompt is cancellable and the password field stays available.
-            if appModel.canUnlockWithBiometrics, appModel.isLocked {
-                appModel.unlockWithBiometrics()
-            }
         }
     }
 
-    // MARK: - Locked / empty / unlock shell
+    // MARK: - Empty shell
 
-    private var lockedShell: some View {
+    private var emptyShell: some View {
         HStack(spacing: 0) {
             identityRail
             mainContent
@@ -48,14 +44,8 @@ struct LockedShellView: View {
         .accessibilityIdentifier("locked-shell")
     }
 
-    /// True when the store definitively reported that no account exists; the
-    /// shell then presents the empty state instead of an unlock prompt.
+    /// True when the store definitively reported that no credentials exist.
     private var hasNoAccounts: Bool { appModel.hasNoAccounts }
-
-    /// Whether a stored account exists that can be unlocked with a password.
-    private var unlockableAccount: AccountDescriptor? {
-        hasNoAccounts ? nil : appModel.primaryAccount
-    }
 
     private var identityRail: some View {
         ZStack(alignment: .bottomLeading) {
@@ -100,15 +90,8 @@ struct LockedShellView: View {
     private var mainContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 48)
-
-            if let account = unlockableAccount {
-                unlockPrompt(account)
-            } else {
-                lockedHeadline
-            }
-
+            lockedHeadline
             Spacer()
-
             actionRow
         }
         .padding(.horizontal, 52)
@@ -131,67 +114,22 @@ struct LockedShellView: View {
             .padding(.top, 12)
     }
 
-    @ViewBuilder
-    private func unlockPrompt(_ account: AccountDescriptor) -> some View {
-        Text("Unlock your vault")
-            .font(.system(size: 34, weight: .semibold, design: .rounded))
-            .accessibilityIdentifier("locked-shell-title")
-
-        Text("\(account.email) at \(account.serverDisplay)")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.top, 6)
-
-        SecureField("Master password", text: $masterPassword)
-            .textFieldStyle(.roundedBorder)
-            .frame(maxWidth: 360)
-            .padding(.top, 18)
-            .onSubmit(submitUnlock)
-            .accessibilityIdentifier("unlock-password")
-
-        if let error = appModel.unlockError {
-            Text(error)
-                .font(.callout)
-                .foregroundStyle(.red)
-                .padding(.top, 8)
-                .accessibilityIdentifier("unlock-error")
-        }
-
-        HStack(spacing: 12) {
-            Button(action: submitUnlock) {
-                if appModel.isUnlocking {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text("Unlock")
-                }
+    /// Builds and presents the add-account flow. Shared by the empty shell and
+    /// the browser's sidebar so there is one sheet and one construction site.
+    private func presentAddAccount() {
+        addAccountModel = AddAccountModel(
+            credentialStore: KeychainCredentialStore(),
+            deviceIdentity: VaultwardenDeviceIdentityStore.current(),
+            onAccountConfigured: { [weak appModel] _ in
+                appModel?.noteAccountConfigured()
             }
-            .keyboardShortcut(.defaultAction)
-            .disabled(masterPassword.isEmpty || appModel.isUnlocking)
-            .accessibilityIdentifier("unlock-submit")
-
-            if appModel.canUnlockWithBiometrics {
-                Button {
-                    appModel.unlockWithBiometrics()
-                } label: {
-                    Label("Use Touch ID", systemImage: "touchid")
-                }
-                .disabled(appModel.isUnlocking)
-                .accessibilityIdentifier("unlock-biometrics")
-            }
-        }
-        .padding(.top, 14)
+        )
     }
 
     private var actionRow: some View {
         HStack(spacing: 12) {
             Button {
-                addAccountModel = AddAccountModel(
-                    credentialStore: KeychainCredentialStore(),
-                    deviceIdentity: VaultwardenDeviceIdentityStore.current(),
-                    onAccountConfigured: { [weak appModel] _ in
-                        appModel?.noteAccountConfigured()
-                    }
-                )
+                presentAddAccount()
             } label: {
                 Label("Add Account", systemImage: "person.badge.plus")
             }
@@ -210,11 +148,5 @@ struct LockedShellView: View {
             }
             .accessibilityIdentifier("open-settings")
         }
-    }
-
-    private func submitUnlock() {
-        guard !masterPassword.isEmpty else { return }
-        appModel.unlock(password: masterPassword)
-        masterPassword = ""
     }
 }
