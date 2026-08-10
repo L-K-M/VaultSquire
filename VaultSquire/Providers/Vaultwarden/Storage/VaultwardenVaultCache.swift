@@ -28,7 +28,9 @@ struct VaultwardenVaultCache: Sendable {
     /// logic can be exercised on hosts without Keychain access.
     private let keyProvider: @Sendable () throws -> SymmetricKey
     private let directory: URL
-    private let fileManager: FileManager
+    // FileManager is thread-safe for the file operations used here but is not
+    // marked Sendable; vouch for it so the cache stays Sendable.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     /// The envelope layout version, folded into the seal's authenticated data.
     private static let schemaVersion = 1

@@ -19,7 +19,9 @@ struct AccountDescriptor: Sendable, Codable, Hashable, Identifiable {
 /// exist" that the shell reads to choose between its empty and locked states,
 /// and that the unlock flow reads to label the prompt.
 struct AccountDescriptorStore: Sendable {
-    private let defaults: UserDefaults
+    // UserDefaults is a thread-safe reference type but not marked Sendable;
+    // vouch for it so the store can cross actor boundaries with the service.
+    nonisolated(unsafe) private let defaults: UserDefaults
     private static let key = "ch.lkmc.VaultSquire.account-descriptors.v1"
 
     init(defaults: UserDefaults = .standard) {
