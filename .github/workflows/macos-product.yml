@@ -37,5 +37,14 @@ jobs:
       - name: Build, test, sign, and inspect
         run: ./scripts/ci.sh
 
+      # Best-effort trend data, not a gate. Hosted macos-26 runners
+      # intermittently never attach the accessibility bus to the relaunched
+      # app ("has not loaded accessibility"), and the wedge survives the
+      # measure script's same-machine retry (runs 31418172486, 31419828275,
+      # 31420925250, 31421188026) while the functional lane above drives the
+      # same binary's UI successfully. Correctness is gated by ci.sh; a red
+      # annotation here means "no metrics from this run", not a regression.
+      # Named-hardware p95 numbers remain the performance evidence of record.
       - name: Record Workstream 1 performance metrics
         run: ./scripts/measure-workstream-1.sh
+        continue-on-error: true
