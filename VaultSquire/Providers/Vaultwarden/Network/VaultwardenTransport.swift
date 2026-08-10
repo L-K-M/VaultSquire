@@ -96,6 +96,7 @@ struct VaultwardenTransport: Sendable {
     enum Method: String, Sendable {
         case get = "GET"
         case post = "POST"
+        case put = "PUT"
     }
 
     enum Body: Sendable {
