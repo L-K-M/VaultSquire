@@ -91,9 +91,22 @@ struct VaultwardenVaultCache: Sendable {
             try fileManager.createDirectory(
                 at: directory, withIntermediateDirectories: true
             )
-            try sealed.write(to: fileURL(for: account), options: [.atomic, .completeFileProtection])
+            try Self.writeSealed(sealed, to: fileURL(for: account))
         } catch {
             throw VaultwardenVaultCacheError.ioFailed
+        }
+    }
+
+    /// Writes the sealed payload, preferring complete file protection but
+    /// falling back to a plain atomic write when the data-protection option is
+    /// rejected. The payload is already AEAD-sealed, so the fallback loses only
+    /// a redundant OS-level protection an unentitled macOS build can't apply,
+    /// never confidentiality.
+    private static func writeSealed(_ sealed: Data, to url: URL) throws {
+        do {
+            try sealed.write(to: url, options: [.atomic, .completeFileProtection])
+        } catch {
+            try sealed.write(to: url, options: [.atomic])
         }
     }
 

@@ -114,9 +114,21 @@ struct ProtonSnapshotCache: Sendable {
         let sealed = try seal(plaintext, key: key, account: account)
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try sealed.write(to: fileURL(for: account), options: [.atomic, .completeFileProtection])
+            try Self.writeSealed(sealed, to: fileURL(for: account))
         } catch {
             throw ProtonSnapshotCacheError.ioFailed
+        }
+    }
+
+    /// Prefer complete file protection, falling back to a plain atomic write
+    /// when an unentitled macOS build rejects the data-protection option. The
+    /// payload is already AEAD-sealed, so only a redundant OS-level protection
+    /// is lost, never confidentiality.
+    private static func writeSealed(_ sealed: Data, to url: URL) throws {
+        do {
+            try sealed.write(to: url, options: [.atomic, .completeFileProtection])
+        } catch {
+            try sealed.write(to: url, options: [.atomic])
         }
     }
 
