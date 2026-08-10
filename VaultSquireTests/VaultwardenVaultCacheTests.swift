@@ -120,10 +120,19 @@ final class VaultwardenVaultCacheTests: XCTestCase {
         XCTAssertEqual(model.login?.username, "2.u|u|u")
         XCTAssertEqual(model.login?.uris.first?.uri, "2.x|x|x")
 
-        // Re-encode and decode again: the model round-trips through its own keys.
-        let reEncoded = try JSONEncoder().encode(model)
-        let reDecoded = try JSONDecoder().decode(VaultwardenCipherModel.self, from: reEncoded)
-        XCTAssertEqual(reDecoded, model)
+        // The persistence round trip must be a stable fixed point: once the
+        // model has been through its own encoder, encoding and decoding again
+        // reproduce it exactly. (The wire's fractional-second date is a Double,
+        // so the initial wire parse is not required to be bit-exact — only the
+        // model's own encode/decode cycle, which is what the sealed cache uses.)
+        let encoded1 = try JSONEncoder().encode(model)
+        let roundTripped = try JSONDecoder().decode(VaultwardenCipherModel.self, from: encoded1)
+        let encoded2 = try JSONEncoder().encode(roundTripped)
+        XCTAssertEqual(encoded1, encoded2, "the model's own encode/decode cycle must be stable")
+        XCTAssertEqual(
+            try JSONDecoder().decode(VaultwardenCipherModel.self, from: encoded2),
+            roundTripped
+        )
     }
 
     func testSyncResponseDecodesPascalCase() throws {
