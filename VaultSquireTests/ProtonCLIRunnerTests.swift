@@ -54,7 +54,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
 
     func testNonZeroExitBecomesCommandFailed() async {
         let executor = FakeProtonCLIExecutor()
-        await executor.stub(arguments: ["vault", "list", "--format", "json"], stdout: Data(), exitCode: 3)
+        await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: Data(), exitCode: 3)
         let runner = makeRunner(executor: executor)
 
         await XCTAssertThrowsErrorAsync(try await runner.vaultListJSON()) { error in
@@ -64,7 +64,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
 
     func testExecutorErrorIsWrapped() async {
         let executor = FakeProtonCLIExecutor()
-        await executor.stub(arguments: ["vault", "list", "--format", "json"], error: .timedOut)
+        await executor.stub(arguments: ["vault", "list", "--output", "json"], error: .timedOut)
         let runner = makeRunner(executor: executor)
 
         await XCTAssertThrowsErrorAsync(try await runner.vaultListJSON()) { error in
@@ -87,7 +87,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     func testItemViewBuildsTheSelectorFromValidatedIdentifiers() async throws {
         let executor = FakeProtonCLIExecutor()
         await executor.stub(
-            arguments: ["item", "read", "--share-id", "SHARE1", "--item-id", "ITEM1", "--format", "json"],
+            arguments: ["item", "view", "--share-id", "SHARE1", "--item-id", "ITEM1", "--output", "json"],
             stdout: "{}"
         )
         let runner = makeRunner(executor: executor)
@@ -96,7 +96,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
         let recorded = await executor.recordedArguments
         XCTAssertEqual(
             recorded.first,
-            ["item", "read", "--share-id", "SHARE1", "--item-id", "ITEM1", "--format", "json"]
+            ["item", "view", "--share-id", "SHARE1", "--item-id", "ITEM1", "--output", "json"]
         )
     }
 
@@ -127,6 +127,17 @@ final class ProtonCLIRunnerTests: XCTestCase {
             resolveRealPath: { $0 }
         )
         XCTAssertNil(locator.locate())
+    }
+
+    /// The official binary is `pass-cli` (Homebrew tap and install script), so
+    /// the default allowlist must look for that name in the documented install
+    /// locations — a wrong name here reads as "not installed" to every user.
+    func testDefaultCandidatePathsTargetThePassCLIBinary() {
+        let paths = ProtonCLILocator.defaultCandidatePaths()
+        XCTAssertTrue(paths.contains("/opt/homebrew/bin/pass-cli"))
+        XCTAssertTrue(paths.contains("/usr/local/bin/pass-cli"))
+        XCTAssertTrue(paths.allSatisfy { $0.hasPrefix("/") })
+        XCTAssertTrue(paths.allSatisfy { $0.hasSuffix("/pass-cli") })
     }
 }
 

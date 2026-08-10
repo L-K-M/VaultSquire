@@ -18,25 +18,31 @@ struct ProtonCLIBinary: Equatable, Sendable {
 
 /// Locates the user-installed CLI among a fixed allowlist of absolute paths.
 /// It never searches `PATH`, never accepts a relative path, and resolves
-/// symlinks so the real target is recorded. The install locations are the
-/// common Homebrew prefixes; a maintainer adjusts the list rather than letting
-/// discovery roam the filesystem.
+/// symlinks so the real target is recorded. The install locations are where
+/// the documented install methods place the `pass-cli` binary; a maintainer
+/// adjusts the list rather than letting discovery roam the filesystem.
 struct ProtonCLILocator: Sendable {
-    /// Absolute candidate paths, tried in order. All are under standard package
-    /// prefixes; none is derived from user input or environment.
-    static let defaultCandidatePaths = [
-        "/opt/homebrew/bin/proton-pass",
-        "/usr/local/bin/proton-pass",
-        "/opt/homebrew/bin/proton-pass-cli",
-        "/usr/local/bin/proton-pass-cli"
-    ]
+    /// Absolute candidate paths, tried in order: the Homebrew prefixes
+    /// (`brew install protonpass/tap/pass-cli`) and the official install
+    /// script's user-local location. The home directory is the account's real
+    /// home, used for discovery only; execution always passes the resolved
+    /// absolute path.
+    static func defaultCandidatePaths() -> [String] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return [
+            "/opt/homebrew/bin/pass-cli",
+            "/usr/local/bin/pass-cli",
+            "\(home)/.local/bin/pass-cli",
+            "\(home)/bin/pass-cli"
+        ]
+    }
 
     let candidatePaths: [String]
     private let isExecutable: @Sendable (String) -> Bool
     private let resolveRealPath: @Sendable (String) -> String
 
     init(
-        candidatePaths: [String] = ProtonCLILocator.defaultCandidatePaths,
+        candidatePaths: [String] = ProtonCLILocator.defaultCandidatePaths(),
         isExecutable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         resolveRealPath: @escaping @Sendable (String) -> String = {
             URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
@@ -118,30 +124,32 @@ struct ProtonCLIRunner: Sendable {
         return version
     }
 
-    /// Fetches the raw JSON of the accessible vaults. Parsing belongs to the
-    /// read model; the runner only guarantees safe invocation and bounded
-    /// output.
+    /// Fetches the raw JSON of the accessible vaults (documented as
+    /// `pass-cli vault list --output json`). Parsing belongs to the read
+    /// model; the runner only guarantees safe invocation and bounded output.
     func vaultListJSON() async throws -> Data {
-        try await run(["vault", "list", "--format", "json"]).standardOutput
+        try await run(["vault", "list", "--output", "json"]).standardOutput
     }
 
     /// Fetches the raw JSON item summaries for one vault/share, selected by a
-    /// validated opaque share identifier.
+    /// validated opaque share identifier (documented as
+    /// `pass-cli item list --share-id ID --output json`).
     func itemListJSON(shareID: String) async throws -> Data {
         try validateIdentifier(shareID)
         return try await run(
-            ["item", "list", "--share-id", shareID, "--format", "json"]
+            ["item", "list", "--share-id", shareID, "--output", "json"]
         ).standardOutput
     }
 
     /// Fetches the raw JSON of one item, including secret fields the CLI prints
-    /// to standard output. The bytes are bounded, held transiently, and never
-    /// persisted raw or logged.
+    /// to standard output (documented as
+    /// `pass-cli item view --share-id ID --item-id ID --output json`). The
+    /// bytes are bounded, held transiently, and never persisted raw or logged.
     func itemViewJSON(shareID: String, itemID: String) async throws -> Data {
         try validateIdentifier(shareID)
         try validateIdentifier(itemID)
         return try await run(
-            ["item", "read", "--share-id", shareID, "--item-id", itemID, "--format", "json"]
+            ["item", "view", "--share-id", shareID, "--item-id", itemID, "--output", "json"]
         ).standardOutput
     }
 

@@ -30,15 +30,15 @@ final class ProtonAccountServiceTests: XCTestCase {
     private func stubHappyPath(_ executor: FakeProtonCLIExecutor) async {
         await executor.stub(arguments: ["--version"], stdout: "proton-pass 2.2.4\n")
         await executor.stub(
-            arguments: ["vault", "list", "--format", "json"],
+            arguments: ["vault", "list", "--output", "json"],
             stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
         )
         await executor.stub(
-            arguments: ["item", "list", "--share-id", "S1", "--format", "json"],
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
             stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub","content":{"username":"octocat","urls":["https://github.com"]}}]}"#
         )
         await executor.stub(
-            arguments: ["item", "read", "--share-id", "S1", "--item-id", "i1", "--format", "json"],
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
             stdout: #"{"login":{"password":"VSQ-secret","totp":"otpauth://x"}}"#
         )
     }
@@ -91,7 +91,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     func testRefreshTreatsAVaultListFailureAsNotAuthenticated() async {
         let executor = FakeProtonCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.2.4")
-        await executor.stub(arguments: ["vault", "list", "--format", "json"], stdout: Data(), exitCode: 1)
+        await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: Data(), exitCode: 1)
         let service = makeService(executor: executor)
         let result = await service.refresh()
         guard case .failure(let error) = result else { return XCTFail("expected failure") }
@@ -101,7 +101,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     func testRefreshReportsUnreadableOutput() async {
         let executor = FakeProtonCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.2.4")
-        await executor.stub(arguments: ["vault", "list", "--format", "json"], stdout: "not json")
+        await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: "not json")
         let service = makeService(executor: executor)
         let result = await service.refresh()
         guard case .failure(let error) = result else { return XCTFail("expected failure") }
@@ -128,7 +128,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     func testProbeStatusNotAuthenticated() async {
         let executor = FakeProtonCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.2.4")
-        await executor.stub(arguments: ["vault", "list", "--format", "json"], stdout: Data(), exitCode: 1)
+        await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: Data(), exitCode: 1)
         let service = makeService(executor: executor)
         let status = await service.probeStatus()
         XCTAssertEqual(status, .notAuthenticated)

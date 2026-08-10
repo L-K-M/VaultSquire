@@ -57,15 +57,15 @@ final class AppModelTests: XCTestCase {
         let executor = FakeProtonCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "proton-pass 2.2.4\n")
         await executor.stub(
-            arguments: ["vault", "list", "--format", "json"],
+            arguments: ["vault", "list", "--output", "json"],
             stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
         )
         await executor.stub(
-            arguments: ["item", "list", "--share-id", "S1", "--format", "json"],
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
             stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub","content":{"username":"octocat"}}]}"#
         )
         await executor.stub(
-            arguments: ["item", "read", "--share-id", "S1", "--item-id", "i1", "--format", "json"],
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
             stdout: #"{"login":{"password":"VSQ-secret"}}"#
         )
 
