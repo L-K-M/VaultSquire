@@ -127,7 +127,7 @@ struct VaultBrowserView: View {
         return "\(appModel.allOpenItems.count) items in \(open) open"
     }
 
-    private func vaultRow(_ session: VaultSession) -> some View {
+    private func vaultRow(_ session: VaultSlot) -> some View {
         HStack(spacing: 10) {
             Image(systemName: session.isOpen ? "lock.open" : "lock")
                 .foregroundStyle(session.isOpen ? Color.accentColor : .secondary)
@@ -158,7 +158,7 @@ struct VaultBrowserView: View {
         .accessibilityIdentifier("vault-row-\(session.account.rawValue)")
     }
 
-    private func rowSubtitle(_ session: VaultSession) -> String {
+    private func rowSubtitle(_ session: VaultSlot) -> String {
         if case .failed(let message) = session.state { return message }
         if session.isOpening { return "Opening…" }
         if session.isOpen { return "\(session.items.count) items" }
@@ -241,7 +241,7 @@ struct VaultBrowserView: View {
     // MARK: - Locked vault pane
 
     @ViewBuilder
-    private func lockedVaultPane(_ session: VaultSession) -> some View {
+    private func lockedVaultPane(_ session: VaultSlot) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(session.title)
                 .font(.title2.weight(.semibold))

@@ -16,7 +16,7 @@ final class AppModel: ObservableObject {
 
     /// Every configured vault, in sidebar order, each carrying its own open
     /// state and decrypted material.
-    @Published private(set) var sessions: [VaultSession] = []
+    @Published private(set) var sessions: [VaultSlot] = []
     /// What the item list is showing: everything open, or one vault.
     @Published var scope: VaultScope = .allVaults
 
@@ -85,7 +85,7 @@ final class AppModel: ObservableObject {
     }
 
     /// The vaults the item list is drawing from under the current scope.
-    var scopedSessions: [VaultSession] {
+    var scopedSessions: [VaultSlot] {
         switch scope {
         case .allVaults:
             return sessions.filter(\.isOpen)
@@ -121,12 +121,12 @@ final class AppModel: ObservableObject {
         scopedSessions.compactMap(\.syncError).first
     }
 
-    func session(for account: AccountID) -> VaultSession? {
+    func session(for account: AccountID) -> VaultSlot? {
         sessions.first { $0.account == account }
     }
 
     /// The vault a single-vault scope names, whether or not it is open.
-    var selectedSession: VaultSession? {
+    var selectedSession: VaultSlot? {
         guard case .vault(let account) = scope else { return nil }
         return session(for: account)
     }
@@ -139,7 +139,7 @@ final class AppModel: ObservableObject {
         accountPresence = queryAccountPresence()
         accounts = service.descriptorStore.all()
 
-        var rebuilt: [VaultSession] = []
+        var rebuilt: [VaultSlot] = []
         for descriptor in accounts {
             if let existing = session(for: descriptor.account) {
                 rebuilt.append(existing)
@@ -149,8 +149,9 @@ final class AppModel: ObservableObject {
         }
         // Keep any open vault whose descriptor vanished rather than silently
         // dropping decrypted state on the floor.
-        for open in sessions where open.isOpen && !rebuilt.contains(where: { $0.account == open.account }) {
-            rebuilt.append(open)
+        for previous in sessions
+        where previous.isOpen && !rebuilt.contains(where: { $0.account == previous.account }) {
+            rebuilt.append(previous)
         }
         sessions = rebuilt
 
@@ -160,9 +161,9 @@ final class AppModel: ObservableObject {
         refreshBiometricAvailability()
     }
 
-    private static func makeSession(for descriptor: AccountDescriptor) -> VaultSession {
+    private static func makeSession(for descriptor: AccountDescriptor) -> VaultSlot {
         let isProton = descriptor.account.provider == .protonCLI
-        return VaultSession(
+        return VaultSlot(
             account: descriptor.account,
             kind: isProton ? .proton : .vaultwarden,
             title: isProton ? "Proton Pass" : descriptor.serverDisplay,
@@ -480,7 +481,7 @@ final class AppModel: ObservableObject {
     /// The vault a new item would be created in: the selected one when it is an
     /// open writable vault, otherwise the only open writable vault. Nil when
     /// that is ambiguous or unavailable, which is what disables Add Item.
-    var createTarget: VaultSession? {
+    var createTarget: VaultSlot? {
         if let selected = selectedSession, selected.isOpen, selected.isWritable {
             return selected
         }
@@ -629,7 +630,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - Session plumbing
 
-    private func mutate(_ account: AccountID, _ body: (inout VaultSession) -> Void) {
+    private func mutate(_ account: AccountID, _ body: (inout VaultSlot) -> Void) {
         guard let index = sessions.firstIndex(where: { $0.account == account }) else { return }
         body(&sessions[index])
     }

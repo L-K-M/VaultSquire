@@ -13,7 +13,7 @@ enum VaultScope: Hashable, Sendable {
 /// lock: an async open or sync that finishes after the user locked carries a
 /// stale generation and its result is discarded, so a late result can never
 /// re-open a vault the user just closed.
-struct VaultSession: Identifiable, Sendable {
+struct VaultSlot: Identifiable, Sendable {
     enum Kind: Sendable, Hashable {
         case vaultwarden
         case proton

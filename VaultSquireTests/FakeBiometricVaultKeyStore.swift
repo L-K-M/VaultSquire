@@ -46,10 +46,12 @@ final class FakeBiometricVaultKeyStore: BiometricVaultKeyStoring, @unchecked Sen
         boundTo wrappedUserKey: String,
         reason: String
     ) async throws -> Data {
-        lock.lock()
-        loadCallCount += 1
-        let entry = entries[account]
-        lock.unlock()
+        // Scoped locking: NSLock's bare lock()/unlock() are unavailable from an
+        // async context, and this method is the only async one here.
+        let entry = lock.withLock {
+            loadCallCount += 1
+            return entries[account]
+        }
 
         if let loadFailure { throw loadFailure }
         guard available else { throw BiometricUnlockError.unavailable }

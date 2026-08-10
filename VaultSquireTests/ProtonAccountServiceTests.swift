@@ -89,7 +89,10 @@ final class ProtonAccountServiceTests: XCTestCase {
         }
         let projection = try XCTUnwrap(refresh.projections.first)
 
-        let content = try XCTUnwrap(await service.content(shareID: "S1", itemID: "i1"))
+        // The await is hoisted: XCTUnwrap takes an autoclosure, which cannot
+        // carry an async call.
+        let fetched = await service.content(shareID: "S1", itemID: "i1")
+        let content = try XCTUnwrap(fetched)
         XCTAssertEqual(content.password, "VSQ-secret")
 
         let detail = try XCTUnwrap(
