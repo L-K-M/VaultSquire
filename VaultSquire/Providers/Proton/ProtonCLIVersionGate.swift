@@ -27,11 +27,14 @@ struct ProtonCLIVersionGate: Sendable {
         self.supportedVersions = supportedVersions
     }
 
-    /// The versions whose documented `vault`/`item`/`version` contracts this
-    /// build maps. A maintainer adds a version here only after confirming the
-    /// installed CLI's machine output against the read model on macOS; anything
-    /// else fails closed. These are the latest releases recorded in
-    /// PROTON_PASS_RESEARCH.md at implementation time.
+    /// The versions this build maps against Proton's documented `vault`/`item`/
+    /// `version` contract. These are the releases recorded in
+    /// PROTON_PASS_RESEARCH.md at implementation time, seeded so a real install
+    /// is not gated off; they have not been exercised against a live CLI here,
+    /// so a maintainer should confirm the installed build's machine output
+    /// against the read model on macOS. Any output that does not match still
+    /// fails closed with an honest error rather than a false success, and
+    /// narrowing this set to an empty allowlist disables Proton reads entirely.
     static let declaredSupportedVersions: Set<String> = ["2.2.3", "2.2.4"]
 
     /// The gate the app runs. Swapping to an empty set here disables Proton

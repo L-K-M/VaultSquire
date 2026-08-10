@@ -11,6 +11,20 @@
 - Official iOS source baseline:
   [`9f0a0f6399154943c561ebcdae718da04905c007`](https://github.com/protonpass/ios-pass/tree/9f0a0f6399154943c561ebcdae718da04905c007)
 
+> Implementation status (added at build time): the selected CLI provider is now
+> implemented read-only in `VaultSquire/Providers/Proton/` — a no-shell bounded
+> process executor, an allowlisted absolute-path runner with symlink resolution
+> and opaque-identifier validation, a fail-closed version gate, tolerant
+> decoding of the documented `vault`/`item` JSON into the shared read
+> projection, and a device-sealed lossy snapshot. Every write stays disabled.
+> The command and JSON contract follows the documented surface in §5 and §8 and
+> is gated to the versions in §1; it has not been exercised against a live CLI
+> in the build environment, so the version allowlist
+> (`ProtonCLIVersionGate.declaredSupportedVersions`) and the JSON key spellings
+> in `ProtonReadModel` are the points to confirm against an installed build.
+> Mismatched output fails closed. All boundary logic is unit-tested over a fake
+> executor.
+
 This document records the evidence and safety boundaries for VaultSquire's
 selected Proton Pass integration: executing the official user-installed CLI as
 an external process. It distinguishes documented developer features from

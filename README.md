@@ -1,11 +1,14 @@
 # VaultSquire
 
-VaultSquire is a planned, completely new native macOS client for self-hosted
-Vaultwarden instances and Proton Pass accounts. Workstream 1 contains the initial
-native locked shell and feasibility harness, Workstream 2 the domain, session,
-and provider contracts, and Workstream 3 the Vaultwarden cryptographic harness.
-There is no supported release, no network or persistence layer, and no wired-up
-provider implementation yet.
+VaultSquire is a native macOS client for self-hosted Vaultwarden instances and
+Proton Pass accounts. The Vaultwarden provider is implemented end to end —
+sign-in with an optional second factor, master-password unlock, sync, a
+device-sealed encrypted offline cache, item browsing with reveal, copy, and
+rotating TOTP, and create, edit, and archive writes. The Proton Pass provider is
+implemented read-only through the official user-installed CLI: detection, a
+fail-closed version gate, vault and item reads, and a device-sealed lossy
+offline snapshot. There is no supported or distributable release; release
+automation stays blocked by [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md).
 
 Current source version: <!-- version -->0.1.0<!-- /version -->. This is a source
 version, not a supported or distributable release.
@@ -32,8 +35,9 @@ security boundaries:
 - one clean-room native Swift application named VaultSquire;
 - one add-account sheet whose provider choice lists Vaultwarden (a form for
   server URL, email, and master password, followed by a second-factor step only
-  when the server requires one) and Proton Pass (staged and credential-free
-  until its workstream);
+  when the server requires one) and Proton Pass (a credential-free detection
+  pane that connects to your own signed-in official CLI and opens the vault
+  read-only);
 - Proton Pass access through the official user-installed CLI, with required
   reads and writes enabled only per exact tested command/version when complete
   private input uses a protected non-argv, non-environment, non-filesystem
@@ -49,6 +53,33 @@ security boundaries:
 - no plaintext vault database, default telemetry, or TLS bypass;
 - provider boundaries that support Vaultwarden and the Proton CLI without
   pretending that the two services share one protocol or cryptographic model.
+
+## Implementation Status
+
+- **Vaultwarden — read and write.** Origin-approved sign-in with optional
+  second factor, PBKDF2/HKDF key derivation and EncString decryption, sync into
+  a ChaCha20-Poly1305 device-sealed cache, master-password unlock, item list and
+  detail with reveal, clipboard, and RFC 6238 TOTP, and create, edit, and
+  archive writes gated per capability. Argon2id KDF fails closed.
+- **Proton Pass — read only, through your own CLI.** VaultSquire never asks for
+  a Proton credential; sign-in stays with the official user-installed CLI. The
+  provider locates an allowlisted absolute binary path (symlink resolved and
+  shown), runs it with no shell, a fixed environment (`HOME` passed through, not
+  relocated), standard input bound to the null device, and bounded output, and
+  gates the reported version against a fail-closed allowlist. It lists vaults and
+  items, hydrates item content, projects items into the shared read UI, and seals
+  a lossy snapshot with the same AEAD envelope for offline read. No write, argv
+  secret, or environment secret is ever produced.
+- **Caveat.** The Proton CLI command and JSON contract is implemented against
+  Proton's *documented* surface (PROTON_PASS_RESEARCH.md §5, §8) and gated to the
+  releases recorded there; it has not been exercised against a live CLI in this
+  environment. On a real machine the version allowlist and the JSON key mapping
+  are the single points to reconcile against the installed build — a mismatch
+  fails closed with an honest "couldn't read the CLI output", never a false
+  success. All CLI-boundary logic is covered by unit tests over a fake executor.
+- **No release.** Release, preview, and distribution remain blocked by
+  [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md); this is a source tree, not
+  a shippable product.
 
 ## Current Recommendation
 
