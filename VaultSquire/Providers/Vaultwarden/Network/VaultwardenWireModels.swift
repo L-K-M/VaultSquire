@@ -113,14 +113,35 @@ struct VaultwardenTokenResponse: Sendable, Decodable {
     let privateKey: String?
     let twoFactorToken: String?
 
+    // The grant fields are snake_case, but the wrapped key material is PascalCase
+    // on most servers and lowerCamel on some. Accept both spellings for the key
+    // material so a login never silently loses the wrapped user key; a missing
+    // key is then filled from the sync profile instead.
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
         case refreshToken = "refresh_token"
         case expiresIn = "expires_in"
         case tokenType = "token_type"
         case key = "Key"
+        case keyLower = "key"
         case privateKey = "PrivateKey"
+        case privateKeyLower = "privateKey"
         case twoFactorToken = "TwoFactorToken"
+        case twoFactorTokenLower = "twoFactorToken"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accessToken = try container.decode(String.self, forKey: .accessToken)
+        refreshToken = try container.decodeIfPresent(String.self, forKey: .refreshToken)
+        expiresIn = try container.decodeIfPresent(Int.self, forKey: .expiresIn)
+        tokenType = try container.decodeIfPresent(String.self, forKey: .tokenType)
+        key = try container.decodeIfPresent(String.self, forKey: .key)
+            ?? container.decodeIfPresent(String.self, forKey: .keyLower)
+        privateKey = try container.decodeIfPresent(String.self, forKey: .privateKey)
+            ?? container.decodeIfPresent(String.self, forKey: .privateKeyLower)
+        twoFactorToken = try container.decodeIfPresent(String.self, forKey: .twoFactorToken)
+            ?? container.decodeIfPresent(String.self, forKey: .twoFactorTokenLower)
     }
 }
 

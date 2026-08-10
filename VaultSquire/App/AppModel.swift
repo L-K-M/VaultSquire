@@ -121,6 +121,8 @@ final class AppModel: ObservableObject {
                 self.finishFailedUnlock(Self.message(for: error))
             } catch VaultwardenAccountError.noVault {
                 self.finishFailedUnlock("No stored vault was found. Add the account again to sync it.")
+            } catch VaultwardenAccountError.missingKeyMaterial {
+                self.finishFailedUnlock("Couldn't fetch your vault key from the server. Check your connection and try again.")
             } catch {
                 self.finishFailedUnlock("The vault could not be opened.")
             }

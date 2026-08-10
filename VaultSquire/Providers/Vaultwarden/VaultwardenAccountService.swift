@@ -56,25 +56,33 @@ struct VaultwardenAccountService: Sendable {
 
     // MARK: - Configuration
 
-    /// Persists the just-authenticated account: an initial empty-vault snapshot
-    /// sealed to the cache and a non-secret descriptor. The refresh token is
-    /// stored separately by the add-account flow. Throws `missingKeyMaterial`
-    /// when the login returned no wrapped user key.
+    /// Persists the just-authenticated account so the shell can offer an unlock
+    /// prompt and the first unlock can open the vault.
+    ///
+    /// The non-secret descriptor is written first and unconditionally: a login
+    /// that authenticated must always produce an unlock prompt, never the dead
+    /// "locked with no prompt" state, even if sealing the cache is momentarily
+    /// unavailable. The sealed cache is then seeded from the login. Some servers
+    /// return the wrapped user key only from the sync profile, not the token
+    /// grant; in that case the seed carries an empty key and the first unlock's
+    /// sync populates it before deriving any keyring.
     func persistAfterLogin(
         session: VaultwardenAuthSession,
         serverBaseURL: URL,
         email: String
-    ) throws {
-        guard let wrappedUserKey = session.wrappedUserKey else {
-            throw VaultwardenAccountError.missingKeyMaterial
-        }
+    ) {
+        descriptorStore.upsert(AccountDescriptor(
+            account: account,
+            serverDisplay: serverBaseURL.host ?? serverBaseURL.absoluteString,
+            email: VaultwardenKeyDerivation.normalizedEmail(email)
+        ))
         let snapshot = VaultwardenVaultSnapshot(
             version: VaultwardenVaultSnapshot.currentVersion,
             serverBaseURL: serverBaseURL.absoluteString,
             identityBaseURL: session.identityBaseURL.absoluteString,
             email: VaultwardenKeyDerivation.normalizedEmail(email),
             kdf: .init(configuration: session.kdfConfiguration),
-            wrappedUserKey: wrappedUserKey,
+            wrappedUserKey: session.wrappedUserKey ?? "",
             wrappedPrivateKey: session.wrappedPrivateKey,
             organizations: [],
             folders: [],
@@ -82,12 +90,9 @@ struct VaultwardenAccountService: Sendable {
             syncedAt: now(),
             generation: 1
         )
-        try vaultCache.save(snapshot, for: account)
-        descriptorStore.upsert(AccountDescriptor(
-            account: account,
-            serverDisplay: serverBaseURL.host ?? serverBaseURL.absoluteString,
-            email: VaultwardenKeyDerivation.normalizedEmail(email)
-        ))
+        // Best-effort: a host without the device sealing key still completes the
+        // sign-in with a usable descriptor, and the cache seeds on the next sync.
+        try? vaultCache.save(snapshot, for: account)
     }
 
     func loadSnapshot() throws -> VaultwardenVaultSnapshot? {
@@ -97,8 +102,22 @@ struct VaultwardenAccountService: Sendable {
     // MARK: - Unlock
 
     func unlock(masterPasswordBytes: Data) async throws -> VaultwardenUnlockedVault {
-        guard let snapshot = try vaultCache.load(for: account) else {
+        guard var snapshot = try vaultCache.load(for: account) else {
             throw VaultwardenAccountError.noVault
+        }
+        // Some servers return the wrapped user key only from the sync profile,
+        // so a freshly added account can hold a seed with no key yet. Fetch the
+        // authoritative vault before deriving any keyring; a successful sync
+        // fills the wrapped key material.
+        if snapshot.wrappedUserKey.isEmpty {
+            _ = await sync()
+            guard let refreshed = try vaultCache.load(for: account) else {
+                throw VaultwardenAccountError.noVault
+            }
+            snapshot = refreshed
+        }
+        guard !snapshot.wrappedUserKey.isEmpty else {
+            throw VaultwardenAccountError.missingKeyMaterial
         }
         let keyring = try await VaultwardenVaultUnlock.unlock(
             snapshot: snapshot, masterPasswordBytes: masterPasswordBytes

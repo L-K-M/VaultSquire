@@ -351,13 +351,13 @@ final class AddAccountModel: ObservableObject, Identifiable {
         )
         try credentialStore.save(credentials, for: .primary)
 
-        // Persist the unlockable vault (an initial empty snapshot the first sync
-        // fills) and the non-secret descriptor. Best-effort: a host without the
-        // device Keychain key still completes the sign-in, and the vault
-        // rebuilds when the environment can seal it. A login that returned no
-        // wrapped user key simply has nothing to unlock and is skipped.
+        // Persist the non-secret descriptor (so the shell always shows an unlock
+        // prompt) and seed the sealed vault. When the login token carried no
+        // wrapped key, the seed holds none and the first unlock's sync fetches
+        // it from the profile — the account is never stranded in a promptless
+        // locked state.
         if let environment {
-            try? accountService.persistAfterLogin(
+            accountService.persistAfterLogin(
                 session: session,
                 serverBaseURL: environment.base,
                 email: email
