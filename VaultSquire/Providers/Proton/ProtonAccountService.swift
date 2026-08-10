@@ -47,10 +47,9 @@ struct ProtonAccountService: Sendable {
     /// The single local Proton account identity for this installation.
     static let accountID = AccountID(provider: .protonCLI, rawValue: "proton-cli-primary")
 
-    /// The most items whose secret fields are hydrated with a per-item read
-    /// during one refresh. Beyond this, items are kept as list summaries so a
-    /// very large vault cannot spawn an unbounded number of child processes.
-    static let maximumHydratedItems = 500
+    /// The most vaults a single refresh will enumerate. Each vault costs one
+    /// child process; a pathological account cannot spawn an unbounded number.
+    static let maximumVaults = 50
 
     let locator: ProtonCLILocator
     let executor: any ProtonCLIExecuting
@@ -112,10 +111,16 @@ struct ProtonAccountService: Sendable {
 
     // MARK: - Refresh
 
-    /// Runs a full authoritative read: version gate, vault list, per-vault item
-    /// list, bounded secret hydration, then seals the snapshot to the cache and
-    /// returns projections. A cache write failure is non-fatal to the in-memory
-    /// result.
+    /// Runs a full authoritative read: version gate, vault list, and one item
+    /// list per vault, then seals the snapshot to the cache and returns
+    /// projections. A cache write failure is non-fatal to the in-memory result.
+    ///
+    /// Secret fields are deliberately NOT fetched here. `item view` is one child
+    /// process and one network round trip per item, so hydrating a whole vault
+    /// up front made opening it take minutes on a real account while the UI sat
+    /// on a spinner. Secrets are fetched on demand by `content(shareID:itemID:)`
+    /// when an item is actually opened, which also keeps them out of the
+    /// at-rest snapshot entirely.
     func refresh() async -> Result<ProtonRefreshResult, ProtonServiceError> {
         guard let binary = locator.locate() else { return .failure(.cliNotInstalled) }
         let runner = makeRunner(binary)
@@ -143,15 +148,13 @@ struct ProtonAccountService: Sendable {
         }
 
         var items: [ProtonItem] = []
-        var hydrationBudget = Self.maximumHydratedItems
-        for vault in vaults {
-            let vaultItems: [ProtonItem]
+        for vault in vaults.prefix(Self.maximumVaults) {
             do {
-                vaultItems = try ProtonReadModel.decodeItems(
+                items.append(contentsOf: try ProtonReadModel.decodeItems(
                     try await runner.itemListJSON(shareID: vault.shareID),
                     shareID: vault.shareID,
                     vaultName: vault.name
-                )
+                ))
             } catch ProtonCLIRunnerError.commandFailed {
                 // A single unreadable vault is skipped, not fatal to the refresh.
                 continue
@@ -160,7 +163,6 @@ struct ProtonAccountService: Sendable {
             } catch {
                 return .failure(.executionFailed)
             }
-            items.append(contentsOf: await hydrate(vaultItems, runner: runner, budget: &hydrationBudget))
         }
 
         let snapshot = ProtonSnapshot(
@@ -190,14 +192,26 @@ struct ProtonAccountService: Sendable {
     }
 
     /// The decrypted detail for one item, resolved from a snapshot by its
-    /// compound identity. Returns nil when the item is not in the snapshot.
-    func detail(for itemID: VaultItemID, snapshot: ProtonSnapshot) -> VaultItemDetail? {
+    /// compound identity. `content` is the on-demand secret payload when it has
+    /// already been fetched; without it the detail shows the item's non-secret
+    /// fields only. Returns nil when the item is not in the snapshot.
+    func detail(
+        for itemID: VaultItemID,
+        snapshot: ProtonSnapshot,
+        content: ProtonItemContent? = nil
+    ) -> VaultItemDetail? {
         guard let item = snapshot.items.first(where: { candidate in
             candidate.itemID == itemID.rawValue && candidate.shareID == Self.shareID(of: itemID)
         }) else {
             return nil
         }
-        return ProtonReadModel.detail(for: item, account: Self.accountID)
+        let resolved = content.map { item.merging($0) } ?? item
+        return ProtonReadModel.detail(for: resolved, account: Self.accountID)
+    }
+
+    /// The share identifier for an item, for the on-demand content fetch.
+    static func shareIdentifier(of itemID: VaultItemID) -> String? {
+        shareID(of: itemID)
     }
 
     // MARK: - Private
@@ -206,27 +220,22 @@ struct ProtonAccountService: Sendable {
         ProtonCLIRunner(binary: binary, executor: executor, versionGate: versionGate)
     }
 
-    private func hydrate(
-        _ items: [ProtonItem],
-        runner: ProtonCLIRunner,
-        budget: inout Int
-    ) async -> [ProtonItem] {
-        var result: [ProtonItem] = []
-        result.reserveCapacity(items.count)
-        for item in items {
-            guard budget > 0 else {
-                result.append(item)
-                continue
-            }
-            budget -= 1
-            if let data = try? await runner.itemViewJSON(shareID: item.shareID, itemID: item.itemID),
-               let content = try? ProtonReadModel.decodeItemContent(data) {
-                result.append(item.merging(content))
-            } else {
-                result.append(item)
-            }
+    /// Fetches one item's secret content on demand, for an item the user just
+    /// opened. Returns nil when the CLI is gone, its version is no longer
+    /// admitted, or the read fails — the caller then shows the item's
+    /// non-secret fields rather than inventing a value.
+    ///
+    /// The version gate runs on this path too: it is the control that keeps
+    /// VaultSquire from parsing an untested CLI's output, so a read never
+    /// bypasses it. `--version` is a local call with no network round trip.
+    func content(shareID: String, itemID: String) async -> ProtonItemContent? {
+        guard let binary = locator.locate() else { return nil }
+        let runner = makeRunner(binary)
+        guard (try? await runner.probeVersion()) != nil else { return nil }
+        guard let data = try? await runner.itemViewJSON(shareID: shareID, itemID: itemID) else {
+            return nil
         }
-        return result
+        return try? ProtonReadModel.decodeItemContent(data)
     }
 
     private static func shareID(of itemID: VaultItemID) -> String? {

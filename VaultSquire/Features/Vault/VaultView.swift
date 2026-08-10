@@ -59,6 +59,9 @@ struct VaultView: View {
         if let selection, let detail = appModel.detail(for: selection) {
             VaultItemDetailView(detail: detail)
                 .id(selection)
+                // A Proton item's secret fields are fetched the first time it is
+                // opened; every other provider already has them in memory.
+                .task(id: selection) { appModel.hydrateIfNeeded(selection) }
         } else {
             ContentUnavailableView {
                 Label("Select an item", systemImage: "list.bullet.rectangle")

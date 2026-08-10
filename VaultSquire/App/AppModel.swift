@@ -61,6 +61,11 @@ final class AppModel: ObservableObject {
     /// dropped on lock. It is a lossy, device-sealed capture, never a write
     /// source.
     private var protonSnapshot: ProtonSnapshot?
+    /// Secret fields fetched on demand for opened Proton items. In memory only
+    /// for the life of the session — never sealed into the snapshot — and
+    /// dropped on lock with everything else.
+    @Published private var protonContent: [VaultItemID: ProtonItemContent] = [:]
+    private var hydratingItems: Set<VaultItemID> = []
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
@@ -141,6 +146,8 @@ final class AppModel: ObservableObject {
         activeVault = .none
         unlocked = nil
         protonSnapshot = nil
+        protonContent = [:]
+        hydratingItems = []
         items = []
         unlockError = nil
         ApplicationCoordinator.shared.dismissQuickSearch()
@@ -154,10 +161,38 @@ final class AppModel: ObservableObject {
     func detail(for itemID: VaultItemID) -> VaultItemDetail? {
         if itemID.provider == .protonCLI {
             guard let protonSnapshot else { return nil }
-            return protonService.detail(for: itemID, snapshot: protonSnapshot)
+            return protonService.detail(
+                for: itemID, snapshot: protonSnapshot, content: protonContent[itemID]
+            )
         }
         guard let unlocked else { return nil }
         return service.detail(for: itemID, keyring: unlocked.keyring, snapshot: unlocked.snapshot)
+    }
+
+    /// Fetches a Proton item's secret fields the first time it is opened.
+    /// Listing a Proton vault deliberately carries no secrets — one CLI call per
+    /// item would make opening a vault take minutes — so the detail view asks
+    /// for them here. A no-op for any other provider or an already-fetched item.
+    func hydrateIfNeeded(_ itemID: VaultItemID) {
+        guard itemID.provider == .protonCLI,
+              protonContent[itemID] == nil,
+              !hydratingItems.contains(itemID),
+              let shareID = ProtonAccountService.shareIdentifier(of: itemID) else {
+            return
+        }
+        hydratingItems.insert(itemID)
+        Task { [protonService] in
+            let content = await protonService.content(shareID: shareID, itemID: itemID.rawValue)
+            self.hydratingItems.remove(itemID)
+            guard let content else { return }
+            self.protonContent[itemID] = content
+        }
+    }
+
+    /// True while an item's secret fields are being fetched, so the detail can
+    /// say so instead of looking like the item simply has no password.
+    func isHydrating(_ itemID: VaultItemID) -> Bool {
+        hydratingItems.contains(itemID)
     }
 
     // MARK: - Proton (read-only)

@@ -96,9 +96,17 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.canCreateItems)
         XCTAssertFalse(model.canArchiveItems)
 
+        // Opening the vault fetches no secrets: listing is fast and the password
+        // arrives only once the item is actually opened.
         let id = try XCTUnwrap(model.items.first?.id)
-        let detail = try XCTUnwrap(model.detail(for: id))
-        XCTAssertEqual(detail.fields.first { $0.label == "Password" }?.value, "VSQ-secret")
+        let bare = try XCTUnwrap(model.detail(for: id))
+        XCTAssertNil(bare.fields.first { $0.label == "Password" })
+
+        model.hydrateIfNeeded(id)
+        try await pollUntil { model.detail(for: id)?.fields.contains { $0.label == "Password" } == true }
+        XCTAssertEqual(
+            model.detail(for: id)?.fields.first { $0.label == "Password" }?.value, "VSQ-secret"
+        )
 
         // Locking drops the Proton snapshot and returns to the shell.
         model.lock()

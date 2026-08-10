@@ -43,7 +43,7 @@ final class ProtonAccountServiceTests: XCTestCase {
         )
     }
 
-    func testRefreshListsHydratesAndSealsASnapshot() async throws {
+    func testRefreshListsAndSealsWithoutFetchingAnySecret() async throws {
         let executor = FakeProtonCLIExecutor()
         await stubHappyPath(executor)
         let service = makeService(executor: executor)
@@ -59,16 +59,55 @@ final class ProtonAccountServiceTests: XCTestCase {
         XCTAssertEqual(projection.username, "octocat")
         XCTAssertEqual(projection.id.provider, .protonCLI)
 
-        // The hydrated secret is present in the detail and marked secret.
-        let detail = try XCTUnwrap(service.detail(for: projection.id, snapshot: refresh.snapshot))
-        let password = try XCTUnwrap(detail.fields.first { $0.label == "Password" })
-        XCTAssertEqual(password.value, "VSQ-secret")
-        XCTAssertEqual(password.kind, .secret)
+        // The regression this guards: one `item view` per item made opening a
+        // real vault take minutes. A refresh runs the version probe, the vault
+        // list, and one item list per vault — and never an item view.
+        let recorded = await executor.recordedArguments
+        XCTAssertFalse(
+            recorded.contains { $0.first == "item" && $0.dropFirst().first == "view" },
+            "refresh must not fetch any item's secrets"
+        )
+        XCTAssertEqual(recorded.count, 3, "version + vault list + one item list")
 
-        // The snapshot was sealed to the cache and reopens equal.
+        // No secret rests in the sealed snapshot.
         let cached = try XCTUnwrap(service.cachedSnapshot())
         XCTAssertEqual(cached, refresh.snapshot)
         XCTAssertTrue(cached.lossy)
+        XCTAssertNil(cached.items.first?.password)
+        // Without fetched content the detail carries the non-secret fields only.
+        let bare = try XCTUnwrap(service.detail(for: projection.id, snapshot: refresh.snapshot))
+        XCTAssertNil(bare.fields.first { $0.label == "Password" })
+    }
+
+    func testContentFetchesOneItemOnDemandAndMergesIntoTheDetail() async throws {
+        let executor = FakeProtonCLIExecutor()
+        await stubHappyPath(executor)
+        let service = makeService(executor: executor)
+
+        guard case .success(let refresh) = await service.refresh() else {
+            return XCTFail("expected success")
+        }
+        let projection = try XCTUnwrap(refresh.projections.first)
+
+        let content = try XCTUnwrap(await service.content(shareID: "S1", itemID: "i1"))
+        XCTAssertEqual(content.password, "VSQ-secret")
+
+        let detail = try XCTUnwrap(
+            service.detail(for: projection.id, snapshot: refresh.snapshot, content: content)
+        )
+        let password = try XCTUnwrap(detail.fields.first { $0.label == "Password" })
+        XCTAssertEqual(password.value, "VSQ-secret")
+        XCTAssertEqual(password.kind, .secret)
+    }
+
+    /// The version gate is a security control, so the on-demand read runs it
+    /// too: an unadmitted CLI yields no content rather than parsed output.
+    func testContentFailsClosedOnAnUnsupportedVersion() async {
+        let executor = FakeProtonCLIExecutor()
+        await stubHappyPath(executor)
+        let service = makeService(executor: executor, supported: ["9.9.9"])
+        let content = await service.content(shareID: "S1", itemID: "i1")
+        XCTAssertNil(content)
     }
 
     func testRefreshReportsCLINotInstalled() async {
