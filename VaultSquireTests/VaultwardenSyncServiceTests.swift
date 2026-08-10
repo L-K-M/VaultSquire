@@ -73,6 +73,40 @@ final class VaultwardenSyncServiceTests: XCTestCase {
         XCTAssertEqual(success.refreshToken, "VSQ-refresh-2", "the rotated refresh token is returned")
     }
 
+    func testRateLimitedRefreshIsReportedAsRefreshFailedNotUnreachable() async throws {
+        StubServer.shared.on("/connect/token", respond: .json(429, "{}"))
+
+        let result = await (try makeService()).sync(
+            current: makeCurrentSnapshot(),
+            refresher: try makeRefresher(),
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        guard case .failure(let error) = result else {
+            return XCTFail("expected failure")
+        }
+        XCTAssertEqual(error, .refreshFailed)
+    }
+
+    func testUnexpectedSyncStatusCarriesTheStatusCode() async throws {
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r2\"}")
+        )
+        StubServer.shared.on("/api/sync", respond: .json(503, "{}"))
+
+        let result = await (try makeService()).sync(
+            current: makeCurrentSnapshot(),
+            refresher: try makeRefresher(),
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        guard case .failure(let error) = result else {
+            return XCTFail("expected failure")
+        }
+        XCTAssertEqual(error, .unexpectedStatus(503))
+    }
+
     func testExpiredRefreshTokenReportsSessionExpiredWithoutFetching() async throws {
         StubServer.shared.on("/connect/token", respond: .json(400, "{\"error\":\"invalid_grant\"}"))
 

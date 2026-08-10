@@ -323,7 +323,7 @@ struct VaultwardenAccountService: Sendable {
             }
             snapshot = loaded
         } catch {
-            return .failure(.transient)
+            return .failure(.localStorageFailed)
         }
 
         let refreshToken: String
@@ -333,14 +333,14 @@ struct VaultwardenAccountService: Sendable {
             }
             refreshToken = stored.refreshToken
         } catch {
-            return .failure(.transient)
+            return .failure(.localStorageFailed)
         }
 
         let environment: VaultwardenEnvironment
         do {
             environment = try VaultwardenEnvironment(configuredURL: snapshot.serverBaseURL)
         } catch {
-            return .failure(.transient)
+            return .failure(.localStorageFailed)
         }
         let transport = makeTransport(environment)
         let refresher = VaultwardenTokenRefresher(
@@ -356,12 +356,12 @@ struct VaultwardenAccountService: Sendable {
         let result = await service.sync(current: snapshot, refresher: refresher, capturedAt: now())
         switch result {
         case .success(let success):
-            do {
-                try vaultCache.save(success.snapshot, for: account)
-                try? credentialStore.replaceRefreshToken(success.refreshToken, for: .primary)
-            } catch {
-                return .failure(.transient)
-            }
+            // The fetched vault is authoritative — a failed local re-seal must
+            // never hide it behind an error. The token is persisted first so a
+            // rotated refresh token survives a cache-save failure; the cache
+            // simply keeps the previous good snapshot and reseals next sync.
+            try? credentialStore.replaceRefreshToken(success.refreshToken, for: .primary)
+            try? vaultCache.save(success.snapshot, for: account)
             return .success(success.snapshot)
         case .failure(let error):
             return .failure(error)

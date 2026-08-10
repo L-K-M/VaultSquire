@@ -4,10 +4,26 @@ enum VaultwardenSyncError: Error, Equatable, Sendable {
     /// The refresh token is no longer valid; the account must reauthenticate.
     /// The caller keeps the last good snapshot — a sync failure never wipes it.
     case sessionExpired
-    /// A network or rate-limit condition; retry later without ending the session.
+    /// The network transport failed while fetching the vault. This is the only
+    /// case that genuinely means "couldn't reach the server"; every other
+    /// failure keeps its own case so the message never blames the network for
+    /// a different problem.
     case transient
+    /// The token refresh failed for a non-terminal reason: network trouble, a
+    /// rate limit, or a server error. Distinct from `transient` because the
+    /// vault fetch never ran.
+    case refreshFailed
+    /// The vault fetch returned an HTTP status that is neither success nor a
+    /// session rejection. The status is carried for display; it is not secret.
+    case unexpectedStatus(Int)
+    /// The sync response exceeded the transport's response-size bound.
+    case responseTooLarge
     /// The server's sync response could not be decoded.
     case malformedResponse
+    /// The locally stored account context (sealed snapshot, credentials, or
+    /// server URL) could not be read on this device; the network was never
+    /// consulted.
+    case localStorageFailed
 }
 
 /// Fetches `GET /api/sync` and folds it into the account's vault snapshot.
@@ -43,7 +59,7 @@ struct VaultwardenSyncService: Sendable {
         case .sessionExpired:
             return .failure(.sessionExpired)
         case .transientFailure:
-            return .failure(.transient)
+            return .failure(.refreshFailed)
         }
 
         let syncURL = (apiBaseURL ?? transport.environment.apiURL)
@@ -51,6 +67,8 @@ struct VaultwardenSyncService: Sendable {
         let response: VaultwardenHTTPResponse
         do {
             response = try await transport.send(.get, url: syncURL, bearer: accessToken)
+        } catch VaultwardenTransportError.responseTooLarge {
+            return .failure(.responseTooLarge)
         } catch {
             return .failure(.transient)
         }
@@ -59,7 +77,8 @@ struct VaultwardenSyncService: Sendable {
             return .failure(.sessionExpired)
         }
         guard (200..<300).contains(response.status) else {
-            return .failure(.transient)
+            // A blocked redirect surfaces here as its 3xx status.
+            return .failure(.unexpectedStatus(response.status))
         }
 
         let decoded: VaultwardenSyncResponse

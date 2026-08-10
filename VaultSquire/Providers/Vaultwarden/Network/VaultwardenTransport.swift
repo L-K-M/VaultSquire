@@ -64,7 +64,10 @@ struct VaultwardenTransport: Sendable {
         environment: VaultwardenEnvironment,
         clientName: String = "VaultSquire",
         userAgent: String = "VaultSquire",
-        maximumResponseBytes: Int = 5 * 1024 * 1024,
+        // A full-vault sync response scales with item count and can pass 5 MB
+        // on a large real vault, so the bound must sit well above any
+        // legitimate sync while still capping an anomalous body.
+        maximumResponseBytes: Int = 50 * 1024 * 1024,
         session: URLSession? = nil
     ) {
         self.environment = environment

@@ -351,8 +351,16 @@ final class AppModel: ObservableObject {
             return "Your session expired. Add the account again to keep syncing."
         case .transient:
             return "Couldn't reach the server. Showing the last synced vault."
+        case .refreshFailed:
+            return "The server didn't renew the session. It may be rate-limiting sign-ins; wait a minute and sync again."
+        case .unexpectedStatus(let status):
+            return "The server answered sync with HTTP \(status)."
+        case .responseTooLarge:
+            return "The sync response exceeded VaultSquire's size limit."
         case .malformedResponse:
             return "The server's sync response was unreadable."
+        case .localStorageFailed:
+            return "The stored account data on this Mac couldn't be read."
         }
     }
 
