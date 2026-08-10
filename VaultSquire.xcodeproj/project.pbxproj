@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C00000000000000000000064 /* ProtonCLIExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000067 /* ProtonCLIExecutor.swift */; };
+		C00000000000000000000065 /* ProtonCLIVersionGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000068 /* ProtonCLIVersionGate.swift */; };
+		C00000000000000000000066 /* ProtonCLIRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000069 /* ProtonCLIRunner.swift */; };
+		C00000000000000000000067 /* FakeProtonCLIExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006A /* FakeProtonCLIExecutor.swift */; };
+		C00000000000000000000068 /* ProtonCLIVersionGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006B /* ProtonCLIVersionGateTests.swift */; };
+		C00000000000000000000069 /* ProtonCLIRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006C /* ProtonCLIRunnerTests.swift */; };
+		C0000000000000000000006A /* ProtonCLIExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006D /* ProtonCLIExecutorTests.swift */; };
 		C00000000000000000000060 /* VaultItemDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000063 /* VaultItemDraft.swift */; };
 		C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000064 /* VaultwardenWriteService.swift */; };
 		C00000000000000000000062 /* VaultItemEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* VaultItemEditView.swift */; };
@@ -123,6 +130,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000067 /* ProtonCLIExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIExecutor.swift; path = VaultSquire/Providers/Proton/ProtonCLIExecutor.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000068 /* ProtonCLIVersionGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIVersionGate.swift; path = VaultSquire/Providers/Proton/ProtonCLIVersionGate.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000069 /* ProtonCLIRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIRunner.swift; path = VaultSquire/Providers/Proton/ProtonCLIRunner.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000006A /* FakeProtonCLIExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FakeProtonCLIExecutor.swift; path = VaultSquireTests/FakeProtonCLIExecutor.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000006B /* ProtonCLIVersionGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIVersionGateTests.swift; path = VaultSquireTests/ProtonCLIVersionGateTests.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000006C /* ProtonCLIRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIRunnerTests.swift; path = VaultSquireTests/ProtonCLIRunnerTests.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000006D /* ProtonCLIExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIExecutorTests.swift; path = VaultSquireTests/ProtonCLIExecutorTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000063 /* VaultItemDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDraft.swift; path = VaultSquire/Domain/VaultItemDraft.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000064 /* VaultwardenWriteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteService.swift; path = VaultSquire/Providers/Vaultwarden/Network/VaultwardenWriteService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000065 /* VaultItemEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemEditView.swift; path = VaultSquire/Features/Vault/VaultItemEditView.swift; sourceTree = SOURCE_ROOT; };
@@ -295,9 +309,20 @@
 			path = AddAccount;
 			sourceTree = "<group>";
 		};
+				A00000000000000000000019 /* Proton */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000067 /* ProtonCLIExecutor.swift */,
+				B00000000000000000000068 /* ProtonCLIVersionGate.swift */,
+				B00000000000000000000069 /* ProtonCLIRunner.swift */,
+			);
+			path = Proton;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000011 /* Providers */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000019 /* Proton */,
 				A00000000000000000000012 /* Vaultwarden */,
 			);
 			path = Providers;
@@ -491,6 +516,10 @@
 		A0000000000000000000000E /* VaultSquireTests */ = {
 			isa = PBXGroup;
 			children = (
+				B0000000000000000000006A /* FakeProtonCLIExecutor.swift */,
+				B0000000000000000000006B /* ProtonCLIVersionGateTests.swift */,
+				B0000000000000000000006C /* ProtonCLIRunnerTests.swift */,
+				B0000000000000000000006D /* ProtonCLIExecutorTests.swift */,
 				B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */,
 				B00000000000000000000011 /* AppModelTests.swift */,
 				B00000000000000000000012 /* DiagnosticsTests.swift */,
@@ -663,6 +692,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C00000000000000000000064 /* ProtonCLIExecutor.swift in Sources */,
+				C00000000000000000000065 /* ProtonCLIVersionGate.swift in Sources */,
+				C00000000000000000000066 /* ProtonCLIRunner.swift in Sources */,
 				C00000000000000000000060 /* VaultItemDraft.swift in Sources */,
 				C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */,
 				C00000000000000000000062 /* VaultItemEditView.swift in Sources */,
@@ -729,6 +761,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C00000000000000000000067 /* FakeProtonCLIExecutor.swift in Sources */,
+				C00000000000000000000068 /* ProtonCLIVersionGateTests.swift in Sources */,
+				C00000000000000000000069 /* ProtonCLIRunnerTests.swift in Sources */,
+				C0000000000000000000006A /* ProtonCLIExecutorTests.swift in Sources */,
 				C00000000000000000000063 /* VaultwardenWriteServiceTests.swift in Sources */,
 				C00000000000000000000011 /* AppModelTests.swift in Sources */,
 				C00000000000000000000012 /* DiagnosticsTests.swift in Sources */,
