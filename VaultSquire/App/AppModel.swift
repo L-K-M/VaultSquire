@@ -34,6 +34,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var isSyncing = false
     @Published private(set) var syncError: String?
     @Published private(set) var lastSyncedAt: Date?
+    /// Set when Quick Search opens an item; the vault view consumes it to select
+    /// that item, then clears it.
+    @Published var quickSearchSelection: VaultItemID?
 
     private let queryAccountPresence: () -> AccountPresence
     private let service: VaultwardenAccountService
@@ -187,5 +190,18 @@ final class AppModel: ObservableObject {
         } catch {
             return .unknown
         }
+    }
+}
+
+extension AppModel: QuickSearchDataSource {
+    var quickSearchItems: [VaultItemProjection] { items }
+    var quickSearchIsUnlocked: Bool { isUnlocked }
+
+    func openFromQuickSearch(_ id: VaultItemID) {
+        quickSearchSelection = id
+    }
+
+    func clearQuickSearchSelection() {
+        quickSearchSelection = nil
     }
 }

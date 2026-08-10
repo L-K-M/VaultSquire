@@ -14,10 +14,11 @@ struct QuickSearchView: View {
                     .accessibilityHidden(true)
 
                 TextField("Search the unlocked vault", text: $model.query)
-                    .textFieldStyle(.plain)
-                    .font(.title3)
-                    .focused($searchFocused)
-                    .accessibilityIdentifier("quick-search-field")
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .focused($searchFocused)
+                .onSubmit(openFirstResult)
+                .accessibilityIdentifier("quick-search-field")
 
                 Text("esc")
                     .font(.caption.monospaced())
@@ -32,13 +33,7 @@ struct QuickSearchView: View {
 
             Divider()
 
-            ContentUnavailableView {
-                Label("Vault locked", systemImage: "lock")
-            } description: {
-                Text("Unlock a configured account before searching.")
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityIdentifier("quick-search-locked")
+            content
         }
         .frame(width: 620, height: 330)
         .background(.regularMaterial)
@@ -47,6 +42,62 @@ struct QuickSearchView: View {
             focusSearchField()
         }
         .onExitCommand(perform: onDismiss)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if !model.isUnlocked {
+            ContentUnavailableView {
+                Label("Vault locked", systemImage: "lock")
+            } description: {
+                Text("Unlock a configured account before searching.")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("quick-search-locked")
+        } else if model.results.isEmpty {
+            ContentUnavailableView {
+                Label("No matches", systemImage: "magnifyingglass")
+            } description: {
+                Text("No items match “\(model.query)”.")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("quick-search-empty")
+        } else {
+            List(model.results) { item in
+                Button {
+                    open(item.id)
+                } label: {
+                    resultRow(item)
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+            .accessibilityIdentifier("quick-search-results")
+        }
+    }
+
+    private func resultRow(_ item: VaultItemProjection) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.displayTitle).fontWeight(.medium).lineLimit(1)
+                if let subtitle = item.displaySubtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .padding(.vertical, 2)
+    }
+
+    private func openFirstResult() {
+        guard model.isUnlocked, let first = model.results.first else { return }
+        open(first.id)
+    }
+
+    private func open(_ id: VaultItemID) {
+        model.open(id)
+        onDismiss()
     }
 
     /// Claims keyboard focus for the search field.

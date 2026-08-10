@@ -27,6 +27,11 @@ struct VaultView: View {
         }
         .toolbar { toolbarContent }
         .accessibilityIdentifier("vault-view")
+        .onChange(of: appModel.quickSearchSelection) { _, newValue in
+            guard let newValue else { return }
+            selection = newValue
+            appModel.clearQuickSearchSelection()
+        }
     }
 
     @ViewBuilder

@@ -43,7 +43,11 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         model
     }
 
-    func show() {
+    func show(
+        items: [VaultItemProjection] = [],
+        isUnlocked: Bool = false,
+        onOpen: ((VaultItemID) -> Void)? = nil
+    ) {
         model.clear()
         if !panel.isVisible {
             panel.center()
@@ -52,7 +56,7 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         // Announced only after the panel is key, so the view's focus assignment
         // cannot run while first responder still belongs to the window.
-        model.notePresented()
+        model.present(items: items, isUnlocked: isUnlocked, onOpen: onOpen)
         PerformanceTrace.record(.quickSearchVisible)
         AppLog.record(.quickSearchPresented)
     }

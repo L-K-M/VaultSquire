@@ -16,7 +16,10 @@ struct LockedShellView: View {
         .sheet(item: $addAccountModel) { model in
             AddAccountView(model: model) { addAccountModel = nil }
         }
-        .onAppear { appModel.refreshAccountPresence() }
+        .onAppear {
+            appModel.refreshAccountPresence()
+            ApplicationCoordinator.shared.quickSearchDataSource = appModel
+        }
     }
 
     // MARK: - Locked / empty / unlock shell
