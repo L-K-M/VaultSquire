@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import VaultSquire
 
@@ -30,7 +31,26 @@ final class AddAccountModelTests: XCTestCase {
             makeTransport: { environment in
                 VaultwardenTransport(environment: environment, session: session)
             },
-            onAccountConfigured: onAccountConfigured
+            onAccountConfigured: onAccountConfigured,
+            accountService: makeIsolatedAccountService()
+        )
+    }
+
+    /// A completing sign-in persists a descriptor and seeds the sealed vault.
+    /// Those must land in throwaway stores: the default service writes to the
+    /// app's real UserDefaults and Application Support, and a descriptor left
+    /// there makes the app launch into the vault browser — which the UI tests,
+    /// running later in the same job, see instead of the locked shell.
+    private func makeIsolatedAccountService() -> VaultwardenAccountService {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VSQ-addaccount-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let key = SymmetricKey(size: .bits256)
+        let defaults = UserDefaults(suiteName: "VSQ-addaccount-\(UUID().uuidString)")!
+        return VaultwardenAccountService(
+            credentialStore: InMemoryCredentialStore(),
+            vaultCache: VaultwardenVaultCache(keyProvider: { key }, directory: directory),
+            descriptorStore: AccountDescriptorStore(defaults: defaults)
         )
     }
 
