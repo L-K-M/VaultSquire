@@ -626,25 +626,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */,
-				C0000000000000000000005E /* VaultView.swift in Sources */,
-				C0000000000000000000005F /* VaultItemDetailView.swift in Sources */,
-				C0000000000000000000005A /* VaultwardenVaultUnlockTests.swift in Sources */,
-				C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */,
-				C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */,
-				C00000000000000000000054 /* VaultItemDetail.swift in Sources */,
-				C00000000000000000000055 /* VaultwardenKeyring.swift in Sources */,
-				C00000000000000000000056 /* VaultwardenVaultUnlock.swift in Sources */,
-				C00000000000000000000057 /* VaultwardenItemDecryptor.swift in Sources */,
-				C00000000000000000000058 /* VaultwardenTOTP.swift in Sources */,
-				C00000000000000000000059 /* VaultwardenSyncService.swift in Sources */,
-				C00000000000000000000053 /* VaultwardenVaultCacheTests.swift in Sources */,
-				C0000000000000000000004D /* DeviceDataKeyStore.swift in Sources */,
-				C0000000000000000000004E /* AccountDescriptorStore.swift in Sources */,
-				C0000000000000000000004F /* VaultwardenVaultSnapshot.swift in Sources */,
-				C00000000000000000000050 /* VaultwardenVaultCache.swift in Sources */,
-				C00000000000000000000051 /* VaultwardenSyncModels.swift in Sources */,
-				C00000000000000000000052 /* VaultwardenCipherModel.swift in Sources */,
 				C0000000000000000000004C /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -711,6 +692,21 @@
 				C00000000000000000000045 /* EncryptedStore.swift in Sources */,
 				C00000000000000000000046 /* EncryptedStoreSchema.swift in Sources */,
 				C00000000000000000000047 /* CacheEnvelopeCipher.swift in Sources */,
+				C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */,
+				C0000000000000000000005E /* VaultView.swift in Sources */,
+				C0000000000000000000005F /* VaultItemDetailView.swift in Sources */,
+				C00000000000000000000054 /* VaultItemDetail.swift in Sources */,
+				C00000000000000000000055 /* VaultwardenKeyring.swift in Sources */,
+				C00000000000000000000056 /* VaultwardenVaultUnlock.swift in Sources */,
+				C00000000000000000000057 /* VaultwardenItemDecryptor.swift in Sources */,
+				C00000000000000000000058 /* VaultwardenTOTP.swift in Sources */,
+				C00000000000000000000059 /* VaultwardenSyncService.swift in Sources */,
+				C0000000000000000000004D /* DeviceDataKeyStore.swift in Sources */,
+				C0000000000000000000004E /* AccountDescriptorStore.swift in Sources */,
+				C0000000000000000000004F /* VaultwardenVaultSnapshot.swift in Sources */,
+				C00000000000000000000050 /* VaultwardenVaultCache.swift in Sources */,
+				C00000000000000000000051 /* VaultwardenSyncModels.swift in Sources */,
+				C00000000000000000000052 /* VaultwardenCipherModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -746,6 +742,10 @@
 				C00000000000000000000049 /* EncryptedStoreTests.swift in Sources */,
 				C0000000000000000000004A /* MigrationRegistryTests.swift in Sources */,
 				C0000000000000000000004B /* CacheEnvelopeCipherTests.swift in Sources */,
+				C0000000000000000000005A /* VaultwardenVaultUnlockTests.swift in Sources */,
+				C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */,
+				C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */,
+				C00000000000000000000053 /* VaultwardenVaultCacheTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

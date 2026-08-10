@@ -84,16 +84,18 @@ final class AppModel: ObservableObject {
         guard !password.isEmpty, accessState != .unlocking else { return }
         accessState = .unlocking
         unlockError = nil
-        var passwordBytes = Data(password.utf8)
+        let passwordBytes = Data(password.utf8)
 
         Task { [service] in
-            defer { VaultwardenCryptoZeroize.zero(&passwordBytes) }
+            var bytes = passwordBytes
+            defer { VaultwardenCryptoZeroize.zero(&bytes) }
             do {
-                let vault = try await service.unlock(masterPasswordBytes: passwordBytes)
+                let vault = try await service.unlock(masterPasswordBytes: bytes)
                 self.unlocked = vault
                 self.items = vault.items
                 self.accessState = .unlocked
                 self.syncNow()
+                return
             } catch let error as VaultwardenUnlockError {
                 self.finishFailedUnlock(Self.message(for: error))
             } catch VaultwardenAccountError.noVault {
