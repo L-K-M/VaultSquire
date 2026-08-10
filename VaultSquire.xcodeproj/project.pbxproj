@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C00000000000000000000071 /* ProtonConnectModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000074 /* ProtonConnectModel.swift */; };
 		C0000000000000000000006F /* ProtonAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000072 /* ProtonAccountService.swift */; };
 		C00000000000000000000070 /* ProtonAccountServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000073 /* ProtonAccountServiceTests.swift */; };
 		C0000000000000000000006B /* ProtonReadModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006E /* ProtonReadModel.swift */; };
@@ -136,6 +137,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000074 /* ProtonConnectModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonConnectModel.swift; path = VaultSquire/Features/AddAccount/ProtonConnectModel.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000072 /* ProtonAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonAccountService.swift; path = VaultSquire/Providers/Proton/ProtonAccountService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000073 /* ProtonAccountServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonAccountServiceTests.swift; path = VaultSquireTests/ProtonAccountServiceTests.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000006E /* ProtonReadModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonReadModel.swift; path = VaultSquire/Providers/Proton/ProtonReadModel.swift; sourceTree = SOURCE_ROOT; };
@@ -314,6 +316,7 @@
 		A00000000000000000000016 /* AddAccount */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000074 /* ProtonConnectModel.swift */,
 				B00000000000000000000042 /* AddAccountModel.swift */,
 				B00000000000000000000043 /* AddAccountView.swift */,
 				B00000000000000000000044 /* TwoFactorChallengeView.swift */,
@@ -710,6 +713,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C00000000000000000000071 /* ProtonConnectModel.swift in Sources */,
 				C0000000000000000000006F /* ProtonAccountService.swift in Sources */,
 				C0000000000000000000006B /* ProtonReadModel.swift in Sources */,
 				C0000000000000000000006C /* ProtonSnapshotCache.swift in Sources */,

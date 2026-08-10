@@ -18,7 +18,11 @@ enum AddAccountProvider: Hashable {
 struct AddAccountView: View {
     @ObservedObject var model: AddAccountModel
     let onClose: () -> Void
+    /// Invoked when the user opens their Proton vault from the detection pane.
+    /// The shell wires this to the read-only open flow and dismisses the sheet.
+    var onOpenProtonVault: () -> Void = {}
 
+    @StateObject private var protonConnect = ProtonConnectModel()
     @State private var provider: AddAccountProvider = .vaultwarden
 
     var body: some View {
@@ -121,25 +125,90 @@ struct AddAccountView: View {
         }
     }
 
-    /// The honest Proton Pass status: the integration route is decided (the
-    /// official user-installed CLI) but gated behind the Vaultwarden
-    /// foundations, so no Proton credentials are collected here.
+    /// The Proton Pass connection pane. It reads through the official
+    /// user-installed CLI and collects no Proton credential: sign-in stays with
+    /// the CLI. The pane reports the detected status honestly and offers to open
+    /// the vault read-only when a supported, authenticated CLI is present.
     private var protonPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Proton Pass accounts are not available yet.")
-                .font(.callout.weight(.medium))
-            Text("VaultSquire integrates Proton Pass through the official Proton Pass CLI that you install yourself, rather than a reimplementation of Proton's private protocol. That integration arrives once the Vaultwarden foundations are complete. VaultSquire never asks for your Proton password; sign-in stays with the official CLI.")
+            Text("Proton Pass")
+                .font(.callout.weight(.semibold))
+            Text("VaultSquire reads your Proton Pass vault through the official Proton Pass CLI that you install and sign in to yourself. It never asks for your Proton password.")
                 .foregroundStyle(.secondary)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+
+            protonStatusContent
+
             HStack {
                 Button("Cancel", action: onClose)
                     .keyboardShortcut(.cancelAction)
                 Spacer()
+                Button("Recheck") { protonConnect.probe() }
+                    .accessibilityIdentifier("add-account-proton-recheck")
+                if protonConnect.isReady {
+                    Button("Open Vault") { onOpenProtonVault() }
+                        .keyboardShortcut(.defaultAction)
+                        .accessibilityIdentifier("add-account-proton-open")
+                }
             }
         }
+        .onAppear { protonConnect.probe() }
+        .onDisappear { protonConnect.cancel() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("add-account-proton")
+    }
+
+    @ViewBuilder
+    private var protonStatusContent: some View {
+        switch protonConnect.stage {
+        case .probing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Looking for the Proton Pass CLI…").foregroundStyle(.secondary)
+            }
+        case .status(let status):
+            protonStatusMessage(status)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("add-account-proton-status")
+        }
+    }
+
+    @ViewBuilder
+    private func protonStatusMessage(_ status: ProtonConnectionStatus) -> some View {
+        switch status {
+        case .notInstalled:
+            Text("No Proton Pass CLI was found. Install the official CLI, sign in with it, then recheck.")
+                .foregroundStyle(.secondary)
+        case .unsupportedVersion(let version):
+            Text("Found a Proton Pass CLI reporting version \(version), which VaultSquire hasn't verified. Reads stay disabled until a tested version is installed.")
+                .foregroundStyle(.secondary)
+        case .unparseableVersion:
+            Text("VaultSquire couldn't read the Proton Pass CLI's version, so reads stay disabled.")
+                .foregroundStyle(.secondary)
+        case .notAuthenticated:
+            Text("The Proton Pass CLI is installed but not signed in. Sign in with the official CLI in your terminal, then recheck.")
+                .foregroundStyle(.secondary)
+        case .ready(let version, let approvedPath, let resolvedRealPath):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Proton Pass CLI \(version) is ready.", systemImage: "checkmark.seal")
+                    .foregroundStyle(.green)
+                Text(approvedPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                if resolvedRealPath != approvedPath {
+                    Text("→ \(resolvedRealPath)")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        case .error:
+            Text("VaultSquire couldn't read the Proton Pass CLI's output, so reads stay disabled.")
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// Displays the entered origin against the server's advertised service
@@ -195,7 +264,7 @@ struct AddAccountView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Account Added")
                 .font(.title2.weight(.semibold))
-            Text("Your account credentials are stored securely. The vault stays locked until unlock arrives in a later update.")
+            Text("Your account credentials are stored securely. Close this and unlock your vault with your master password.")
                 .foregroundStyle(.secondary)
                 .font(.callout)
             HStack {

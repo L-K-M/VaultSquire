@@ -22,7 +22,18 @@ final class AppModel: ObservableObject {
         case present
     }
 
+    /// Which provider's vault is currently open. Unlocking is mutually
+    /// exclusive: one vault is open at a time, and writes and sync route to the
+    /// active provider. Proton is read-only, so write actions are disabled while
+    /// it is active.
+    enum ActiveVault: Equatable, Sendable {
+        case none
+        case vaultwarden
+        case proton
+    }
+
     @Published private(set) var accessState: AccessState = .locked
+    @Published private(set) var activeVault: ActiveVault = .none
     @Published private(set) var accountPresence: AccountPresence = .unknown
     /// The configured accounts, for display in the shell and unlock prompt.
     @Published private(set) var accounts: [AccountDescriptor] = []
@@ -42,16 +53,23 @@ final class AppModel: ObservableObject {
 
     private let queryAccountPresence: () -> AccountPresence
     private let service: VaultwardenAccountService
+    private let protonService: ProtonAccountService
     /// The unlocked keyring, snapshot, and items. Held only while unlocked and
     /// dropped on lock, so decrypted state never outlives the session.
     private var unlocked: VaultwardenUnlockedVault?
+    /// The open Proton snapshot, held only while the Proton vault is open and
+    /// dropped on lock. It is a lossy, device-sealed capture, never a write
+    /// source.
+    private var protonSnapshot: ProtonSnapshot?
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
-        service: VaultwardenAccountService = VaultwardenAccountService()
+        service: VaultwardenAccountService = VaultwardenAccountService(),
+        protonService: ProtonAccountService = ProtonAccountService()
     ) {
         self.queryAccountPresence = queryAccountPresence
         self.service = service
+        self.protonService = protonService
     }
 
     var isLocked: Bool { accessState == .locked }
@@ -95,6 +113,7 @@ final class AppModel: ObservableObject {
                 let vault = try await service.unlock(masterPasswordBytes: bytes)
                 self.unlocked = vault
                 self.items = vault.items
+                self.activeVault = .vaultwarden
                 self.accessState = .unlocked
                 self.syncNow()
                 return
@@ -113,11 +132,13 @@ final class AppModel: ObservableObject {
         unlockError = message
     }
 
-    /// Locks unconditionally and idempotently, dropping the keyring and every
-    /// decrypted projection.
+    /// Locks unconditionally and idempotently, dropping the keyring, the Proton
+    /// snapshot, and every decrypted projection.
     func lock() {
         accessState = .locked
+        activeVault = .none
         unlocked = nil
+        protonSnapshot = nil
         items = []
         unlockError = nil
         ApplicationCoordinator.shared.dismissQuickSearch()
@@ -125,17 +146,60 @@ final class AppModel: ObservableObject {
     }
 
     /// The decrypted detail for an item, or nil when locked or unknown. Computed
-    /// on demand so secrets are materialized only when a detail is shown.
+    /// on demand so secrets are materialized only when a detail is shown. A
+    /// Proton item resolves from its lossy snapshot; every other item from the
+    /// Vaultwarden keyring.
     func detail(for itemID: VaultItemID) -> VaultItemDetail? {
+        if itemID.provider == .protonCLI {
+            guard let protonSnapshot else { return nil }
+            return protonService.detail(for: itemID, snapshot: protonSnapshot)
+        }
         guard let unlocked else { return nil }
         return service.detail(for: itemID, keyring: unlocked.keyring, snapshot: unlocked.snapshot)
     }
 
+    // MARK: - Proton (read-only)
+
+    /// Opens the Proton vault read-only: runs a full CLI refresh, publishes its
+    /// projections, and seals the snapshot for offline read. Failure returns to
+    /// the locked shell with an honest message; no Proton credential is ever
+    /// collected here.
+    func openProtonVault() {
+        guard accessState != .unlocking else { return }
+        accessState = .unlocking
+        unlockError = nil
+
+        Task { [protonService] in
+            let result = await protonService.refresh()
+            switch result {
+            case .success(let refresh):
+                self.protonSnapshot = refresh.snapshot
+                self.items = refresh.projections
+                self.activeVault = .proton
+                self.accessState = .unlocked
+                self.lastSyncedAt = refresh.snapshot.capturedAt
+                self.syncError = nil
+            case .failure(let error):
+                self.accessState = .locked
+                self.unlockError = Self.message(for: error)
+            }
+        }
+    }
+
     // MARK: - Writes
 
-    /// Whether the unlocked account supports creating items.
+    /// Whether the active vault supports creating items. Proton is read-only,
+    /// so this is false while it is active.
     var canCreateItems: Bool {
-        isUnlocked && VaultwardenAccountService.capabilities.contains(.createItem)
+        isUnlocked && activeVault == .vaultwarden
+            && VaultwardenAccountService.capabilities.contains(.createItem)
+    }
+
+    /// Whether the active vault supports archiving items. Proton has no archive
+    /// operation, so this is false while it is active.
+    var canArchiveItems: Bool {
+        isUnlocked && activeVault == .vaultwarden
+            && VaultwardenAccountService.capabilities.contains(.archiveItem)
     }
 
     /// An editable draft for an item, or nil when locked or the item is not
@@ -189,6 +253,10 @@ final class AppModel: ObservableObject {
 
     func syncNow() {
         guard !isSyncing else { return }
+        if activeVault == .proton {
+            syncProton()
+            return
+        }
         isSyncing = true
         syncError = nil
 
@@ -211,7 +279,45 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Re-runs the Proton read refresh, refreshing the projections and the
+    /// sealed snapshot. A failure surfaces on the sync status line without
+    /// dropping the currently shown items.
+    private func syncProton() {
+        isSyncing = true
+        syncError = nil
+        Task { [protonService] in
+            let result = await protonService.refresh()
+            self.isSyncing = false
+            switch result {
+            case .success(let refresh):
+                self.protonSnapshot = refresh.snapshot
+                self.items = refresh.projections
+                self.lastSyncedAt = refresh.snapshot.capturedAt
+                self.syncError = nil
+            case .failure(let error):
+                self.syncError = Self.message(for: error)
+            }
+        }
+    }
+
     // MARK: - Messages
+
+    private static func message(for error: ProtonServiceError) -> String {
+        switch error {
+        case .cliNotInstalled:
+            return "The Proton Pass CLI isn't installed where VaultSquire can find it."
+        case .unsupportedVersion(let version):
+            return "The installed Proton Pass CLI (\(version)) isn't a version VaultSquire has verified yet."
+        case .unparseableVersion:
+            return "VaultSquire couldn't read the Proton Pass CLI's version."
+        case .notAuthenticated:
+            return "The Proton Pass CLI isn't signed in. Sign in with the official CLI in your terminal, then try again."
+        case .unreadableOutput:
+            return "The Proton Pass CLI returned output VaultSquire couldn't read."
+        case .executionFailed:
+            return "VaultSquire couldn't run the Proton Pass CLI."
+        }
+    }
 
     private static func message(for error: VaultwardenUnlockError) -> String {
         switch error {

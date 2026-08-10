@@ -131,7 +131,7 @@ struct VaultView: View {
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }
-            .disabled(selection == nil || appModel.isWriting)
+            .disabled(selection == nil || appModel.isWriting || !appModel.canArchiveItems)
             .accessibilityIdentifier("vault-archive")
 
             Button {

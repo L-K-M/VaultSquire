@@ -14,7 +14,14 @@ struct LockedShellView: View {
             }
         }
         .sheet(item: $addAccountModel) { model in
-            AddAccountView(model: model) { addAccountModel = nil }
+            AddAccountView(
+                model: model,
+                onClose: { addAccountModel = nil },
+                onOpenProtonVault: {
+                    addAccountModel = nil
+                    appModel.openProtonVault()
+                }
+            )
         }
         .onAppear {
             appModel.refreshAccountPresence()
@@ -110,7 +117,7 @@ struct LockedShellView: View {
 
         Text(hasNoAccounts
             ? "Add an account to bring its vault under VaultSquire's watch. Credentials are stored only after a sign-in completes."
-            : "Unlock arrives in its provider milestone. This shell keeps decrypted state closed.")
+            : "This vault is locked. If the unlock prompt doesn't appear, add the account again to rebuild it.")
             .font(.body)
             .foregroundStyle(.secondary)
             .lineSpacing(4)
