@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0000000000000000000006F /* ProtonAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000072 /* ProtonAccountService.swift */; };
+		C00000000000000000000070 /* ProtonAccountServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000073 /* ProtonAccountServiceTests.swift */; };
 		C0000000000000000000006B /* ProtonReadModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006E /* ProtonReadModel.swift */; };
 		C0000000000000000000006C /* ProtonSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006F /* ProtonSnapshotCache.swift */; };
 		C0000000000000000000006D /* ProtonReadModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000070 /* ProtonReadModelTests.swift */; };
@@ -134,6 +136,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000072 /* ProtonAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonAccountService.swift; path = VaultSquire/Providers/Proton/ProtonAccountService.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000073 /* ProtonAccountServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonAccountServiceTests.swift; path = VaultSquireTests/ProtonAccountServiceTests.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000006E /* ProtonReadModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonReadModel.swift; path = VaultSquire/Providers/Proton/ProtonReadModel.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000006F /* ProtonSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonSnapshotCache.swift; path = VaultSquire/Providers/Proton/ProtonSnapshotCache.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000070 /* ProtonReadModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonReadModelTests.swift; path = VaultSquireTests/ProtonReadModelTests.swift; sourceTree = SOURCE_ROOT; };
@@ -320,6 +324,7 @@
 				A00000000000000000000019 /* Proton */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000072 /* ProtonAccountService.swift */,
 				B0000000000000000000006E /* ProtonReadModel.swift */,
 				B0000000000000000000006F /* ProtonSnapshotCache.swift */,
 				B00000000000000000000067 /* ProtonCLIExecutor.swift */,
@@ -526,6 +531,7 @@
 		A0000000000000000000000E /* VaultSquireTests */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000073 /* ProtonAccountServiceTests.swift */,
 				B00000000000000000000070 /* ProtonReadModelTests.swift */,
 				B00000000000000000000071 /* ProtonSnapshotCacheTests.swift */,
 				B0000000000000000000006A /* FakeProtonCLIExecutor.swift */,
@@ -704,6 +710,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0000000000000000000006F /* ProtonAccountService.swift in Sources */,
 				C0000000000000000000006B /* ProtonReadModel.swift in Sources */,
 				C0000000000000000000006C /* ProtonSnapshotCache.swift in Sources */,
 				C00000000000000000000064 /* ProtonCLIExecutor.swift in Sources */,
@@ -775,6 +782,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C00000000000000000000070 /* ProtonAccountServiceTests.swift in Sources */,
 				C0000000000000000000006D /* ProtonReadModelTests.swift in Sources */,
 				C0000000000000000000006E /* ProtonSnapshotCacheTests.swift in Sources */,
 				C00000000000000000000067 /* FakeProtonCLIExecutor.swift in Sources */,
