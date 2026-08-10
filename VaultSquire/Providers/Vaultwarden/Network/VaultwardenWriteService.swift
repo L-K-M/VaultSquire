@@ -41,16 +41,26 @@ struct VaultwardenWriteService: Sendable {
         return await send(.post, url: url, body: body, accessToken: accessToken)
     }
 
-    /// Updates a login cipher. `PUT /api/ciphers/{id}`.
+    /// Updates a login cipher. `PUT /api/ciphers/{id}`. The server replaces the
+    /// cipher with this body, so the existing folder membership and custom
+    /// fields are passed through verbatim (already-encrypted EncStrings) —
+    /// omitting them would silently wipe them on every edit.
     func updateLogin(
         cipherID: String,
         draft: VaultItemDraft,
         userKey: VaultwardenSymmetricKey,
-        accessToken: String
+        accessToken: String,
+        folderID: String? = nil,
+        preservedFields: [VaultwardenCipherModel.CustomField] = []
     ) async -> Result<Void, VaultwardenWriteError> {
         let body: Data
         do {
-            body = try encodeBody(draft: draft, userKey: userKey)
+            body = try encodeBody(
+                draft: draft,
+                userKey: userKey,
+                folderID: folderID,
+                preservedFields: preservedFields
+            )
         } catch {
             return .failure(.encryptionFailed)
         }
@@ -92,8 +102,16 @@ struct VaultwardenWriteService: Sendable {
         return .success(())
     }
 
-    /// Encodes the request body, encrypting every user-authored field.
-    func encodeBody(draft: VaultItemDraft, userKey: VaultwardenSymmetricKey) throws -> Data {
+    /// Encodes the request body, encrypting every user-authored field. The
+    /// folder identifier and preserved custom fields are pass-through values
+    /// from the existing cipher (a folder id is plaintext; field EncStrings
+    /// stay encrypted), used by updates so a PUT never wipes them.
+    func encodeBody(
+        draft: VaultItemDraft,
+        userKey: VaultwardenSymmetricKey,
+        folderID: String? = nil,
+        preservedFields: [VaultwardenCipherModel.CustomField] = []
+    ) throws -> Data {
         func enc(_ value: String) throws -> String? {
             let trimmed = value
             guard !trimmed.isEmpty else { return nil }
@@ -110,6 +128,10 @@ struct VaultwardenWriteService: Sendable {
             name: try enc(draft.title) ?? "",
             notes: try enc(draft.notes),
             favorite: draft.favorite,
+            folderID: folderID,
+            fields: preservedFields.isEmpty ? nil : preservedFields.map {
+                CipherRequestBody.Field(type: $0.type, name: $0.name, value: $0.value)
+            },
             login: CipherRequestBody.Login(
                 username: try enc(draft.username),
                 password: try enc(draft.password),
@@ -128,7 +150,22 @@ struct VaultwardenWriteService: Sendable {
         let name: String
         let notes: String?
         let favorite: Bool
+        let folderID: String?
+        let fields: [Field]?
         let login: Login
+
+        /// A pass-through custom field: values are the existing EncStrings.
+        struct Field: Encodable {
+            let type: Int
+            let name: String?
+            let value: String?
+
+            enum CodingKeys: String, CodingKey {
+                case type = "Type"
+                case name = "Name"
+                case value = "Value"
+            }
+        }
 
         struct Login: Encodable {
             let username: String?
@@ -155,6 +192,8 @@ struct VaultwardenWriteService: Sendable {
             case name = "Name"
             case notes = "Notes"
             case favorite = "Favorite"
+            case folderID = "FolderId"
+            case fields = "Fields"
             case login = "Login"
         }
     }

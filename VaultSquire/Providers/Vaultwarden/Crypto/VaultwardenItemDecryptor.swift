@@ -116,6 +116,15 @@ enum VaultwardenItemDecryptor {
         }
         add("Notes", decrypt(cipher.notes), .plain)
 
+        // Custom fields carry much of an imported item's real content (serial
+        // numbers, license keys). Hidden fields stay concealed like passwords;
+        // linked fields are references with no value of their own and are not
+        // rendered.
+        for field in cipher.fields where field.type != 3 {
+            let label = decrypt(field.name) ?? "Field"
+            add(label, decrypt(field.value), field.type == 1 ? .secret : .plain)
+        }
+
         return VaultItemDetail(
             id: itemID(for: cipher, account: account),
             title: decrypt(cipher.name) ?? "Unnamed item",

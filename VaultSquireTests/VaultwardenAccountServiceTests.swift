@@ -109,6 +109,27 @@ final class VaultwardenAccountServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.wrappedUserKey, "2.userkey|mac")
     }
 
+    /// Custom fields carry an imported item's real content, so they must decode
+    /// (in either casing), survive a cache re-encode, and keep their kind.
+    func testCipherCustomFieldsDecodeAndRoundTrip() throws {
+        let wire = Data("""
+        {"id":"c1","type":2,"revisionDate":"2026-01-02T03:04:05Z","name":"2.n|n|n",
+         "fields":[{"type":0,"name":"2.serial|s|s","value":"2.v|v|v"},
+                   {"Type":1,"Name":"2.hidden|h|h","Value":"2.hv|hv|hv"}]}
+        """.utf8)
+        let model = try JSONDecoder().decode(VaultwardenCipherModel.self, from: wire)
+        XCTAssertEqual(model.fields.count, 2)
+        XCTAssertEqual(model.fields[0].type, 0)
+        XCTAssertEqual(model.fields[0].name, "2.serial|s|s")
+        XCTAssertEqual(model.fields[1].type, 1)
+        XCTAssertEqual(model.fields[1].value, "2.hv|hv|hv")
+
+        let reDecoded = try JSONDecoder().decode(
+            VaultwardenCipherModel.self, from: try JSONEncoder().encode(model)
+        )
+        XCTAssertEqual(reDecoded.fields, model.fields)
+    }
+
     /// The token grant is snake_case, but the wrapped key material is PascalCase
     /// on most servers and lowerCamel on some. Both must decode so a login never
     /// silently loses the key.

@@ -224,7 +224,7 @@ struct VaultwardenAccountService: Sendable {
         guard (try? capabilityGate.authorize(.createItem(space), from: .menu)) != nil else {
             return .failure(.rejected)
         }
-        return await performWrite { token, transport, apiBase in
+        return await performWrite { token, transport, apiBase, _ in
             await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
                 .createLogin(draft: draft, userKey: keyring.userKey, accessToken: token)
         }
@@ -239,9 +239,19 @@ struct VaultwardenAccountService: Sendable {
         guard (try? capabilityGate.authorize(.updateItem(itemID), from: .menu)) != nil else {
             return .failure(.rejected)
         }
-        return await performWrite { token, transport, apiBase in
-            await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
-                .updateLogin(cipherID: itemID.rawValue, draft: draft, userKey: keyring.userKey, accessToken: token)
+        return await performWrite { token, transport, apiBase, snapshot in
+            // Pass the existing folder membership and custom fields through so
+            // the replacing PUT does not wipe them.
+            let existing = snapshot.ciphers.first { $0.id == itemID.rawValue }
+            return await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
+                .updateLogin(
+                    cipherID: itemID.rawValue,
+                    draft: draft,
+                    userKey: keyring.userKey,
+                    accessToken: token,
+                    folderID: existing?.folderID,
+                    preservedFields: existing?.fields ?? []
+                )
         }
     }
 
@@ -250,7 +260,7 @@ struct VaultwardenAccountService: Sendable {
         guard (try? capabilityGate.authorize(.archiveItem(itemID), from: .menu)) != nil else {
             return .failure(.rejected)
         }
-        return await performWrite { token, transport, apiBase in
+        return await performWrite { token, transport, apiBase, _ in
             await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
                 .archive(cipherID: itemID.rawValue, accessToken: token)
         }
@@ -268,7 +278,9 @@ struct VaultwardenAccountService: Sendable {
     /// session-expired; the write itself never touches the sealed cache — the
     /// caller re-syncs on success to pull the authoritative new state.
     private func performWrite(
-        _ body: @Sendable (String, VaultwardenTransport, URL?) async -> Result<Void, VaultwardenWriteError>
+        _ body: @Sendable (
+            String, VaultwardenTransport, URL?, VaultwardenVaultSnapshot
+        ) async -> Result<Void, VaultwardenWriteError>
     ) async -> Result<Void, VaultwardenWriteError> {
         let snapshot: VaultwardenVaultSnapshot
         let refreshToken: String
@@ -307,7 +319,7 @@ struct VaultwardenAccountService: Sendable {
         let rotatedRefreshToken = await refresher.currentRefreshToken
         try? credentialStore.replaceRefreshToken(rotatedRefreshToken, for: .primary)
 
-        return await body(token, transport, Self.approvedAPIBase(of: snapshot))
+        return await body(token, transport, Self.approvedAPIBase(of: snapshot), snapshot)
     }
 
     // MARK: - Sync

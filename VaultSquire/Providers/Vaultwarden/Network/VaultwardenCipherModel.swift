@@ -35,6 +35,47 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     let login: Login?
     let card: Card?
     let identity: Identity?
+    /// User-defined custom fields. Imported items commonly keep their real
+    /// content here (serial numbers, license keys), so they are first-class:
+    /// decoded, displayed, and passed through untouched on update.
+    let fields: [CustomField]
+
+    struct CustomField: Sendable, Codable, Hashable {
+        /// Bitwarden field kind: 0 text, 1 hidden, 2 boolean, 3 linked.
+        let type: Int
+        /// Field label EncString.
+        let name: String?
+        /// Field value EncString; absent for linked fields.
+        let value: String?
+
+        init(type: Int, name: String?, value: String?) {
+            self.type = type
+            self.name = name
+            self.value = value
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case type, name, value
+            case typeP = "Type", nameP = "Name", valueP = "Value"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.type = try c.decodeIfPresent(Int.self, forKey: .type)
+                ?? c.decodeIfPresent(Int.self, forKey: .typeP) ?? 0
+            self.name = try c.decodeIfPresent(String.self, forKey: .name)
+                ?? c.decodeIfPresent(String.self, forKey: .nameP)
+            self.value = try c.decodeIfPresent(String.self, forKey: .value)
+                ?? c.decodeIfPresent(String.self, forKey: .valueP)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(type, forKey: .type)
+            try c.encodeIfPresent(name, forKey: .name)
+            try c.encodeIfPresent(value, forKey: .value)
+        }
+    }
 
     struct Login: Sendable, Codable, Hashable {
         let username: String?
@@ -207,10 +248,11 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     // this type encodes to, so a reload round-trips through the same keys.
     enum CodingKeys: String, CodingKey {
         case id, type, organizationID, folderID, favorite, revisionDate
-        case name, notes, login, card, identity
+        case name, notes, login, card, identity, fields
         case idP = "Id", typeP = "Type", organizationIDP = "OrganizationId"
         case folderIDP = "FolderId", favoriteP = "Favorite", revisionDateP = "RevisionDate"
         case nameP = "Name", notesP = "Notes", loginP = "Login", cardP = "Card", identityP = "Identity"
+        case fieldsP = "Fields"
     }
 
     init(from decoder: Decoder) throws {
@@ -251,6 +293,8 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
             ?? c.decodeIfPresent(Card.self, forKey: .cardP)
         self.identity = try c.decodeIfPresent(Identity.self, forKey: .identity)
             ?? c.decodeIfPresent(Identity.self, forKey: .identityP)
+        self.fields = try c.decodeIfPresent([CustomField].self, forKey: .fields)
+            ?? c.decodeIfPresent([CustomField].self, forKey: .fieldsP) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -266,6 +310,7 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         try c.encodeIfPresent(login, forKey: .login)
         try c.encodeIfPresent(card, forKey: .card)
         try c.encodeIfPresent(identity, forKey: .identity)
+        try c.encode(fields, forKey: .fields)
     }
 
     /// Direct memberwise construction, used by tests and by the write path when
@@ -281,7 +326,8 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         notes: String? = nil,
         login: Login? = nil,
         card: Card? = nil,
-        identity: Identity? = nil
+        identity: Identity? = nil,
+        fields: [CustomField] = []
     ) {
         self.id = id
         self.type = type
@@ -294,6 +340,7 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         self.login = login
         self.card = card
         self.identity = identity
+        self.fields = fields
     }
 
     /// A fresh formatter per call: `ISO8601DateFormatter` is a reference type and

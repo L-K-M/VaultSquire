@@ -58,6 +58,33 @@ final class VaultwardenWriteServiceTests: XCTestCase {
         }
     }
 
+    func testUpdatePreservesFolderAndCustomFieldsVerbatim() throws {
+        let preserved = [
+            VaultwardenCipherModel.CustomField(type: 1, name: "2.n|n|n", value: "2.v|v|v")
+        ]
+        let body = try makeService().encodeBody(
+            draft: VaultItemDraft(title: "Renamed"),
+            userKey: userKey,
+            folderID: "folder-1",
+            preservedFields: preserved
+        )
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["FolderId"] as? String, "folder-1")
+        let fields = try XCTUnwrap(json["Fields"] as? [[String: Any]])
+        XCTAssertEqual(fields.count, 1)
+        XCTAssertEqual(fields[0]["Type"] as? Int, 1)
+        // Pass-through: the EncStrings are byte-identical, never re-encrypted.
+        XCTAssertEqual(fields[0]["Name"] as? String, "2.n|n|n")
+        XCTAssertEqual(fields[0]["Value"] as? String, "2.v|v|v")
+    }
+
+    func testCreateOmitsFolderAndFieldsWhenAbsent() throws {
+        let body = try makeService().encodeBody(draft: VaultItemDraft(title: "Bare"), userKey: userKey)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(json["FolderId"])
+        XCTAssertNil(json["Fields"])
+    }
+
     func testEmptyFieldsAreOmitted() throws {
         let draft = VaultItemDraft(title: "Bare", username: "", password: "", totp: "", websites: [], notes: "")
         let body = try makeService().encodeBody(draft: draft, userKey: userKey)
