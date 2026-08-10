@@ -130,6 +130,31 @@ struct VaultwardenAccountService: Sendable {
         )
     }
 
+    /// Opens the stored vault with an already-unwrapped user key, for a Touch ID
+    /// unlock. The key came from the biometry-protected Keychain entry, which is
+    /// bound to the snapshot's current wrapped user key, so a rotated key cannot
+    /// silently open a vault it no longer matches.
+    func unlock(userKeyData: Data) throws -> VaultwardenUnlockedVault {
+        guard let snapshot = try vaultCache.load(for: account) else {
+            throw VaultwardenAccountError.noVault
+        }
+        guard let userKey = try? VaultwardenSymmetricKey(keyData: userKeyData) else {
+            throw VaultwardenAccountError.missingKeyMaterial
+        }
+        let keyring = VaultwardenVaultUnlock.keyring(snapshot: snapshot, userKey: userKey)
+        return VaultwardenUnlockedVault(
+            keyring: keyring,
+            snapshot: snapshot,
+            items: projections(keyring: keyring, snapshot: snapshot)
+        )
+    }
+
+    /// The wrapped user key a biometric entry is bound to, so enrollment and
+    /// unlock can agree on which key material the stored key belongs to.
+    func currentWrappedUserKey() -> String? {
+        (try? vaultCache.load(for: account))?.wrappedUserKey
+    }
+
     func projections(
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot

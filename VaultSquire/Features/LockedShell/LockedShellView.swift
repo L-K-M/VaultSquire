@@ -26,6 +26,12 @@ struct LockedShellView: View {
         .onAppear {
             appModel.refreshAccountPresence()
             ApplicationCoordinator.shared.quickSearchDataSource = appModel
+            // Offer Touch ID immediately when it is set up, so the common case
+            // is a fingerprint rather than a retyped master password. The
+            // prompt is cancellable and the password field stays available.
+            if appModel.canUnlockWithBiometrics, appModel.isLocked {
+                appModel.unlockWithBiometrics()
+            }
         }
     }
 
@@ -151,17 +157,29 @@ struct LockedShellView: View {
                 .accessibilityIdentifier("unlock-error")
         }
 
-        Button(action: submitUnlock) {
-            if appModel.isUnlocking {
-                ProgressView().controlSize(.small)
-            } else {
-                Text("Unlock")
+        HStack(spacing: 12) {
+            Button(action: submitUnlock) {
+                if appModel.isUnlocking {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("Unlock")
+                }
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(masterPassword.isEmpty || appModel.isUnlocking)
+            .accessibilityIdentifier("unlock-submit")
+
+            if appModel.canUnlockWithBiometrics {
+                Button {
+                    appModel.unlockWithBiometrics()
+                } label: {
+                    Label("Use Touch ID", systemImage: "touchid")
+                }
+                .disabled(appModel.isUnlocking)
+                .accessibilityIdentifier("unlock-biometrics")
             }
         }
-        .keyboardShortcut(.defaultAction)
-        .disabled(masterPassword.isEmpty || appModel.isUnlocking)
         .padding(.top, 14)
-        .accessibilityIdentifier("unlock-submit")
     }
 
     private var actionRow: some View {

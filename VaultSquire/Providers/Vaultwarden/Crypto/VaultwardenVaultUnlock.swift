@@ -68,6 +68,21 @@ enum VaultwardenVaultUnlock {
         return VaultwardenKeyring(userKey: userKey, organizationKeys: organizationKeys)
     }
 
+    /// Rebuilds the keyring from an already-unwrapped user key, for an unlock
+    /// that authenticated some other way (Touch ID). No password and no KDF
+    /// work is involved: the RSA private key and every organization key are
+    /// wrapped under the user key inside the snapshot, so the same keyring
+    /// falls out. The caller is responsible for having authenticated the user.
+    static func keyring(
+        snapshot: VaultwardenVaultSnapshot,
+        userKey: VaultwardenSymmetricKey
+    ) -> VaultwardenKeyring {
+        VaultwardenKeyring(
+            userKey: userKey,
+            organizationKeys: unwrapOrganizationKeys(snapshot: snapshot, userKey: userKey)
+        )
+    }
+
     /// Best-effort organization-key unwrapping: decrypt the user's private key,
     /// then RSA-decapsulate each organization key. Any organization that fails
     /// is omitted rather than aborting unlock — personal items still open.

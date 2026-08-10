@@ -51,9 +51,19 @@ final class AppModel: ObservableObject {
     /// that item, then clears it.
     @Published var quickSearchSelection: VaultItemID?
 
+    /// True when this Mac can do Touch ID and the vault has been enrolled, so
+    /// the unlock prompt can offer it instead of the master password.
+    @Published private(set) var canUnlockWithBiometrics = false
+    /// True when the vault is open and could be enrolled but has not been, so
+    /// Settings can offer the opt-in.
+    @Published private(set) var canEnrollBiometrics = false
+    /// A non-blocking message when enrolling or revoking Touch ID failed.
+    @Published private(set) var biometricError: String?
+
     private let queryAccountPresence: () -> AccountPresence
     private let service: VaultwardenAccountService
     private let protonService: ProtonAccountService
+    private let biometricStore: any BiometricVaultKeyStoring
     /// The unlocked keyring, snapshot, and items. Held only while unlocked and
     /// dropped on lock, so decrypted state never outlives the session.
     private var unlocked: VaultwardenUnlockedVault?
@@ -70,11 +80,13 @@ final class AppModel: ObservableObject {
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
         service: VaultwardenAccountService = VaultwardenAccountService(),
-        protonService: ProtonAccountService = ProtonAccountService()
+        protonService: ProtonAccountService = ProtonAccountService(),
+        biometricStore: any BiometricVaultKeyStoring = BiometricVaultKeyStore()
     ) {
         self.queryAccountPresence = queryAccountPresence
         self.service = service
         self.protonService = protonService
+        self.biometricStore = biometricStore
     }
 
     var isLocked: Bool { accessState == .locked }
@@ -95,6 +107,16 @@ final class AppModel: ObservableObject {
         accountPresence = queryAccountPresence()
         accounts = service.descriptorStore.all()
         lastSyncedAt = (try? service.loadSnapshot())?.syncedAt
+        refreshBiometricAvailability()
+    }
+
+    /// Recomputes whether Touch ID can unlock (enrolled) or be offered
+    /// (available but not yet enrolled). Never prompts.
+    private func refreshBiometricAvailability() {
+        let available = biometricStore.isBiometryAvailable
+        let enrolled = available && biometricStore.hasKey(for: .vaultwardenPrimary)
+        canUnlockWithBiometrics = enrolled && accountPresence != .none
+        canEnrollBiometrics = available && !enrolled && isUnlocked
     }
 
     /// Notes a just-configured account without another store round trip.
@@ -120,6 +142,7 @@ final class AppModel: ObservableObject {
                 self.items = vault.items
                 self.activeVault = .vaultwarden
                 self.accessState = .unlocked
+                self.refreshBiometricAvailability()
                 self.syncNow()
                 return
             } catch let error as VaultwardenUnlockError {
@@ -139,6 +162,81 @@ final class AppModel: ObservableObject {
         unlockError = message
     }
 
+    // MARK: - Touch ID
+
+    /// Unlocks with Touch ID using the enrolled vault key, so the master
+    /// password is not retyped. Any failure falls back to the password prompt;
+    /// a cancelled prompt is silent because the user chose to dismiss it.
+    func unlockWithBiometrics() {
+        guard canUnlockWithBiometrics, accessState != .unlocking else { return }
+        accessState = .unlocking
+        unlockError = nil
+
+        Task { [service, biometricStore] in
+            guard let wrapped = service.currentWrappedUserKey() else {
+                self.finishFailedUnlock("No stored vault was found. Add the account again to sync it.")
+                return
+            }
+            do {
+                var keyData = try await biometricStore.loadUserKey(
+                    for: .vaultwardenPrimary,
+                    boundTo: wrapped,
+                    reason: "Unlock your VaultSquire vault"
+                )
+                defer { VaultwardenCryptoZeroize.zero(&keyData) }
+                let vault = try service.unlock(userKeyData: keyData)
+                self.unlocked = vault
+                self.items = vault.items
+                self.activeVault = .vaultwarden
+                self.accessState = .unlocked
+                self.refreshBiometricAvailability()
+                self.syncNow()
+            } catch BiometricUnlockError.cancelled {
+                // The user dismissed the prompt; the password field is right
+                // there, so say nothing.
+                self.accessState = .locked
+            } catch BiometricUnlockError.invalidated {
+                self.canUnlockWithBiometrics = false
+                self.finishFailedUnlock(
+                    "Touch ID unlock was turned off because this Mac's fingerprints or your vault key changed. Unlock with your master password to set it up again."
+                )
+            } catch BiometricUnlockError.notEnrolled {
+                self.canUnlockWithBiometrics = false
+                self.finishFailedUnlock("Touch ID isn't set up for this vault yet.")
+            } catch BiometricUnlockError.unavailable {
+                self.canUnlockWithBiometrics = false
+                self.finishFailedUnlock("Touch ID isn't available on this Mac.")
+            } catch {
+                self.finishFailedUnlock("Touch ID unlock didn't work. Use your master password.")
+            }
+        }
+    }
+
+    /// Enrolls the open vault's key behind Touch ID. Requires the vault to be
+    /// unlocked, because the key only exists in memory while it is.
+    func enableBiometricUnlock() {
+        guard let vault = unlocked else { return }
+        let keyData = vault.keyring.userKey.encryptionKey + vault.keyring.userKey.macKey
+        do {
+            try biometricStore.store(
+                userKey: keyData,
+                boundTo: vault.snapshot.wrappedUserKey,
+                for: .vaultwardenPrimary
+            )
+            biometricError = nil
+        } catch {
+            biometricError = "Touch ID couldn't be enabled for this vault."
+        }
+        refreshBiometricAvailability()
+    }
+
+    /// Forgets the enrolled key, so the next unlock needs the master password.
+    func disableBiometricUnlock() {
+        try? biometricStore.remove(for: .vaultwardenPrimary)
+        biometricError = nil
+        refreshBiometricAvailability()
+    }
+
     /// Locks unconditionally and idempotently, dropping the keyring, the Proton
     /// snapshot, and every decrypted projection.
     func lock() {
@@ -150,6 +248,7 @@ final class AppModel: ObservableObject {
         hydratingItems = []
         items = []
         unlockError = nil
+        refreshBiometricAvailability()
         ApplicationCoordinator.shared.dismissQuickSearch()
         AppLog.record(.vaultLocked)
     }
