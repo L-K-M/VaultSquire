@@ -7,6 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C00000000000000000000054 /* VaultItemDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000057 /* VaultItemDetail.swift */; };
+		C00000000000000000000055 /* VaultwardenKeyring.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000058 /* VaultwardenKeyring.swift */; };
+		C00000000000000000000056 /* VaultwardenVaultUnlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000059 /* VaultwardenVaultUnlock.swift */; };
+		C00000000000000000000057 /* VaultwardenItemDecryptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005A /* VaultwardenItemDecryptor.swift */; };
+		C00000000000000000000058 /* VaultwardenTOTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005B /* VaultwardenTOTP.swift */; };
+		C00000000000000000000059 /* VaultwardenSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005C /* VaultwardenSyncService.swift */; };
+		C0000000000000000000005A /* VaultwardenVaultUnlockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005D /* VaultwardenVaultUnlockTests.swift */; };
+		C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005E /* VaultwardenTOTPTests.swift */; };
+		C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005F /* VaultwardenSyncServiceTests.swift */; };
 		C0000000000000000000004D /* DeviceDataKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000050 /* DeviceDataKeyStore.swift */; };
 		C0000000000000000000004E /* AccountDescriptorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000051 /* AccountDescriptorStore.swift */; };
 		C0000000000000000000004F /* VaultwardenVaultSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000052 /* VaultwardenVaultSnapshot.swift */; };
@@ -107,6 +116,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000057 /* VaultItemDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultItemDetail.swift; sourceTree = "<group>"; };
+		B00000000000000000000058 /* VaultwardenKeyring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenKeyring.swift; sourceTree = "<group>"; };
+		B00000000000000000000059 /* VaultwardenVaultUnlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenVaultUnlock.swift; sourceTree = "<group>"; };
+		B0000000000000000000005A /* VaultwardenItemDecryptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenItemDecryptor.swift; sourceTree = "<group>"; };
+		B0000000000000000000005B /* VaultwardenTOTP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTOTP.swift; sourceTree = "<group>"; };
+		B0000000000000000000005C /* VaultwardenSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenSyncService.swift; sourceTree = "<group>"; };
+		B0000000000000000000005D /* VaultwardenVaultUnlockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenVaultUnlockTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000005E /* VaultwardenTOTPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenTOTPTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000005F /* VaultwardenSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenSyncServiceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000050 /* DeviceDataKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDataKeyStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000051 /* AccountDescriptorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDescriptorStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000052 /* VaultwardenVaultSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenVaultSnapshot.swift; sourceTree = "<group>"; };
@@ -274,6 +292,11 @@
 		A00000000000000000000014 /* Network */ = {
 			isa = PBXGroup;
 			children = (
+				B0000000000000000000005C /* VaultwardenSyncService.swift */,
+				B00000000000000000000058 /* VaultwardenKeyring.swift */,
+				B00000000000000000000059 /* VaultwardenVaultUnlock.swift */,
+				B0000000000000000000005A /* VaultwardenItemDecryptor.swift */,
+				B0000000000000000000005B /* VaultwardenTOTP.swift */,
 				B00000000000000000000054 /* VaultwardenSyncModels.swift */,
 				B00000000000000000000055 /* VaultwardenCipherModel.swift */,
 				B00000000000000000000031 /* VaultwardenEnvironment.swift */,
@@ -311,6 +334,9 @@
 		A00000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				B0000000000000000000005D /* VaultwardenVaultUnlockTests.swift */,
+				B0000000000000000000005E /* VaultwardenTOTPTests.swift */,
+				B0000000000000000000005F /* VaultwardenSyncServiceTests.swift */,
 				B00000000000000000000056 /* VaultwardenVaultCacheTests.swift */,
 				B00000000000000000000018 /* VaultSquire.app */,
 				B00000000000000000000019 /* VaultSquireTests.xctest */,
@@ -336,6 +362,7 @@
 		A00000000000000000000010 /* Domain */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000057 /* VaultItemDetail.swift */,
 				B0000000000000000000001C /* ProviderIdentity.swift */,
 				B0000000000000000000001D /* SessionState.swift */,
 				B0000000000000000000001E /* ProviderCapability.swift */,
@@ -582,6 +609,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0000000000000000000005A /* VaultwardenVaultUnlockTests.swift in Sources */,
+				C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */,
+				C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */,
+				C00000000000000000000054 /* VaultItemDetail.swift in Sources */,
+				C00000000000000000000055 /* VaultwardenKeyring.swift in Sources */,
+				C00000000000000000000056 /* VaultwardenVaultUnlock.swift in Sources */,
+				C00000000000000000000057 /* VaultwardenItemDecryptor.swift in Sources */,
+				C00000000000000000000058 /* VaultwardenTOTP.swift in Sources */,
+				C00000000000000000000059 /* VaultwardenSyncService.swift in Sources */,
 				C00000000000000000000053 /* VaultwardenVaultCacheTests.swift in Sources */,
 				C0000000000000000000004D /* DeviceDataKeyStore.swift in Sources */,
 				C0000000000000000000004E /* AccountDescriptorStore.swift in Sources */,
