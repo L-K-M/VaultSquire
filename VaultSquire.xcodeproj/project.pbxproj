@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000060 /* VaultwardenAccountService.swift */; };
+		C0000000000000000000005E /* VaultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000061 /* VaultView.swift */; };
+		C0000000000000000000005F /* VaultItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000062 /* VaultItemDetailView.swift */; };
 		C00000000000000000000054 /* VaultItemDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000057 /* VaultItemDetail.swift */; };
 		C00000000000000000000055 /* VaultwardenKeyring.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000058 /* VaultwardenKeyring.swift */; };
 		C00000000000000000000056 /* VaultwardenVaultUnlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000059 /* VaultwardenVaultUnlock.swift */; };
@@ -116,6 +119,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000060 /* VaultwardenAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenAccountService.swift; sourceTree = "<group>"; };
+		B00000000000000000000061 /* VaultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultView.swift; sourceTree = "<group>"; };
+		B00000000000000000000062 /* VaultItemDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultItemDetailView.swift; sourceTree = "<group>"; };
 		B00000000000000000000057 /* VaultItemDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultItemDetail.swift; sourceTree = "<group>"; };
 		B00000000000000000000058 /* VaultwardenKeyring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenKeyring.swift; sourceTree = "<group>"; };
 		B00000000000000000000059 /* VaultwardenVaultUnlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenVaultUnlock.swift; sourceTree = "<group>"; };
@@ -237,6 +243,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A00000000000000000000018 /* Vault */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000061 /* VaultView.swift */,
+				B00000000000000000000062 /* VaultItemDetailView.swift */,
+			);
+			path = Vault;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000017 /* Persistence */ = {
 			isa = PBXGroup;
 			children = (
@@ -282,6 +297,7 @@
 		A00000000000000000000012 /* Vaultwarden */ = {
 			isa = PBXGroup;
 			children = (
+				B00000000000000000000060 /* VaultwardenAccountService.swift */,
 				A00000000000000000000013 /* Crypto */,
 				A00000000000000000000014 /* Network */,
 				A00000000000000000000015 /* Storage */,
@@ -389,6 +405,7 @@
 		A00000000000000000000006 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000018 /* Vault */,
 				A00000000000000000000007 /* LockedShell */,
 				A00000000000000000000008 /* QuickSearch */,
 				A00000000000000000000009 /* Settings */,
@@ -609,6 +626,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */,
+				C0000000000000000000005E /* VaultView.swift in Sources */,
+				C0000000000000000000005F /* VaultItemDetailView.swift in Sources */,
 				C0000000000000000000005A /* VaultwardenVaultUnlockTests.swift in Sources */,
 				C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */,
 				C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */,

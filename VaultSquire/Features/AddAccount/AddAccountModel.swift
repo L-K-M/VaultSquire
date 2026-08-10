@@ -96,6 +96,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
     private let credentialStore: any VaultwardenCredentialStore
     private let deviceIdentity: VaultwardenDeviceIdentity
     private let onAccountConfigured: @MainActor (URL) -> Void
+    private let accountService: VaultwardenAccountService
 
     private var pending: VaultwardenPendingTwoFactor?
     private var authenticator: VaultwardenAuthenticator?
@@ -106,12 +107,14 @@ final class AddAccountModel: ObservableObject, Identifiable {
         credentialStore: any VaultwardenCredentialStore,
         deviceIdentity: VaultwardenDeviceIdentity,
         makeTransport: @escaping @Sendable (VaultwardenEnvironment) -> VaultwardenTransport = { VaultwardenTransport(environment: $0) },
-        onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in }
+        onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in },
+        accountService: VaultwardenAccountService = VaultwardenAccountService()
     ) {
         self.credentialStore = credentialStore
         self.deviceIdentity = deviceIdentity
         self.makeTransport = makeTransport
         self.onAccountConfigured = onAccountConfigured
+        self.accountService = accountService
     }
 
     var canSubmit: Bool {
@@ -347,6 +350,19 @@ final class AddAccountModel: ObservableObject, Identifiable {
             rememberedTwoFactorToken: session.rememberTwoFactorToken
         )
         try credentialStore.save(credentials, for: .primary)
+
+        // Persist the unlockable vault (an initial empty snapshot the first sync
+        // fills) and the non-secret descriptor. Best-effort: a host without the
+        // device Keychain key still completes the sign-in, and the vault
+        // rebuilds when the environment can seal it. A login that returned no
+        // wrapped user key simply has nothing to unlock and is skipped.
+        if let environment {
+            try? accountService.persistAfterLogin(
+                session: session,
+                serverBaseURL: environment.base,
+                email: email
+            )
+        }
     }
 
     private func fail(with message: String) {

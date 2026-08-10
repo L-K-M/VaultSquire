@@ -3,8 +3,25 @@ import SwiftUI
 struct LockedShellView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var addAccountModel: AddAccountModel?
+    @State private var masterPassword = ""
 
     var body: some View {
+        Group {
+            if appModel.isUnlocked {
+                VaultView()
+            } else {
+                lockedShell
+            }
+        }
+        .sheet(item: $addAccountModel) { model in
+            AddAccountView(model: model) { addAccountModel = nil }
+        }
+        .onAppear { appModel.refreshAccountPresence() }
+    }
+
+    // MARK: - Locked / empty / unlock shell
+
+    private var lockedShell: some View {
         HStack(spacing: 0) {
             identityRail
             mainContent
@@ -13,17 +30,15 @@ struct LockedShellView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("locked-shell")
-        .onAppear { appModel.refreshAccountPresence() }
-        .sheet(item: $addAccountModel) { model in
-            AddAccountView(model: model) { addAccountModel = nil }
-        }
     }
 
-    /// True when the credential store definitively reported that no account
-    /// exists; the shell then presents the empty state instead of claiming a
-    /// nonexistent vault is locked.
-    private var hasNoAccounts: Bool {
-        appModel.hasNoAccounts
+    /// True when the store definitively reported that no account exists; the
+    /// shell then presents the empty state instead of an unlock prompt.
+    private var hasNoAccounts: Bool { appModel.hasNoAccounts }
+
+    /// Whether a stored account exists that can be unlocked with a password.
+    private var unlockableAccount: AccountDescriptor? {
+        hasNoAccounts ? nil : appModel.primaryAccount
     }
 
     private var identityRail: some View {
@@ -70,64 +85,108 @@ struct LockedShellView: View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 48)
 
-            Text(hasNoAccounts ? "No accounts yet" : "The vault is locked")
-                .font(.system(size: 34, weight: .semibold, design: .rounded))
-                .accessibilityIdentifier("locked-shell-title")
-
-            Text(hasNoAccounts
-                ? "Add an account to bring its vault under VaultSquire's watch. Credentials are stored only after a sign-in completes."
-                : "Unlock arrives in its provider milestone. This shell keeps decrypted state closed.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .lineSpacing(4)
-                .frame(maxWidth: 430, alignment: .leading)
-                .padding(.top, 12)
-
-            Divider()
-                .padding(.vertical, 30)
-
-            VStack(alignment: .leading, spacing: 14) {
-                Label("Quick Search opens in locked mode", systemImage: "command")
-                Label("No vault content is loaded", systemImage: "externaldrive.badge.xmark")
-                Label("Diagnostics accept allowlisted events only", systemImage: "waveform.path.ecg")
+            if let account = unlockableAccount {
+                unlockPrompt(account)
+            } else {
+                lockedHeadline
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
 
             Spacer()
 
-            HStack(spacing: 12) {
-                Button {
-                    addAccountModel = AddAccountModel(
-                        credentialStore: KeychainCredentialStore(),
-                        deviceIdentity: VaultwardenDeviceIdentityStore.current(),
-                        onAccountConfigured: { [weak appModel] _ in
-                            appModel?.noteAccountConfigured()
-                        }
-                    )
-                } label: {
-                    Label("Add Account", systemImage: "person.badge.plus")
-                }
-                // With no accounts, adding one is the primary action; with a
-                // configured account, Quick Search keeps that role.
-                .keyboardShortcut(hasNoAccounts ? .defaultAction : KeyboardShortcut("n", modifiers: .command))
-                .accessibilityIdentifier("open-add-account")
-
-                Button {
-                    ApplicationCoordinator.shared.showQuickSearch()
-                } label: {
-                    Label("Quick Search", systemImage: "magnifyingglass")
-                }
-                .keyboardShortcut(hasNoAccounts ? nil : .defaultAction)
-                .accessibilityIdentifier("open-quick-search")
-
-                SettingsLink {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .accessibilityIdentifier("open-settings")
-            }
+            actionRow
         }
         .padding(.horizontal, 52)
         .padding(.vertical, 38)
+    }
+
+    @ViewBuilder
+    private var lockedHeadline: some View {
+        Text(hasNoAccounts ? "No accounts yet" : "The vault is locked")
+            .font(.system(size: 34, weight: .semibold, design: .rounded))
+            .accessibilityIdentifier("locked-shell-title")
+
+        Text(hasNoAccounts
+            ? "Add an account to bring its vault under VaultSquire's watch. Credentials are stored only after a sign-in completes."
+            : "Unlock arrives in its provider milestone. This shell keeps decrypted state closed.")
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .lineSpacing(4)
+            .frame(maxWidth: 430, alignment: .leading)
+            .padding(.top, 12)
+    }
+
+    @ViewBuilder
+    private func unlockPrompt(_ account: AccountDescriptor) -> some View {
+        Text("Unlock your vault")
+            .font(.system(size: 34, weight: .semibold, design: .rounded))
+            .accessibilityIdentifier("locked-shell-title")
+
+        Text("\(account.email) at \(account.serverDisplay)")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.top, 6)
+
+        SecureField("Master password", text: $masterPassword)
+            .textFieldStyle(.roundedBorder)
+            .frame(maxWidth: 360)
+            .padding(.top, 18)
+            .onSubmit(submitUnlock)
+            .accessibilityIdentifier("unlock-password")
+
+        if let error = appModel.unlockError {
+            Text(error)
+                .font(.callout)
+                .foregroundStyle(.red)
+                .padding(.top, 8)
+                .accessibilityIdentifier("unlock-error")
+        }
+
+        Button(action: submitUnlock) {
+            if appModel.isUnlocking {
+                ProgressView().controlSize(.small)
+            } else {
+                Text("Unlock")
+            }
+        }
+        .keyboardShortcut(.defaultAction)
+        .disabled(masterPassword.isEmpty || appModel.isUnlocking)
+        .padding(.top, 14)
+        .accessibilityIdentifier("unlock-submit")
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 12) {
+            Button {
+                addAccountModel = AddAccountModel(
+                    credentialStore: KeychainCredentialStore(),
+                    deviceIdentity: VaultwardenDeviceIdentityStore.current(),
+                    onAccountConfigured: { [weak appModel] _ in
+                        appModel?.noteAccountConfigured()
+                    }
+                )
+            } label: {
+                Label("Add Account", systemImage: "person.badge.plus")
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .accessibilityIdentifier("open-add-account")
+
+            Button {
+                ApplicationCoordinator.shared.showQuickSearch()
+            } label: {
+                Label("Quick Search", systemImage: "magnifyingglass")
+            }
+            .accessibilityIdentifier("open-quick-search")
+
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .accessibilityIdentifier("open-settings")
+        }
+    }
+
+    private func submitUnlock() {
+        guard !masterPassword.isEmpty else { return }
+        appModel.unlock(password: masterPassword)
+        masterPassword = ""
     }
 }
