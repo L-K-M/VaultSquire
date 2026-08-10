@@ -21,6 +21,10 @@ enum VaultwardenSyncError: Error, Equatable, Sendable {
 /// caller to persist.
 struct VaultwardenSyncService: Sendable {
     let transport: VaultwardenTransport
+    /// The API base approved at login (".../api"). When absent the API URL is
+    /// derived from the configured base, which is only correct for same-origin
+    /// servers; a split-origin server's sync must target its advertised API.
+    var apiBaseURL: URL? = nil
 
     struct Success: Sendable {
         let snapshot: VaultwardenVaultSnapshot
@@ -42,7 +46,8 @@ struct VaultwardenSyncService: Sendable {
             return .failure(.transient)
         }
 
-        let syncURL = transport.environment.apiURL.appendingPathComponent("sync")
+        let syncURL = (apiBaseURL ?? transport.environment.apiURL)
+            .appendingPathComponent("sync")
         let response: VaultwardenHTTPResponse
         do {
             response = try await transport.send(.get, url: syncURL, bearer: accessToken)

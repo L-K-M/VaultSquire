@@ -37,7 +37,8 @@ final class VaultwardenAccountServiceTests: XCTestCase {
             wrappedPrivateKey: nil,
             rememberTwoFactorToken: nil,
             kdfConfiguration: .pbkdf2SHA256(iterations: 600_000),
-            identityBaseURL: URL(string: "https://vault.example.com/identity")!
+            identityBaseURL: URL(string: "https://vault.example.com/identity")!,
+            apiBaseURL: URL(string: "https://api.example.net/api")!
         )
     }
 
@@ -58,6 +59,40 @@ final class VaultwardenAccountServiceTests: XCTestCase {
         let snapshot = try XCTUnwrap(try cache.load(for: account))
         XCTAssertTrue(snapshot.wrappedUserKey.isEmpty)
         XCTAssertEqual(snapshot.serverBaseURL, "https://vault.example.com")
+        // The approved API base is stored so sync and writes target the
+        // advertised API service, not a URL derived from the configured base.
+        XCTAssertEqual(snapshot.apiBaseURL, "https://api.example.net/api")
+    }
+
+    /// Real servers emit ISO 8601 dates with no fractional digits, three, or
+    /// six; all must parse rather than falling back to the epoch.
+    func testWireDateParsingToleratesEveryFractionalPrecision() throws {
+        let milli = try XCTUnwrap(VaultwardenCipherModel.parseWireDate("2026-01-02T03:04:05.678Z"))
+        XCTAssertEqual(milli.timeIntervalSince1970, 1_767_323_045.678, accuracy: 0.001)
+
+        let micro = try XCTUnwrap(VaultwardenCipherModel.parseWireDate("2026-01-02T03:04:05.678901Z"))
+        XCTAssertEqual(micro.timeIntervalSince1970, 1_767_323_045.678, accuracy: 0.001)
+
+        let plain = try XCTUnwrap(VaultwardenCipherModel.parseWireDate("2026-01-02T03:04:05Z"))
+        XCTAssertEqual(plain.timeIntervalSince1970, 1_767_323_045, accuracy: 0.001)
+
+        XCTAssertNil(VaultwardenCipherModel.parseWireDate("not a date"))
+    }
+
+    /// An old sealed snapshot (no apiBaseURL field) must still decode, and the
+    /// sync merge must carry the stored API base forward.
+    func testSnapshotWithoutAPIBaseStillDecodes() throws {
+        let (service, _, cache, account) = makeService()
+        service.persistAfterLogin(
+            session: session(wrappedUserKey: "2.k|k"),
+            serverBaseURL: URL(string: "https://vault.example.com")!,
+            email: "u@example.com"
+        )
+        var snapshot = try XCTUnwrap(try cache.load(for: account))
+        snapshot.apiBaseURL = nil
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(VaultwardenVaultSnapshot.self, from: data)
+        XCTAssertNil(decoded.apiBaseURL)
     }
 
     func testPersistAfterLoginSeedsTheWrappedKeyWhenTheTokenProvidesIt() throws {

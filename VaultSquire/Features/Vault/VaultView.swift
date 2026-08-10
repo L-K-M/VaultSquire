@@ -60,11 +60,17 @@ struct VaultView: View {
             VaultItemDetailView(detail: detail)
                 .id(selection)
         } else {
-            ContentUnavailableView(
-                "Select an item",
-                systemImage: "list.bullet.rectangle",
-                description: Text("\(appModel.items.count) items in this vault.")
-            )
+            ContentUnavailableView {
+                Label("Select an item", systemImage: "list.bullet.rectangle")
+            } description: {
+                if let error = appModel.syncError {
+                    // Surface the sync failure where there is room to read it;
+                    // the toolbar has only an icon's worth of space.
+                    Text("\(appModel.items.count) items in this vault.\n\(error)")
+                } else {
+                    Text("\(appModel.items.count) items in this vault.")
+                }
+            }
         }
     }
 
@@ -97,10 +103,15 @@ struct VaultView: View {
                     ProgressView().controlSize(.small)
                     Text("Syncing…").font(.caption).foregroundStyle(.secondary)
                 } else if let error = appModel.syncError {
+                    // The toolbar can collapse the text portion to nothing, so
+                    // the full message is also a tooltip here and shown in the
+                    // empty detail pane.
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .help(error)
+                        .accessibilityIdentifier("vault-sync-error")
                 } else if let date = appModel.lastSyncedAt {
                     Text("Synced \(date.formatted(.relative(presentation: .named)))")
                         .font(.caption)

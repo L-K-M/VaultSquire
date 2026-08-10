@@ -17,6 +17,11 @@ struct VaultwardenVaultSnapshot: Sendable, Codable, Hashable {
     var serverBaseURL: String
     /// The identity base URL approved during login, reused for token refresh.
     var identityBaseURL: String
+    /// The API base URL (".../api") approved during login, used for sync and
+    /// writes. Optional so snapshots sealed before this field decode; when
+    /// absent, the API URL is derived from `serverBaseURL`, which is only
+    /// correct for same-origin servers.
+    var apiBaseURL: String? = nil
     /// The normalized login email — the KDF salt and the account's display name.
     var email: String
     var kdf: KDF

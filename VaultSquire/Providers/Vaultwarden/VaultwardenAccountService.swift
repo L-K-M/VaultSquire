@@ -80,6 +80,7 @@ struct VaultwardenAccountService: Sendable {
             version: VaultwardenVaultSnapshot.currentVersion,
             serverBaseURL: serverBaseURL.absoluteString,
             identityBaseURL: session.identityBaseURL.absoluteString,
+            apiBaseURL: session.apiBaseURL.absoluteString,
             email: VaultwardenKeyDerivation.normalizedEmail(email),
             kdf: .init(configuration: session.kdfConfiguration),
             wrappedUserKey: session.wrappedUserKey ?? "",
@@ -223,8 +224,8 @@ struct VaultwardenAccountService: Sendable {
         guard (try? capabilityGate.authorize(.createItem(space), from: .menu)) != nil else {
             return .failure(.rejected)
         }
-        return await performWrite { token, transport in
-            await VaultwardenWriteService(transport: transport)
+        return await performWrite { token, transport, apiBase in
+            await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
                 .createLogin(draft: draft, userKey: keyring.userKey, accessToken: token)
         }
     }
@@ -238,8 +239,8 @@ struct VaultwardenAccountService: Sendable {
         guard (try? capabilityGate.authorize(.updateItem(itemID), from: .menu)) != nil else {
             return .failure(.rejected)
         }
-        return await performWrite { token, transport in
-            await VaultwardenWriteService(transport: transport)
+        return await performWrite { token, transport, apiBase in
+            await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
                 .updateLogin(cipherID: itemID.rawValue, draft: draft, userKey: keyring.userKey, accessToken: token)
         }
     }
@@ -249,10 +250,17 @@ struct VaultwardenAccountService: Sendable {
         guard (try? capabilityGate.authorize(.archiveItem(itemID), from: .menu)) != nil else {
             return .failure(.rejected)
         }
-        return await performWrite { token, transport in
-            await VaultwardenWriteService(transport: transport)
+        return await performWrite { token, transport, apiBase in
+            await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
                 .archive(cipherID: itemID.rawValue, accessToken: token)
         }
+    }
+
+    /// The API base approved at login, parsed from the snapshot. Nil for
+    /// snapshots sealed before the field existed; callers then fall back to
+    /// deriving the API URL from the configured base.
+    private static func approvedAPIBase(of snapshot: VaultwardenVaultSnapshot) -> URL? {
+        snapshot.apiBaseURL.flatMap(URL.init(string:))
     }
 
     /// Loads the account context, refreshes to an access token, runs a write,
@@ -260,7 +268,7 @@ struct VaultwardenAccountService: Sendable {
     /// session-expired; the write itself never touches the sealed cache — the
     /// caller re-syncs on success to pull the authoritative new state.
     private func performWrite(
-        _ body: @Sendable (String, VaultwardenTransport) async -> Result<Void, VaultwardenWriteError>
+        _ body: @Sendable (String, VaultwardenTransport, URL?) async -> Result<Void, VaultwardenWriteError>
     ) async -> Result<Void, VaultwardenWriteError> {
         let snapshot: VaultwardenVaultSnapshot
         let refreshToken: String
@@ -299,7 +307,7 @@ struct VaultwardenAccountService: Sendable {
         let rotatedRefreshToken = await refresher.currentRefreshToken
         try? credentialStore.replaceRefreshToken(rotatedRefreshToken, for: .primary)
 
-        return await body(token, transport)
+        return await body(token, transport, Self.approvedAPIBase(of: snapshot))
     }
 
     // MARK: - Sync
@@ -340,7 +348,10 @@ struct VaultwardenAccountService: Sendable {
             refreshToken: refreshToken,
             identityBaseURL: URL(string: snapshot.identityBaseURL)
         )
-        let service = VaultwardenSyncService(transport: transport)
+        let service = VaultwardenSyncService(
+            transport: transport,
+            apiBaseURL: Self.approvedAPIBase(of: snapshot)
+        )
 
         let result = await service.sync(current: snapshot, refresher: refresher, capturedAt: now())
         switch result {

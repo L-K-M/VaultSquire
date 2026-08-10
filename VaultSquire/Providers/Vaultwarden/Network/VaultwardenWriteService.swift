@@ -16,6 +16,14 @@ enum VaultwardenWriteError: Error, Equatable, Sendable {
 /// organization items are read-only until their write contract is proven.
 struct VaultwardenWriteService: Sendable {
     let transport: VaultwardenTransport
+    /// The API base approved at login (".../api"). When absent the API URL is
+    /// derived from the configured base, which is only correct for same-origin
+    /// servers.
+    var apiBaseURL: URL? = nil
+
+    private var apiBase: URL {
+        apiBaseURL ?? transport.environment.apiURL
+    }
 
     /// Creates a login cipher. `POST /api/ciphers`.
     func createLogin(
@@ -29,7 +37,7 @@ struct VaultwardenWriteService: Sendable {
         } catch {
             return .failure(.encryptionFailed)
         }
-        let url = transport.environment.apiURL.appendingPathComponent("ciphers")
+        let url = apiBase.appendingPathComponent("ciphers")
         return await send(.post, url: url, body: body, accessToken: accessToken)
     }
 
@@ -46,7 +54,7 @@ struct VaultwardenWriteService: Sendable {
         } catch {
             return .failure(.encryptionFailed)
         }
-        let url = transport.environment.apiURL
+        let url = apiBase
             .appendingPathComponent("ciphers")
             .appendingPathComponent(cipherID)
         return await send(.put, url: url, body: body, accessToken: accessToken)
@@ -58,7 +66,7 @@ struct VaultwardenWriteService: Sendable {
         cipherID: String,
         accessToken: String
     ) async -> Result<Void, VaultwardenWriteError> {
-        let url = transport.environment.apiURL
+        let url = apiBase
             .appendingPathComponent("ciphers")
             .appendingPathComponent(cipherID)
             .appendingPathComponent("archive")

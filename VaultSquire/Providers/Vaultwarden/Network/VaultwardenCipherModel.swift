@@ -314,13 +314,30 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
             ?? container.decodeIfPresent(String.self, forKey: pascal) else {
             return nil
         }
+        return parseWireDate(raw)
+    }
+
+    /// Parses a wire date. `ISO8601DateFormatter` accepts exactly three
+    /// fractional digits, but real servers emit none (plain seconds) or six
+    /// (microseconds), so over-precise output is trimmed to milliseconds
+    /// before the fractional parse.
+    static func parseWireDate(_ raw: String) -> Date? {
         if let date = fractionalFormatter().date(from: raw) {
             return date
         }
-        // Some servers omit fractional seconds.
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: raw)
+        if let date = plain.date(from: raw) {
+            return date
+        }
+        if let range = raw.range(of: #"\.\d{4,}"#, options: .regularExpression) {
+            let trimmed = raw.replacingCharacters(
+                in: range,
+                with: String(raw[range].prefix(4))
+            )
+            return fractionalFormatter().date(from: trimmed)
+        }
+        return nil
     }
 
     private static func wireDateString(_ date: Date) -> String {

@@ -25,6 +25,11 @@ struct VaultwardenAuthSession: Sendable {
     /// The approved identity base URL this session authenticated against, so a
     /// token refresher targets the same origin the login transaction approved.
     let identityBaseURL: URL
+    /// The approved API base URL (".../api"), so sync and writes target the
+    /// same service origin the login transaction approved. On a split-origin
+    /// server this differs from the configured base; deriving the API URL from
+    /// the configured base would miss the server's advertised API service.
+    let apiBaseURL: URL
 }
 
 /// Carries the derived proof and key material across a 2FA prompt so the grant
@@ -314,7 +319,8 @@ struct VaultwardenAuthenticator: Sendable {
                 wrappedPrivateKey: token.privateKey,
                 rememberTwoFactorToken: token.twoFactorToken,
                 kdfConfiguration: pending.kdfConfiguration,
-                identityBaseURL: pending.identityBaseURL
+                identityBaseURL: pending.identityBaseURL,
+                apiBaseURL: pending.apiBaseURL
             )
             return .authenticated(session)
         }
