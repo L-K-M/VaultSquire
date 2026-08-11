@@ -354,7 +354,7 @@ struct VaultwardenAccountService: Sendable {
     /// session-expired; the write itself never touches the sealed cache — the
     /// caller re-syncs on success to pull the authoritative new state.
     private func performWrite(
-        _ body: @Sendable (
+        _ body: @escaping @Sendable (
             String, VaultwardenTransport, URL?, VaultwardenVaultSnapshot
         ) async -> Result<Void, VaultwardenWriteError>
     ) async -> Result<Void, VaultwardenWriteError> {
