@@ -134,10 +134,19 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         )
     }
 
+    /// Whether this account is enrolled, judged by the sealed copy alone.
+    ///
+    /// The gated Keychain item is deliberately not probed. An
+    /// access-controlled item is filtered out of any search that skips
+    /// authentication UI — it reports "not found" even when it is there — and a
+    /// probe that does not skip UI risks putting a fingerprint dialog on screen
+    /// for a mere existence check. The sealed copy is written and deleted with
+    /// the key, so it is the honest marker of "the user opted in". If the key
+    /// is later destroyed (the enrolled fingerprints changed), the unlock read
+    /// says so and clears both halves, so the state self-heals instead of
+    /// lying.
     func hasKey(for account: AccountID) -> Bool {
-        // Both halves must exist: the gated key and the wrapped copy it opens.
-        keychainItemExists(for: account)
-            && fileManager.fileExists(atPath: fileURL(for: account).path)
+        fileManager.fileExists(atPath: fileURL(for: account).path)
     }
 
 
@@ -208,10 +217,12 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
             throw BiometricUnlockError.failed(errSecIO)
         }
 
-        // Prove the enrollment is readable back before reporting success. A
-        // write the Keychain accepted but no lookup can find would otherwise
-        // leave the UI silently unchanged, which is what "clicking does
-        // nothing" looks like.
+        // Both halves are now in place: the Keychain accepted the key and the
+        // sealed copy is on disk. Reading the key back to prove it would cost a
+        // fingerprint prompt during enrollment, and an access-controlled item
+        // cannot be probed without one, so success is reported on the write.
+        // A key that turns out to be unusable surfaces on the first unlock,
+        // which clears the enrollment rather than failing silently.
         guard hasKey(for: account) else {
             try? remove(for: account)
             throw BiometricUnlockError.notReadableAfterStore
@@ -246,6 +257,9 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         case errSecSuccess:
             break
         case errSecItemNotFound:
+            // The sealed copy outlived the key that opens it; it is now inert,
+            // so drop it rather than leaving Touch ID permanently offered.
+            try? remove(for: account)
             throw BiometricUnlockError.notEnrolled
         case errSecUserCanceled:
             throw BiometricUnlockError.cancelled
@@ -305,41 +319,6 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
     }
 
     // MARK: - Private
-
-    /// Whether the gated Keychain record exists, without prompting: an
-    /// existence check must never put a fingerprint dialog on screen.
-    ///
-    /// Attributes are requested rather than data — asking for the secret is
-    /// what would prompt, and a query that returns nothing at all is not a
-    /// valid lookup. This mirrors `KeychainCredentialStore.hasCredentials`.
-    private func keychainItemExists(for account: AccountID) -> Bool {
-        for dataProtection in [true, false] {
-            for skipUI in [true, false] {
-                var query = baseQuery(for: account, dataProtection: dataProtection)
-                query[kSecReturnAttributes] = kCFBooleanTrue
-                query[kSecMatchLimit] = kSecMatchLimitOne
-                if skipUI {
-                    query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
-                }
-
-                // The result pointer is required: asking for a return type and
-                // passing NULL is a parameter error, not a lookup, which made
-                // this check report "missing" for an item that was there.
-                var result: CFTypeRef?
-                let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-                // A gated item reports "interaction not allowed" precisely
-                // because it exists and would otherwise have prompted.
-                if status == errSecSuccess || status == errSecInteractionNotAllowed {
-                    return true
-                }
-                if status == errSecItemNotFound {
-                    break
-                }
-            }
-        }
-        return false
-    }
 
     /// Prefer complete file protection, falling back to a plain atomic write
     /// when an unentitled build rejects the data-protection option. The payload
