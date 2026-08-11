@@ -7,13 +7,28 @@ enum VaultwardenWriteError: Error, Equatable, Sendable {
     case encryptionFailed
     /// The server rejected the mutation.
     case rejected
+    /// The item changed on the server since the client's last sync: the
+    /// revision precondition failed. The client must reconcile with an
+    /// authoritative read before any retry — a blind retry would overwrite
+    /// the concurrent edit.
+    case conflict
 }
 
 /// Builds and sends Vaultwarden cipher mutations. Every user-authored field is
-/// encrypted with the account's user key into the canonical type-2 EncString
+/// encrypted with the cipher's own key — its per-item key when it carries one,
+/// else the account key for its scope — into the canonical type-2 EncString
 /// before it is placed in the request body, so no plaintext field ever leaves
-/// the device. Only personal-vault login items are written in this slice;
-/// organization items are read-only until their write contract is proven.
+/// the device.
+///
+/// A cipher PUT is a full-object replacement, so an update is built from the
+/// stored cipher: everything the edit does not touch is passed back verbatim
+/// (the per-item key, password history, reprompt flag, custom fields, folder,
+/// collection, and organization membership), and the last-known revision date
+/// is sent as the concurrency precondition. Omitting any of those silently
+/// resets it server-side — a wiped password history or reprompt flag is
+/// exactly the silent data loss the write contract exists to prevent. Only
+/// login items are written in this slice; other types stay read-only until
+/// their write contract is proven.
 struct VaultwardenWriteService: Sendable {
     let transport: VaultwardenTransport
     /// The API base approved at login (".../api"). When absent the API URL is
@@ -25,7 +40,7 @@ struct VaultwardenWriteService: Sendable {
         apiBaseURL ?? transport.environment.apiURL
     }
 
-    /// Creates a login cipher. `POST /api/ciphers`.
+    /// Creates a login cipher in the personal vault. `POST /api/ciphers`.
     func createLogin(
         draft: VaultItemDraft,
         userKey: VaultwardenSymmetricKey,
@@ -33,7 +48,7 @@ struct VaultwardenWriteService: Sendable {
     ) async -> Result<Void, VaultwardenWriteError> {
         let body: Data
         do {
-            body = try encodeBody(draft: draft, userKey: userKey)
+            body = try encodeBody(draft: draft, writeKey: userKey)
         } catch {
             return .failure(.encryptionFailed)
         }
@@ -41,25 +56,28 @@ struct VaultwardenWriteService: Sendable {
         return await send(.post, url: url, body: body, accessToken: accessToken)
     }
 
-    /// Updates a login cipher. `PUT /api/ciphers/{id}`. The server replaces the
-    /// cipher with this body, so the existing folder membership and custom
-    /// fields are passed through verbatim (already-encrypted EncStrings) —
-    /// omitting them would silently wipe them on every edit.
+    /// Updates a login cipher. `PUT /api/ciphers/{id}`.
+    ///
+    /// `preserved` is the cipher as the client last synced it. Its opaque and
+    /// server-owned fields go back byte-identical: the item key, password
+    /// history, reprompt flag, custom fields, folder, collections, and
+    /// organization are all pass-through, and its revision date becomes the
+    /// `lastKnownRevisionDate` precondition so a concurrent edit the client
+    /// already knows about is answered with a conflict instead of being
+    /// silently overwritten.
     func updateLogin(
         cipherID: String,
         draft: VaultItemDraft,
-        userKey: VaultwardenSymmetricKey,
+        writeKey: VaultwardenSymmetricKey,
         accessToken: String,
-        folderID: String? = nil,
-        preservedFields: [VaultwardenCipherModel.CustomField] = []
+        preserved: VaultwardenCipherModel
     ) async -> Result<Void, VaultwardenWriteError> {
         let body: Data
         do {
             body = try encodeBody(
                 draft: draft,
-                userKey: userKey,
-                folderID: folderID,
-                preservedFields: preservedFields
+                writeKey: writeKey,
+                preserved: preserved
             )
         } catch {
             return .failure(.encryptionFailed)
@@ -71,7 +89,8 @@ struct VaultwardenWriteService: Sendable {
     }
 
     /// Archives a cipher where the server supports per-user archiving.
-    /// `PUT /api/ciphers/{id}/archive`.
+    /// `PUT /api/ciphers/{id}/archive`. The dedicated route carries no item
+    /// content, so a lost race can cost at most the flag, never item data.
     func archive(
         cipherID: String,
         accessToken: String
@@ -98,39 +117,61 @@ struct VaultwardenWriteService: Sendable {
             return .failure(.transient)
         }
         if response.status == 401 { return .failure(.sessionExpired) }
+        // A revision-precondition failure surfaces as a conflict, never as a
+        // generic rejection the caller might blindly retry.
+        if response.status == 409 || response.status == 412 { return .failure(.conflict) }
         guard (200..<300).contains(response.status) else { return .failure(.rejected) }
         return .success(())
     }
 
-    /// Encodes the request body, encrypting every user-authored field. The
-    /// folder identifier and preserved custom fields are pass-through values
-    /// from the existing cipher (a folder id is plaintext; field EncStrings
-    /// stay encrypted), used by updates so a PUT never wipes them.
+    /// Encodes the request body, encrypting every user-authored field under
+    /// the cipher's own key. When `preserved` is present (an update), the
+    /// cipher's opaque and server-owned fields pass through untouched:
+    /// already-encrypted custom-field EncStrings, the item key, password
+    /// history, the reprompt flag, folder, collection and organization
+    /// membership, and the revision precondition.
     func encodeBody(
         draft: VaultItemDraft,
-        userKey: VaultwardenSymmetricKey,
-        folderID: String? = nil,
-        preservedFields: [VaultwardenCipherModel.CustomField] = []
+        writeKey: VaultwardenSymmetricKey,
+        preserved: VaultwardenCipherModel? = nil
     ) throws -> Data {
         func enc(_ value: String) throws -> String? {
-            let trimmed = value
-            guard !trimmed.isEmpty else { return nil }
-            return try VaultwardenCipher.encryptToType2(Data(trimmed.utf8), key: userKey)
+            guard !value.isEmpty else { return nil }
+            return try VaultwardenCipher.encryptToType2(Data(value.utf8), key: writeKey)
         }
 
         let uris = try draft.websites
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-            .map { try VaultwardenCipher.encryptToType2(Data($0.utf8), key: userKey) }
+            .map { try VaultwardenCipher.encryptToType2(Data($0.utf8), key: writeKey) }
 
         let body = CipherRequestBody(
             type: 1,
             name: try enc(draft.title) ?? "",
             notes: try enc(draft.notes),
             favorite: draft.favorite,
-            folderID: folderID,
-            fields: preservedFields.isEmpty ? nil : preservedFields.map {
-                CipherRequestBody.Field(type: $0.type, name: $0.name, value: $0.value)
+            folderID: preserved?.folderID,
+            organizationID: preserved?.organizationID,
+            collectionIds: preserved.flatMap {
+                $0.collectionIds.isEmpty ? nil : $0.collectionIds
+            },
+            fields: preserved.flatMap {
+                $0.fields.isEmpty ? nil : $0.fields.map {
+                    CipherRequestBody.Field(type: $0.type, name: $0.name, value: $0.value)
+                }
+            },
+            passwordHistory: preserved.flatMap {
+                $0.passwordHistory.isEmpty ? nil : $0.passwordHistory.map {
+                    CipherRequestBody.PasswordHistory(
+                        password: $0.password,
+                        lastUsedDate: $0.lastUsedDate.map(VaultwardenCipherModel.wireDateString)
+                    )
+                }
+            },
+            reprompt: preserved?.reprompt,
+            key: preserved?.key,
+            lastKnownRevisionDate: preserved.map {
+                VaultwardenCipherModel.wireDateString($0.revisionDate)
             },
             login: CipherRequestBody.Login(
                 username: try enc(draft.username),
@@ -142,16 +183,30 @@ struct VaultwardenWriteService: Sendable {
         return try JSONEncoder().encode(body)
     }
 
-    /// The `POST`/`PUT /api/ciphers` request shape. Field values are already
-    /// encrypted EncStrings; `nil` fields are omitted so the server keeps its
-    /// defaults. Encoded with the server's PascalCase keys.
+    /// The `POST`/`PUT /api/ciphers` request shape. Edited field values are
+    /// freshly encrypted EncStrings; preserved values are the existing ones
+    /// verbatim. `nil` fields are omitted so the server keeps its defaults.
+    /// Encoded with the server's PascalCase keys except the documented
+    /// lowerCamel concurrency precondition.
     struct CipherRequestBody: Encodable {
         let type: Int
         let name: String
         let notes: String?
         let favorite: Bool
         let folderID: String?
+        let organizationID: String?
+        let collectionIds: [String]?
         let fields: [Field]?
+        let passwordHistory: [PasswordHistory]?
+        let reprompt: Int?
+        /// The per-item cipher key, passed through untouched when the cipher
+        /// carries one. Edited fields are encrypted under this same key, so
+        /// the item never silently changes key hierarchy on edit.
+        let key: String?
+        /// The concurrency precondition: the revision date the client's edit
+        /// is based on. The server answers a mismatch with a conflict status
+        /// instead of silently taking the later write over a concurrent edit.
+        let lastKnownRevisionDate: String?
         let login: Login
 
         /// A pass-through custom field: values are the existing EncStrings.
@@ -164,6 +219,18 @@ struct VaultwardenWriteService: Sendable {
                 case type = "Type"
                 case name = "Name"
                 case value = "Value"
+            }
+        }
+
+        /// A pass-through password-history entry: the previous password stays
+        /// as its existing EncString.
+        struct PasswordHistory: Encodable {
+            let password: String?
+            let lastUsedDate: String?
+
+            enum CodingKeys: String, CodingKey {
+                case password = "Password"
+                case lastUsedDate = "LastUsedDate"
             }
         }
 
@@ -193,7 +260,13 @@ struct VaultwardenWriteService: Sendable {
             case notes = "Notes"
             case favorite = "Favorite"
             case folderID = "FolderId"
+            case organizationID = "OrganizationId"
+            case collectionIds = "CollectionIds"
             case fields = "Fields"
+            case passwordHistory = "PasswordHistory"
+            case reprompt = "Reprompt"
+            case key = "Key"
+            case lastKnownRevisionDate
             case login = "Login"
         }
     }

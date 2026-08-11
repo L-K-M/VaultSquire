@@ -86,38 +86,45 @@ struct VaultBrowserView: View {
     private var sidebar: some View {
         List(selection: scopeSelection) {
             Section {
-                Label {
+                // Laid out like a vault row, gutter included, so its icon sits
+                // in the same column as theirs even though it has no twisty.
+                HStack(spacing: 8) {
+                    Color.clear.frame(width: 12, height: 12)
+                    Image(systemName: "square.stack.3d.up")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("All Vaults").fontWeight(.medium)
                         Text(openSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                } icon: {
-                    Image(systemName: "square.stack.3d.up")
+                    Spacer(minLength: 4)
                 }
+                .padding(.vertical, 2)
                 .tag(VaultScope.allVaults)
                 .accessibilityIdentifier("vault-scope-all")
             }
 
+            // A vault with containers of its own — Proton's vaults,
+            // Vaultwarden's folders — expands to show them; one with none has
+            // no twisty at all.
+            //
+            // The rows are flat with a twisty of their own rather than nested in
+            // a DisclosureGroup, whose built-in triangle aligns to the top of
+            // its label. A vault row is two lines tall, so that put the triangle
+            // level with the title while everything beside it — the lock, both
+            // lines of text — was centred on the pair.
             Section("Vaults") {
                 ForEach(appModel.sessions) { session in
-                    // A vault with containers of its own — Proton's vaults,
-                    // Vaultwarden's folders — expands to show them; one with
-                    // none stays a plain row rather than an empty twisty.
-                    if session.isOpen, !session.groups.isEmpty {
-                        DisclosureGroup(isExpanded: expansion(for: session.account)) {
-                            ForEach(session.groups) { group in
-                                groupRow(group)
-                                    .tag(VaultScope.group(session.account, group.id))
-                            }
-                        } label: {
-                            vaultRow(session)
-                                .tag(VaultScope.vault(session.account))
+                    vaultRow(session)
+                        .tag(VaultScope.vault(session.account))
+                    if session.isOpen, expandedVaults.contains(session.account) {
+                        ForEach(session.groups) { group in
+                            groupRow(group)
+                                .tag(VaultScope.group(session.account, group.id))
                         }
-                    } else {
-                        vaultRow(session)
-                            .tag(VaultScope.vault(session.account))
                     }
                 }
             }
@@ -146,7 +153,8 @@ struct VaultBrowserView: View {
     }
 
     private func vaultRow(_ session: VaultSlot) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
+            disclosureControl(session)
             Image(systemName: session.isOpen ? "lock.open" : "lock")
                 .foregroundStyle(session.isOpen ? Color.accentColor : .secondary)
                 .frame(width: 16)
@@ -176,8 +184,37 @@ struct VaultBrowserView: View {
         .accessibilityIdentifier("vault-row-\(session.account.rawValue)")
     }
 
-    /// One container inside a vault. Indented by the disclosure group itself,
-    /// so the row only carries its own name and count.
+    /// The twisty at the head of a vault row. It sits in the row's own HStack,
+    /// so it is centred on the row rather than pinned to the first line. A vault
+    /// with no containers still reserves the width, so every vault's lock icon
+    /// and title line up whether or not that vault can expand.
+    @ViewBuilder
+    private func disclosureControl(_ session: VaultSlot) -> some View {
+        if session.isOpen, !session.groups.isEmpty {
+            let isExpanded = expandedVaults.contains(session.account)
+            Button {
+                withAnimation(.snappy(duration: 0.18)) {
+                    toggleExpansion(session.account)
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 12, height: 12)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Collapse \(session.title)" : "Expand \(session.title)")
+            .accessibilityIdentifier("vault-disclosure-\(session.account.rawValue)")
+        } else {
+            Color.clear.frame(width: 12, height: 12)
+        }
+    }
+
+    /// One container inside a vault, indented one level past its vault so the
+    /// nesting is visible: the twisty gutter plus a step, which puts a folder
+    /// icon clear of the lock icon above it.
     private func groupRow(_ group: VaultGroup) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "folder")
@@ -190,22 +227,18 @@ struct VaultBrowserView: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+        .padding(.leading, 32)
         .accessibilityIdentifier("vault-group-\(group.id)")
     }
 
     /// Per-vault expansion state, so expanding one container list does not
     /// collapse another and the choice survives a re-render.
-    private func expansion(for account: AccountID) -> Binding<Bool> {
-        Binding(
-            get: { expandedVaults.contains(account) },
-            set: { isExpanded in
-                if isExpanded {
-                    expandedVaults.insert(account)
-                } else {
-                    expandedVaults.remove(account)
-                }
-            }
-        )
+    private func toggleExpansion(_ account: AccountID) {
+        if expandedVaults.contains(account) {
+            expandedVaults.remove(account)
+        } else {
+            expandedVaults.insert(account)
+        }
     }
 
     private func rowSubtitle(_ session: VaultSlot) -> String {
@@ -451,6 +484,10 @@ struct VaultBrowserView: View {
                         .help("Last synced \(date.formatted(.relative(presentation: .named)))")
                 }
             }
+            // The toolbar draws a capsule that hugs this content. Without the
+            // inset the text runs to both edges of it; `fixedSize` keeps the
+            // label from being compressed back inside them.
+            .padding(.horizontal, 7)
             .fixedSize(horizontal: true, vertical: false)
         }
         ToolbarItemGroup(placement: .primaryAction) {

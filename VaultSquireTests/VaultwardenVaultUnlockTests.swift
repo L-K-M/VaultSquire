@@ -68,18 +68,18 @@ final class VaultwardenVaultUnlockTests: XCTestCase {
         )
 
         let cipher = snapshot.ciphers[0]
-        let projection = VaultwardenItemDecryptor.projection(
+        let projection = try XCTUnwrap(VaultwardenItemDecryptor.projection(
             for: cipher, keyring: keyring, account: account, folderNames: [:], generation: snapshot.generation
-        )
+        ))
         XCTAssertEqual(projection.displayTitle, "GitHub")
         XCTAssertEqual(projection.username, "octocat")
         XCTAssertEqual(projection.websites, ["https://github.com"])
         XCTAssertEqual(projection.category, .login)
         XCTAssertEqual(projection.cacheReference.captureGeneration, SnapshotGeneration(rawValue: 1))
 
-        let detail = VaultwardenItemDecryptor.detail(
+        let detail = try XCTUnwrap(VaultwardenItemDecryptor.detail(
             for: cipher, keyring: keyring, account: account, generation: snapshot.generation
-        )
+        ))
         let passwordField = try XCTUnwrap(detail.fields.first { $0.label == "Password" })
         XCTAssertEqual(passwordField.value, "VSQ-Canary-hunter2")
         XCTAssertTrue(passwordField.isConcealable)
