@@ -111,10 +111,7 @@ private enum SiteIconFetcher {
     /// A session that carries nothing between requests: no cookies, no
     /// credential store, no shared cache. Two sites cannot correlate a visit
     /// through it, and nothing it touches is written to disk.
-    ///
-    /// `nonisolated(unsafe)` because `URLSession` is thread-safe by contract
-    /// and this one is never mutated after construction.
-    nonisolated(unsafe) static let session: URLSession = {
+    static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
