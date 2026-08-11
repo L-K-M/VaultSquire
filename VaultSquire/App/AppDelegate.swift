@@ -8,6 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ApplicationCoordinator.shared.dismissQuickSearch()
+        // A copied secret must not outlive the app; the change-count guard
+        // ensures a later user copy is never erased.
+        ClipboardValueController.shared.clearIfOwned()
         AppLog.record(.applicationWillTerminate)
     }
 

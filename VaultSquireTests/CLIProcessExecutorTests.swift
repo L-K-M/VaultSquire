@@ -93,6 +93,22 @@ final class CLIProcessExecutorTests: XCTestCase {
         }
     }
 
+    /// Standard error is bounded like standard output: a child that floods
+    /// stderr must be terminated and the run failed closed, not allowed to
+    /// stream unbounded bytes.
+    func testFailsClosedWhenStandardErrorFloodsPastTheBound() async throws {
+        let executor = CLIProcessExecutor()
+        let executableURL = try macOSExecutableURL(at: "/bin/sh")
+        await XCTAssertThrowsErrorAsync(
+            try await executor.execute(
+                CLIInvocation(arguments: ["-c", "yes 1>&2"], timeout: .seconds(30), outputLimit: 8),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .outputLimitExceeded)
+        }
+    }
+
     func testTimesOutALongRunningChild() async throws {
         let executor = CLIProcessExecutor()
         let executableURL = try macOSExecutableURL(at: "/bin/sleep")

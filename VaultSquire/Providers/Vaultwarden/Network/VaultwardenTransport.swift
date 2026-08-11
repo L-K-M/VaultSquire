@@ -111,6 +111,11 @@ struct VaultwardenTransport: Sendable {
     /// Performs one request and returns the bounded response. `bearer` is
     /// attached as an Authorization header when present; the caller keeps the
     /// token in memory and never logs it.
+    ///
+    /// The response body is read as a stream with a hard mid-transfer byte
+    /// bound: a body larger than `maximumResponseBytes` terminates the
+    /// transfer rather than being buffered, so a hostile server cannot push an
+    /// unbounded amount of memory at the client.
     func send(
         _ method: Method,
         url: URL,
@@ -151,24 +156,46 @@ struct VaultwardenTransport: Sendable {
         }
 
         do {
-            let (data, response) = try await session.data(
-                for: request,
-                delegate: redirectPolicy
+            let (bytes, response) = try await session.bytes(
+                for: request, delegate: redirectPolicy
             )
             guard let http = response as? HTTPURLResponse else {
+                // Do not read a body we will not return.
+                bytes.task.cancel()
                 throw VaultwardenTransportError.notHTTP
-            }
-
-            // Auth, config, prelogin, and token responses are small JSON. This
-            // rejects an anomalous oversize body; the streaming hard-bound for
-            // genuinely large payloads arrives with attachment transfer, where
-            // large bodies actually occur.
-            if data.count > maximumResponseBytes {
-                throw VaultwardenTransportError.responseTooLarge
             }
 
             let retryAfter = (http.value(forHTTPHeaderField: "Retry-After"))
                 .flatMap(Self.parseRetryAfter)
+
+            var data = Data()
+            data.reserveCapacity(
+                min(maximumResponseBytes, 64 * 1024)
+            )
+            do {
+                for try await chunk in bytes {
+                    data.append(chunk)
+                    if data.count > maximumResponseBytes {
+                        // Terminate the transfer rather than buffering an
+                        // unbounded body; the response is never returned.
+                        bytes.task.cancel()
+                        throw VaultwardenTransportError.responseTooLarge
+                    }
+                }
+            } catch is CancellationError {
+                // The transfer was cancelled by the size bound above; the
+                // responseTooLarge error already propagated.
+                throw VaultwardenTransportError.cancelled
+            } catch let error as URLError where error.code == .cancelled {
+                throw VaultwardenTransportError.cancelled
+            }
+
+            // Auth, config, prelogin, and token responses are small JSON. This
+            // rejects an anomalous oversize body before it is ever returned.
+            if data.count > maximumResponseBytes {
+                throw VaultwardenTransportError.responseTooLarge
+            }
+
             return VaultwardenHTTPResponse(
                 status: http.statusCode,
                 body: data,

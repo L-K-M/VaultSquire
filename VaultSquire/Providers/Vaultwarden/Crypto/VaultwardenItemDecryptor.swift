@@ -41,6 +41,7 @@ enum VaultwardenItemDecryptor {
         case .secureNote: return .secureNote
         case .card: return .card
         case .identity: return .identity
+        case .unknown: return .unsupported
         }
     }
 
@@ -61,6 +62,22 @@ enum VaultwardenItemDecryptor {
             .flatMap { folderNames[$0] }
             .map { [$0] } ?? []
 
+        var capabilities = readCapabilities
+        // Server-enforced restrictions are reflected per item, so a read-only
+        // item or a hide-passwords policy is honored by every entry point
+        // (IMPLEMENTATION_REPORT.md "hidePasswords is a client enforcement
+        // requirement").
+        if cipher.viewPassword == false {
+            capabilities.remove(.revealSecret)
+            capabilities.remove(.copySecret)
+        }
+        if cipher.organizationID != nil {
+            // Organization items are read-only in this slice until their write
+            // contract is proven; the write service is personal-vault only.
+            capabilities.remove(.updateItem)
+            capabilities.remove(.archiveItem)
+        }
+
         return VaultItemProjection(
             id: itemID(for: cipher, account: account),
             displayTitle: title,
@@ -69,7 +86,7 @@ enum VaultwardenItemDecryptor {
             username: username,
             websites: websites,
             groupingLabels: groupingLabels,
-            capabilities: readCapabilities,
+            capabilities: capabilities,
             cacheReference: cacheReference(for: cipher, account: account, generation: generation)
         )
     }
@@ -113,6 +130,8 @@ enum VaultwardenItemDecryptor {
             add("Phone", decrypt(cipher.identity?.phone), .plain)
         case .secureNote:
             break
+        case .unknown:
+            break
         }
         add("Notes", decrypt(cipher.notes), .plain)
 
@@ -129,7 +148,10 @@ enum VaultwardenItemDecryptor {
             id: itemID(for: cipher, account: account),
             title: decrypt(cipher.name) ?? "Unnamed item",
             category: category(for: cipher.type),
-            fields: fields
+            fields: fields,
+            // A hide-passwords policy is enforced in the UI: secrets are not
+            // even offered for reveal or copy.
+            canRevealSecrets: cipher.viewPassword != false
         )
     }
 

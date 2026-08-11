@@ -195,15 +195,18 @@ struct VaultwardenAccountService: Sendable {
     }
 
     /// Reconstructs an editable plaintext draft from a stored login cipher.
-    /// Returns nil for a missing item or a non-login type (only logins are
-    /// editable in this slice).
+    /// Returns nil for a missing item, a non-login type, an organization item
+    /// (read-only in this slice until the write contract is proven), or an
+    /// item the server marked non-editable — only personal logins are editable.
     func draft(
         for itemID: VaultItemID,
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot
     ) -> VaultItemDraft? {
         guard let cipher = snapshot.ciphers.first(where: { $0.id == itemID.rawValue }),
-              cipher.type == .login else {
+              cipher.type == .login,
+              cipher.organizationID == nil,
+              cipher.edit != false else {
             return nil
         }
         let org = cipher.organizationID
@@ -261,7 +264,8 @@ struct VaultwardenAccountService: Sendable {
         }
     }
 
-    /// Updates an existing login item.
+    /// Updates an existing login item. Only personal, server-editable items
+    /// are written; anything else fails closed before any request is made.
     func update(
         draft: VaultItemDraft,
         keyring: VaultwardenKeyring
@@ -271,17 +275,20 @@ struct VaultwardenAccountService: Sendable {
             return .failure(.rejected)
         }
         return await performWrite { token, transport, apiBase, snapshot in
-            // Pass the existing folder membership and custom fields through so
-            // the replacing PUT does not wipe them.
             let existing = snapshot.ciphers.first { $0.id == itemID.rawValue }
+            // The write contract is personal-vault only, and a server-declared
+            // read-only item must never be overwritten. Both fail closed here,
+            // in the use case, not only in the UI.
+            guard existing?.organizationID == nil, existing?.edit != false else {
+                return .failure(.rejected)
+            }
             return await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
                 .updateLogin(
                     cipherID: itemID.rawValue,
                     draft: draft,
                     userKey: keyring.userKey,
                     accessToken: token,
-                    folderID: existing?.folderID,
-                    preservedFields: existing?.fields ?? []
+                    existing: existing
                 )
         }
     }

@@ -71,6 +71,11 @@ struct VaultSlot: Identifiable, Sendable {
     var syncError: String?
     var isSyncing = false
     var generation: UInt64 = 0
+    /// Set when a sync observed different bootstrap key material on the server
+    /// (a rotated wrapped user key). The old key must not be used to write new
+    /// ciphertext, so creates and edits are refused until the account
+    /// re-authenticates.
+    var isRotationObserved = false
 
     /// The unlocked Vaultwarden material, held only while this vault is open.
     var vaultwarden: VaultwardenUnlockedVault?
@@ -188,6 +193,7 @@ struct VaultSlot: Identifiable, Sendable {
         onePassword = nil
         syncError = nil
         isSyncing = false
+        isRotationObserved = false
         generation &+= 1
     }
 }

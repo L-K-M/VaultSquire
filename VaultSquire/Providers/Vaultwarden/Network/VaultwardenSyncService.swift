@@ -20,6 +20,13 @@ enum VaultwardenSyncError: Error, Equatable, Sendable {
     case responseTooLarge
     /// The server's sync response could not be decoded.
     case malformedResponse
+    /// The sync response carried different bootstrap key material (a rotated
+    /// wrapped user key or private key) than the snapshot holds. The candidate
+    /// is NOT promoted: the prior snapshot and bootstrap data are retained,
+    /// because retained ciphertext must never be decrypted under a rotated
+    /// user key, and the old key must not be used to write new ciphertext.
+    /// The account must re-authenticate.
+    case bootstrapChanged
     /// The locally stored account context (sealed snapshot, credentials, or
     /// server URL) could not be read on this device; the network was never
     /// consulted.
@@ -88,9 +95,40 @@ struct VaultwardenSyncService: Sendable {
             return .failure(.malformedResponse)
         }
 
+        // A changed wrapped user key or private key means the account's key
+        // hierarchy rotated since this snapshot was captured. The candidate is
+        // not promoted: the old keyring must never decrypt new ciphertext, and
+        // the old key must never encrypt new writes. The empty-key case is
+        // exempt — it is the first-unlock fill, where the snapshot has no key
+        // yet and the sync is what supplies it.
+        if bootstrapChanged(current: current, sync: decoded) {
+            return .failure(.bootstrapChanged)
+        }
+
         let updated = merge(current: current, sync: decoded, capturedAt: capturedAt)
         let newRefreshToken = await refresher.currentRefreshToken
         return .success(Success(snapshot: updated, refreshToken: newRefreshToken))
+    }
+
+    /// True when the sync response's wrapped key material differs from the
+    /// snapshot's. A nil or empty server value is not a change (the merge
+    /// keeps the prior value then); an empty stored value means the snapshot
+    /// is still waiting for its first key and the sync is allowed to fill it.
+    private func bootstrapChanged(
+        current: VaultwardenVaultSnapshot,
+        sync: VaultwardenSyncResponse
+    ) -> Bool {
+        if let newKey = sync.profile.key, !newKey.isEmpty,
+           !current.wrappedUserKey.isEmpty,
+           newKey != current.wrappedUserKey {
+            return true
+        }
+        if let newPrivateKey = sync.profile.privateKey, !newPrivateKey.isEmpty,
+           let currentPrivateKey = current.wrappedPrivateKey, !currentPrivateKey.isEmpty,
+           newPrivateKey != currentPrivateKey {
+            return true
+        }
+        return false
     }
 
     private func merge(

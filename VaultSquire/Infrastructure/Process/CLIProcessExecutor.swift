@@ -9,8 +9,9 @@ import Foundation
 struct CLIInvocation: Equatable, Sendable {
     let arguments: [String]
     let timeout: Duration
-    /// Upper bound on captured standard-output bytes; a larger stream is
-    /// terminated mid-transfer rather than buffered.
+    /// Upper bound on captured standard-output bytes and on counted
+    /// standard-error bytes; a larger stream on either is terminated
+    /// mid-transfer rather than buffered.
     let outputLimit: Int
 
     init(arguments: [String], timeout: Duration = .seconds(20), outputLimit: Int = 4 * 1024 * 1024) {
@@ -274,7 +275,14 @@ private actor CLIOutputCollector {
                 return true
             }
         case .standardError:
+            // Standard error is counted, never retained, and bounded like
+            // standard output: a child that floods stderr is terminated
+            // rather than allowed to run unbounded.
             standardErrorByteCount += chunk.count
+            if standardErrorByteCount > limit {
+                failForLimit()
+                return true
+            }
         }
         return false
     }

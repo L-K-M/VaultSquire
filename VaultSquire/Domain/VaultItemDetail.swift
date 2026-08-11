@@ -9,6 +9,10 @@ struct VaultItemDetail: Sendable, Hashable, Identifiable {
     let title: String
     let category: VaultItemCategory
     let fields: [DetailField]
+    /// Whether the owning account may reveal or copy secret fields at all.
+    /// False under a provider hide-passwords policy, where secrets are never
+    /// offered even though the ciphertext decrypts locally.
+    var canRevealSecrets: Bool = true
 
     /// A single labelled field of a decrypted item.
     struct DetailField: Sendable, Hashable, Identifiable {

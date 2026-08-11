@@ -63,6 +63,13 @@ struct VaultBrowserView: View {
         .onChange(of: appModel.scope) { _, _ in
             selection = nil
         }
+        .onChange(of: appModel.isUnlocked) { _, isUnlocked in
+            // A search query is decrypted-item-derived state; it must not
+            // outlive the lock that made the items disappear.
+            if !isUnlocked {
+                query = ""
+            }
+        }
         .task {
             // Offer Touch ID as soon as the browser appears when it is set up,
             // so the common case is a fingerprint rather than a retyped master

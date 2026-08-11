@@ -428,6 +428,9 @@ final class AppModel: ObservableObject {
         dropFetchedContent(for: account)
         unlockError = nil
         refreshBiometricAvailability()
+        // A secret the user copied is this app's to clear while it still owns
+        // the pasteboard; a later user copy is never erased.
+        ClipboardValueController.shared.clearIfOwned()
         if !isUnlocked {
             ApplicationCoordinator.shared.dismissQuickSearch()
         }
@@ -445,6 +448,7 @@ final class AppModel: ObservableObject {
         unlockError = nil
         refreshBiometricAvailability()
         ApplicationCoordinator.shared.dismissQuickSearch()
+        ClipboardValueController.shared.clearIfOwned()
         AppLog.record(.vaultLocked)
     }
 
@@ -717,6 +721,13 @@ final class AppModel: ObservableObject {
               let vault = owner.vaultwarden else {
             return
         }
+        // A rotation observed during sync means this keyring's user key no
+        // longer matches the server's hierarchy; encrypting with it would
+        // create items no other client can open.
+        guard !owner.isRotationObserved else {
+            writeError = Self.rotationWriteBlockedMessage
+            return
+        }
         isWriting = true
         writeError = nil
         Task { [service] in
@@ -794,6 +805,12 @@ final class AppModel: ObservableObject {
                         }
                     case .failure(let error):
                         session.syncError = Self.message(for: error)
+                        // The server's key hierarchy rotated under this open
+                        // session: the old key must not encrypt new writes,
+                        // and the previous snapshot stays current on disk.
+                        if error == .bootstrapChanged {
+                            session.isRotationObserved = true
+                        }
                     }
                 }
             }
@@ -911,6 +928,8 @@ final class AppModel: ObservableObject {
             return "The item could not be encrypted, so nothing was sent."
         case .rejected:
             return "The server rejected the change."
+        case .conflict:
+            return "This item changed on the server since you opened it. Sync, review it, then save again."
         }
     }
 
@@ -928,10 +947,16 @@ final class AppModel: ObservableObject {
             return "The sync response exceeded VaultSquire's size limit."
         case .malformedResponse:
             return "The server's sync response was unreadable."
+        case .bootstrapChanged:
+            return "Your vault's key material changed on the server. The last synced copy stays readable, but add the account again to re-authenticate before making changes."
         case .localStorageFailed:
             return "The stored account data on this Mac couldn't be read."
         }
     }
+
+    /// The message shown when a create or edit is refused because a sync
+    /// observed rotated key material.
+    private static let rotationWriteBlockedMessage = "This vault's key material changed on the server. Re-authenticate before making changes."
 
     // MARK: - Presence source
 
