@@ -38,8 +38,8 @@ final class SecretPasteboardTests: XCTestCase {
 
         XCTAssertEqual(pasteboard.string(forType: .string), "VSQ-canary-secret")
         // Clipboard managers and Handoff are asked not to retain/sync the value.
-        XCTAssertNotNil(pasteboard.string(forType: Self.concealedType))
-        XCTAssertNotNil(pasteboard.string(forType: Self.transientType))
+        XCTAssertNotNil(pasteboard.string(forType: SecretPasteboard.concealedType))
+        XCTAssertNotNil(pasteboard.string(forType: SecretPasteboard.transientType))
     }
 
     func testClearsAfterExpiry() async {
@@ -134,7 +134,4 @@ final class SecretPasteboardTests: XCTestCase {
     private func cleared(_ pasteboard: NSPasteboard) -> Bool {
         (pasteboard.string(forType: .string) ?? "").isEmpty
     }
-
-    private static let concealedType = NSPasteboard.PasteboardType(rawValue: "org.nspasteboard.ConcealedType")
-    private static let transientType = NSPasteboard.PasteboardType(rawValue: "org.nspasteboard.TransientType")
 }
