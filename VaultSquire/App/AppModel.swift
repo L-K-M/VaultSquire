@@ -79,9 +79,16 @@ final class AppModel: ObservableObject {
     /// vault is closed. A lock for the account clears its queued and in-flight
     /// tasks.
     private func cancelCLIWork(for account: AccountID) {
-        for (token, entry) in cliTasks where entry.account == account {
-            entry.task.cancel()
-            cliTasks[token] = nil
+        // Collect the tokens first: mutating the dictionary during iteration
+        // would trap at runtime.
+        let tokens = cliTasks.compactMap { token, entry in
+            entry.account == account ? token : nil
+        }
+        for token in tokens {
+            if let entry = cliTasks[token] {
+                entry.task.cancel()
+                cliTasks[token] = nil
+            }
         }
     }
 
