@@ -140,29 +140,31 @@ Read the documents in this order:
    decision and mandatory source-isolation rules.
 6. [`PROTON_PASS_RESEARCH.md`](PROTON_PASS_RESEARCH.md): selected CLI
    integration, read/write capability rules, data model, and risks.
-7. [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md): clean-history
+7. [`ONEPASSWORD_CLI_RESEARCH.md`](ONEPASSWORD_CLI_RESEARCH.md): candidate
+   1Password CLI provider feasibility research; not an accepted scope change.
+8. [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md): clean-history
    bootstrap procedure and attestation status.
-8. [`WORKSTREAM_0.md`](WORKSTREAM_0.md): governance/evidence completion record
+9. [`WORKSTREAM_0.md`](WORKSTREAM_0.md): governance/evidence completion record
    and deferred gates.
-9. [`DEPENDENCIES.md`](DEPENDENCIES.md): candidate inventory and adoption policy.
-10. [`EVIDENCE.md`](EVIDENCE.md): immutable protocol/container research pins.
-11. [`ICON_PROVENANCE.md`](ICON_PROVENANCE.md): canonical artwork attestation and
+10. [`DEPENDENCIES.md`](DEPENDENCIES.md): candidate inventory and adoption policy.
+11. [`EVIDENCE.md`](EVIDENCE.md): immutable protocol/container research pins.
+12. [`ICON_PROVENANCE.md`](ICON_PROVENANCE.md): canonical artwork attestation and
     technical review.
-12. [`DELIVERY.md`](DELIVERY.md): sequential pull-request milestones.
-13. [`WORKSTREAM_1.md`](WORKSTREAM_1.md): native shell implementation and
+13. [`DELIVERY.md`](DELIVERY.md): sequential pull-request milestones.
+14. [`WORKSTREAM_1.md`](WORKSTREAM_1.md): native shell implementation and
     outstanding macOS evidence gates.
-14. [`WORKSTREAM_2.md`](WORKSTREAM_2.md): domain, session, and provider contracts
+15. [`WORKSTREAM_2.md`](WORKSTREAM_2.md): domain, session, and provider contracts
     proven against a test-only provider facade.
-15. [`WORKSTREAM_3.md`](WORKSTREAM_3.md): Vaultwarden cryptographic harness and
+16. [`WORKSTREAM_3.md`](WORKSTREAM_3.md): Vaultwarden cryptographic harness and
     the cross-client differential still owed.
-16. [`WORKSTREAM_4.md`](WORKSTREAM_4.md): environment, transport, authentication,
+17. [`WORKSTREAM_4.md`](WORKSTREAM_4.md): environment, transport, authentication,
     the add-account UI, and Keychain credential storage.
-17. [`WORKSTREAM_5.md`](WORKSTREAM_5.md): the encrypted-persistence contract slice
+18. [`WORKSTREAM_5.md`](WORKSTREAM_5.md): the encrypted-persistence contract slice
     with the storage engine deferred.
-18. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
-19. [`CICD.md`](CICD.md): local build/version commands and guarded future release
+19. [`docs/adr/README.md`](docs/adr/README.md): accepted architecture decisions.
+20. [`CICD.md`](CICD.md): local build/version commands and guarded future release
     automation.
-20. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
+21. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
     that automation may be enabled.
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
