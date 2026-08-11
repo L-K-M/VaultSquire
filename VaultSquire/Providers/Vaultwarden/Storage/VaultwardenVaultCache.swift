@@ -27,13 +27,15 @@ struct VaultwardenVaultCache: Sendable {
     /// Protection Keychain; tests inject a fixed key so the seal/open and file
     /// logic can be exercised on hosts without Keychain access.
     private let keyProvider: @Sendable () throws -> SymmetricKey
-    private let directory: URL
+    private let keyInvalidator: @Sendable () throws -> Void
+    private let directory: URL?
     // FileManager is thread-safe for the file operations used here but is not
     // marked Sendable; vouch for it so the cache stays Sendable.
     nonisolated(unsafe) private let fileManager: FileManager
 
     /// The envelope layout version, folded into the seal's authenticated data.
     private static let schemaVersion = 1
+    private static let maximumSealedBytes = 128 * 1024 * 1024
 
     init(
         keyStore: DeviceDataKeyStore = DeviceDataKeyStore(label: "vaultwarden-vault-cache"),
@@ -50,6 +52,15 @@ struct VaultwardenVaultCache: Sendable {
                     throw VaultwardenVaultCacheError.ioFailed
                 }
             },
+            keyInvalidator: {
+                do {
+                    try keyStore.delete()
+                } catch DeviceDataKeyStoreError.unavailable {
+                    throw VaultwardenVaultCacheError.storeUnavailable
+                } catch {
+                    throw VaultwardenVaultCacheError.ioFailed
+                }
+            },
             directory: directory,
             fileManager: fileManager
         )
@@ -57,41 +68,49 @@ struct VaultwardenVaultCache: Sendable {
 
     init(
         keyProvider: @escaping @Sendable () throws -> SymmetricKey,
+        keyInvalidator: @escaping @Sendable () throws -> Void = {
+            throw VaultwardenVaultCacheError.storeUnavailable
+        },
         directory: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.keyProvider = keyProvider
+        self.keyInvalidator = keyInvalidator
         self.fileManager = fileManager
         if let directory {
             self.directory = directory
         } else {
-            let base = (try? fileManager.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: false
-            )) ?? fileManager.temporaryDirectory
-            self.directory = base
-                .appendingPathComponent("VaultSquire", isDirectory: true)
-                .appendingPathComponent("VaultwardenVaults", isDirectory: true)
+            self.directory = fileManager.containerURL(
+                forSecurityApplicationGroupIdentifier: "group.ch.lkmc.VaultSquire"
+            )?.appendingPathComponent("VaultwardenVaults", isDirectory: true)
         }
     }
 
     func save(_ snapshot: VaultwardenVaultSnapshot, for account: AccountID) throws {
+        guard snapshot.isStructurallyValid, let directory else {
+            throw VaultwardenVaultCacheError.storeUnavailable
+        }
         let key = try sealingKey()
-        let plaintext: Data
+        var plaintext: Data
         do {
             plaintext = try JSONEncoder().encode(snapshot)
         } catch {
             throw VaultwardenVaultCacheError.ioFailed
         }
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        guard plaintext.count <= Self.maximumSealedBytes else {
+            throw VaultwardenVaultCacheError.ioFailed
+        }
         let sealed = try seal(plaintext, key: key, account: account)
+        guard sealed.count <= Self.maximumSealedBytes else {
+            throw VaultwardenVaultCacheError.ioFailed
+        }
 
         do {
             try fileManager.createDirectory(
                 at: directory, withIntermediateDirectories: true
             )
-            try Self.writeSealed(sealed, to: fileURL(for: account))
+            try Self.writeSealed(sealed, to: fileURL(for: account, directory: directory))
         } catch {
             throw VaultwardenVaultCacheError.ioFailed
         }
@@ -111,36 +130,64 @@ struct VaultwardenVaultCache: Sendable {
     }
 
     func load(for account: AccountID) throws -> VaultwardenVaultSnapshot? {
-        let url = fileURL(for: account)
+        guard let directory else { throw VaultwardenVaultCacheError.storeUnavailable }
+        let url = fileURL(for: account, directory: directory)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         let key = try sealingKey()
 
         let sealed: Data
         do {
-            sealed = try Data(contentsOf: url)
+            let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            guard let size = attributes[.size] as? NSNumber,
+                  size.intValue > 0,
+                  size.intValue <= Self.maximumSealedBytes else {
+                throw VaultwardenVaultCacheError.corrupt
+            }
+            sealed = try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch let error as VaultwardenVaultCacheError {
+            throw error
         } catch {
             throw VaultwardenVaultCacheError.ioFailed
         }
-        let plaintext = try open(sealed, key: key, account: account)
+        var plaintext = try open(sealed, key: key, account: account)
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        guard plaintext.count <= Self.maximumSealedBytes else {
+            throw VaultwardenVaultCacheError.corrupt
+        }
         do {
-            return try JSONDecoder().decode(VaultwardenVaultSnapshot.self, from: plaintext)
+            let snapshot = try JSONDecoder().decode(VaultwardenVaultSnapshot.self, from: plaintext)
+            guard snapshot.isStructurallyValid else {
+                throw VaultwardenVaultCacheError.corrupt
+            }
+            return snapshot
+        } catch let error as VaultwardenVaultCacheError {
+            throw error
         } catch {
             throw VaultwardenVaultCacheError.corrupt
         }
     }
 
     func exists(for account: AccountID) -> Bool {
-        fileManager.fileExists(atPath: fileURL(for: account).path)
+        guard let directory else { return false }
+        return fileManager.fileExists(atPath: fileURL(for: account, directory: directory).path)
     }
 
     func wipe(for account: AccountID) throws {
-        let url = fileURL(for: account)
+        guard let directory else { throw VaultwardenVaultCacheError.storeUnavailable }
+        let url = fileURL(for: account, directory: directory)
         guard fileManager.fileExists(atPath: url.path) else { return }
         do {
             try fileManager.removeItem(at: url)
         } catch {
             throw VaultwardenVaultCacheError.ioFailed
         }
+    }
+
+    /// Last-resort fail-closed path for a security-marker write and cache wipe
+    /// that both fail: deleting the device-only sealing key makes every old
+    /// Vaultwarden cache ciphertext inaccessible after process restart.
+    func invalidateSealingKey() throws {
+        try keyInvalidator()
     }
 
     // MARK: - Private
@@ -173,7 +220,7 @@ struct VaultwardenVaultCache: Sendable {
         }
     }
 
-    private func fileURL(for account: AccountID) -> URL {
+    private func fileURL(for account: AccountID, directory: URL) -> URL {
         // Hash the account identity into the filename: opaque, filesystem-safe,
         // and leaking nothing even if a raw value ever carried readable text.
         let material = "\(account.provider.rawValue)|\(account.rawValue)"

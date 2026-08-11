@@ -25,8 +25,88 @@ struct ProtonSnapshot: Equatable, Sendable, Codable {
         self.cliVersion = cliVersion
         self.capturedAt = capturedAt
         self.vaults = vaults
-        self.items = items
+        self.items = items.map(\.withoutSecretContent)
         self.lossy = true
+    }
+
+    /// Rebuilds a decoded legacy payload through the invariant-preserving
+    /// initializer. This strips any password, TOTP seed, or note an older build
+    /// may have admitted before the value can reach an open session again.
+    var withoutSecretContent: ProtonSnapshot {
+        ProtonSnapshot(
+            cliVersion: cliVersion,
+            capturedAt: capturedAt,
+            vaults: vaults,
+            items: items
+        )
+    }
+
+    var isStructurallyValid: Bool {
+        guard version == Self.currentVersion, lossy,
+              !cliVersion.isEmpty,
+              Self.isDisplayString(cliVersion, maximumBytes: 128),
+              capturedAt.timeIntervalSince1970.isFinite,
+              vaults.count <= 50, items.count <= 100_000,
+              Self.hasBoundedContent(vaults: vaults, items: items),
+              items.allSatisfy({ $0.password == nil && $0.totp == nil && $0.note == nil }) else {
+            return false
+        }
+        let shareIDs = vaults.map(\.shareID)
+        let itemIDs = items.map { "\($0.shareID)|\($0.itemID)" }
+        let shareIDSet = Set(shareIDs)
+        guard shareIDSet.count == shareIDs.count,
+              Set(itemIDs).count == itemIDs.count,
+              items.allSatisfy({ shareIDSet.contains($0.shareID) }) else {
+            return false
+        }
+        return vaults.allSatisfy {
+            ProtonCLIRunner.isValidOpaqueIdentifier($0.shareID)
+                && $0.vaultID.map(ProtonCLIRunner.isValidOpaqueIdentifier) != false
+                && Self.isDisplayString($0.name)
+        } && items.allSatisfy {
+            ProtonCLIRunner.isValidOpaqueIdentifier($0.itemID)
+                && ProtonCLIRunner.isValidOpaqueIdentifier($0.shareID)
+                && Self.isDisplayString($0.vaultName)
+                && Self.isDisplayString($0.title)
+                && $0.username.map(Self.isDisplayString) != false
+                && $0.urls.count <= 100
+                && $0.urls.allSatisfy { Self.isDisplayString($0, maximumBytes: 2_048) }
+        }
+    }
+
+    private static func hasBoundedContent(
+        vaults: [ProtonVault],
+        items: [ProtonItem]
+    ) -> Bool {
+        var total = 0
+        func add(_ value: String?) -> Bool {
+            guard let value else { return true }
+            let (next, overflow) = total.addingReportingOverflow(value.utf8.count)
+            guard !overflow, next <= 4 * 1024 * 1024 else { return false }
+            total = next
+            return true
+        }
+        for vault in vaults {
+            guard add(vault.shareID), add(vault.vaultID), add(vault.name) else { return false }
+        }
+        for item in items {
+            guard add(item.itemID), add(item.shareID), add(item.vaultName),
+                  add(item.title), add(item.username),
+                  item.urls.allSatisfy({ add($0) }) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func isDisplayString(
+        _ value: String,
+        maximumBytes: Int = 4_096
+    ) -> Bool {
+        value.utf8.count <= maximumBytes
+            && value.unicodeScalars.allSatisfy {
+                !CharacterSet.controlCharacters.contains($0)
+            }
     }
 }
 
@@ -51,7 +131,7 @@ enum ProtonSnapshotCacheError: Error, Equatable, Sendable {
 /// used to reconstruct or retry a remote write.
 struct ProtonSnapshotCache: Sendable {
     private let keyProvider: @Sendable () throws -> SymmetricKey
-    private let directory: URL
+    private let directory: URL?
     // FileManager is thread-safe for the operations used here but is not
     // Sendable; vouch for it so the cache stays Sendable.
     nonisolated(unsafe) private let fileManager: FileManager
@@ -60,6 +140,7 @@ struct ProtonSnapshotCache: Sendable {
     /// Distinct from the Vaultwarden cache's version space; the account's
     /// provider is authenticated too, so the two can never be confused.
     private static let schemaVersion = 1
+    private static let maximumSealedBytes = 8 * 1024 * 1024
 
     init(
         keyStore: DeviceDataKeyStore = DeviceDataKeyStore(label: "proton-snapshot-cache"),
@@ -91,30 +172,34 @@ struct ProtonSnapshotCache: Sendable {
         if let directory {
             self.directory = directory
         } else {
-            let base = (try? fileManager.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: false
-            )) ?? fileManager.temporaryDirectory
-            self.directory = base
-                .appendingPathComponent("VaultSquire", isDirectory: true)
-                .appendingPathComponent("ProtonSnapshots", isDirectory: true)
+            self.directory = fileManager.containerURL(
+                forSecurityApplicationGroupIdentifier: "group.ch.lkmc.VaultSquire"
+            )?.appendingPathComponent("ProtonSnapshots", isDirectory: true)
         }
     }
 
     func save(_ snapshot: ProtonSnapshot, for account: AccountID) throws {
+        guard let directory else { throw ProtonSnapshotCacheError.storeUnavailable }
+        let sanitized = snapshot.withoutSecretContent
+        guard sanitized.isStructurallyValid else { throw ProtonSnapshotCacheError.corrupt }
         let key = try sealingKey()
-        let plaintext: Data
+        var plaintext: Data
         do {
-            plaintext = try JSONEncoder().encode(snapshot)
+            plaintext = try JSONEncoder().encode(sanitized)
         } catch {
             throw ProtonSnapshotCacheError.ioFailed
         }
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        guard plaintext.count <= Self.maximumSealedBytes else {
+            throw ProtonSnapshotCacheError.ioFailed
+        }
         let sealed = try seal(plaintext, key: key, account: account)
+        guard sealed.count <= Self.maximumSealedBytes else {
+            throw ProtonSnapshotCacheError.ioFailed
+        }
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Self.writeSealed(sealed, to: fileURL(for: account))
+            try Self.writeSealed(sealed, to: fileURL(for: account, directory: directory))
         } catch {
             throw ProtonSnapshotCacheError.ioFailed
         }
@@ -133,29 +218,51 @@ struct ProtonSnapshotCache: Sendable {
     }
 
     func load(for account: AccountID) throws -> ProtonSnapshot? {
-        let url = fileURL(for: account)
+        guard let directory else { throw ProtonSnapshotCacheError.storeUnavailable }
+        let url = fileURL(for: account, directory: directory)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         let key = try sealingKey()
         let sealed: Data
         do {
-            sealed = try Data(contentsOf: url)
+            let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            guard let size = attributes[.size] as? NSNumber,
+                  size.intValue > 0,
+                  size.intValue <= Self.maximumSealedBytes else {
+                throw ProtonSnapshotCacheError.corrupt
+            }
+            sealed = try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch let error as ProtonSnapshotCacheError {
+            throw error
         } catch {
             throw ProtonSnapshotCacheError.ioFailed
         }
-        let plaintext = try open(sealed, key: key, account: account)
+        var plaintext = try open(sealed, key: key, account: account)
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        guard plaintext.count <= Self.maximumSealedBytes else {
+            throw ProtonSnapshotCacheError.corrupt
+        }
         do {
-            return try JSONDecoder().decode(ProtonSnapshot.self, from: plaintext)
+            let decoded = try JSONDecoder().decode(ProtonSnapshot.self, from: plaintext)
+            let sanitized = decoded.withoutSecretContent
+            guard sanitized.isStructurallyValid else {
+                throw ProtonSnapshotCacheError.corrupt
+            }
+            return sanitized
+        } catch let error as ProtonSnapshotCacheError {
+            throw error
         } catch {
             throw ProtonSnapshotCacheError.corrupt
         }
     }
 
     func exists(for account: AccountID) -> Bool {
-        fileManager.fileExists(atPath: fileURL(for: account).path)
+        guard let directory else { return false }
+        return fileManager.fileExists(atPath: fileURL(for: account, directory: directory).path)
     }
 
     func wipe(for account: AccountID) throws {
-        let url = fileURL(for: account)
+        guard let directory else { throw ProtonSnapshotCacheError.storeUnavailable }
+        let url = fileURL(for: account, directory: directory)
         guard fileManager.fileExists(atPath: url.path) else { return }
         do {
             try fileManager.removeItem(at: url)
@@ -194,7 +301,7 @@ struct ProtonSnapshotCache: Sendable {
         }
     }
 
-    private func fileURL(for account: AccountID) -> URL {
+    private func fileURL(for account: AccountID, directory: URL) -> URL {
         // Hash the account identity into the filename: opaque, filesystem-safe,
         // and leaking nothing even if a raw value ever carried readable text.
         let material = "\(account.provider.rawValue)|\(account.rawValue)"

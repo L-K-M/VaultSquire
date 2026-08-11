@@ -16,10 +16,25 @@ struct VaultwardenOrigin: Hashable, Sendable {
         guard let targetScheme = url.scheme?.lowercased(), targetScheme == "https",
               scheme == "https",
               let targetHost = url.host?.lowercased(), targetHost == host.lowercased(),
-              (url.port ?? 443) == port else {
+              (url.port ?? 443) == port,
+              url.user == nil, url.password == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return false
         }
 
+        // Compare only a canonical path. Encoded dot/slash/backslash forms can
+        // be interpreted as traversal by a proxy even when Foundation leaves
+        // their textual prefix under the approved base.
+        let encodedPath = components.percentEncodedPath.lowercased()
+        guard !encodedPath.contains("%25"),
+              !encodedPath.contains("%2e"),
+              !encodedPath.contains("%2f"),
+              !encodedPath.contains("%5c"),
+              !encodedPath.contains("\\"),
+              !components.path.split(separator: "/", omittingEmptySubsequences: false)
+                .contains(where: { $0 == "." || $0 == ".." }) else {
+            return false
+        }
         return Self.path(url).hasPrefix(basePath)
     }
 
@@ -75,7 +90,11 @@ struct VaultwardenEnvironment: Hashable, Sendable {
     /// documented development-only exception for http on a loopback host.
     init(configuredURL raw: String, allowInsecureLoopback: Bool = false) throws {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: trimmed),
+        guard trimmed.utf8.count <= 2_048,
+              trimmed.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }),
+              var components = URLComponents(string: trimmed),
               let scheme = components.scheme?.lowercased() else {
             throw VaultwardenEnvironmentError.invalidURL
         }
@@ -92,6 +111,16 @@ struct VaultwardenEnvironment: Hashable, Sendable {
             throw VaultwardenEnvironmentError.fragmentNotAllowed
         }
         guard let host = components.host, !host.isEmpty else {
+            throw VaultwardenEnvironmentError.invalidURL
+        }
+        let encodedPath = components.percentEncodedPath.lowercased()
+        guard !encodedPath.contains("%25"),
+              !encodedPath.contains("%2e"),
+              !encodedPath.contains("%2f"),
+              !encodedPath.contains("%5c"),
+              !encodedPath.contains("\\"),
+              !components.path.split(separator: "/", omittingEmptySubsequences: false)
+                .contains(where: { $0 == "." || $0 == ".." }) else {
             throw VaultwardenEnvironmentError.invalidURL
         }
 

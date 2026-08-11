@@ -19,6 +19,12 @@ struct VaultSquireApp: App {
                 .environmentObject(siteIcons)
                 .background(WindowRestorationDisabler())
                 .onAppear {
+                    ApplicationCoordinator.shared.configureVaultLockCleanup {
+                        siteIcons.clear()
+                    }
+                    appDelegate.configureSecurityLock {
+                        appModel.lock()
+                    }
                     PerformanceTrace.recordLaunchCompleted()
                 }
         }
@@ -35,9 +41,6 @@ struct VaultSquireApp: App {
 
                 Button("Lock Vault") {
                     appModel.lock()
-                    // Icons are drawn from the sites in the vault, so a lock
-                    // clears them along with everything else it decrypted.
-                    siteIcons.clear()
                 }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             }

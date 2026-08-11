@@ -178,6 +178,22 @@ final class VaultwardenEncStringTests: XCTestCase {
         }
     }
 
+    func testAllocationBoundsRejectOversizedSerializedAndAsymmetricValues() {
+        let oversizedSerialized = String(
+            repeating: "A",
+            count: VaultwardenEncString.maximumSerializedBytes + 1
+        )
+        XCTAssertThrowsError(try VaultwardenEncString.parse(oversizedSerialized))
+
+        let payload = Data(
+            repeating: 0x41,
+            count: VaultwardenEncString.maximumAsymmetricPayloadBytes + 1
+        ).base64EncodedString()
+        XCTAssertThrowsError(try VaultwardenEncString.parse("4.\(payload)")) { error in
+            XCTAssertEqual(error as? VaultwardenCryptoError, .integrityFailure)
+        }
+    }
+
     func testLegacyType0IsDetectedNotDecrypted() throws {
         let parsed = try VaultwardenEncString.parse(
             VaultwardenCryptoFixtures.legacyType0UserKey32

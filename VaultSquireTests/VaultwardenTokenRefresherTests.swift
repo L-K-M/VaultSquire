@@ -37,6 +37,38 @@ final class VaultwardenTokenRefresherTests: XCTestCase {
         XCTAssertEqual(grant.formFields["client_id"], "desktop")
     }
 
+    func testMalformedInitialRefreshTokenEndsSessionWithoutNetwork() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        let refresher = VaultwardenTokenRefresher(
+            transport: transport,
+            refreshToken: "bad\nheader"
+        )
+
+        let outcome = await refresher.refresh()
+
+        guard case .sessionExpired = outcome else {
+            return XCTFail("invalid stored token must fail closed")
+        }
+        XCTAssertTrue(StubServer.shared.requests.isEmpty)
+    }
+
+    func testMalformedRotatedTokenIsNotAdopted() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"bad\\nvalue\"}")
+        )
+        let refresher = VaultwardenTokenRefresher(transport: transport, refreshToken: "old")
+
+        let outcome = await refresher.refresh()
+
+        guard case .transientFailure = outcome else {
+            return XCTFail("invalid response token must not be published")
+        }
+        let current = await refresher.currentRefreshToken
+        XCTAssertEqual(current, "old")
+    }
+
     func testInvalidGrantRefreshReportsSessionExpired() async throws {
         let transport = try VaultwardenTestFactory.stubbedTransport()
         StubServer.shared.on("/connect/token", respond: .json(400, "{\"error\":\"invalid_grant\"}"))

@@ -47,6 +47,7 @@ enum OnePasswordServiceError: Error, Equatable, Sendable {
     case unusableAccount
     case unreadableOutput
     case executionFailed
+    case localStorageFailed
 }
 
 /// The result of a full read refresh: the sealed-ready snapshot and its display
@@ -118,7 +119,7 @@ struct OnePasswordAccountService: Sendable {
     /// allowlist, so no inherited `OP_SESSION`, `OP_SERVICE_ACCOUNT_TOKEN`, or
     /// `OP_CONNECT_TOKEN` can reach the child either.
     static func makeExecutor() -> any CLIExecuting {
-        CLIProcessExecutor(environmentOverlay: ["OP_BIOMETRIC_UNLOCK_ENABLED": "true"])
+        CLIProcessExecutor(mode: .onePasswordDesktopAuthorization)
     }
 
     // MARK: - Detection
@@ -152,7 +153,9 @@ struct OnePasswordAccountService: Sendable {
 
         let accounts: [OnePasswordAccount]
         do {
-            accounts = try OnePasswordReadModel.decodeAccounts(try await runner.accountListJSON())
+            var data = try await runner.accountListJSON()
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+            accounts = try OnePasswordReadModel.decodeAccounts(data)
         } catch is OnePasswordReadModelError {
             return .error
         } catch {
@@ -176,7 +179,7 @@ struct OnePasswordAccountService: Sendable {
 
     /// Runs a full authoritative read for one account: version gate, vault
     /// list, and one item list per vault, then seals the snapshot and returns
-    /// projections. A cache write failure is non-fatal to the in-memory result.
+    /// projections. Publication requires that sealed cache commit to succeed.
     ///
     /// The vault list is also what establishes authorization — a real read is
     /// what makes the 1Password app raise its prompt — so a refusal surfaces
@@ -212,7 +215,9 @@ struct OnePasswordAccountService: Sendable {
 
         let vaults: [OnePasswordVault]
         do {
-            vaults = try OnePasswordReadModel.decodeVaults(try await runner.vaultListJSON())
+            var data = try await runner.vaultListJSON()
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+            vaults = try OnePasswordReadModel.decodeVaults(data)
         } catch OnePasswordCLIRunnerError.commandFailed {
             // The first real read is where authorization is decided, so a
             // non-zero exit here means the desktop app did not grant it.
@@ -225,9 +230,12 @@ struct OnePasswordAccountService: Sendable {
 
         var items: [OnePasswordItem] = []
         for vault in vaults.prefix(Self.maximumVaults) {
+            guard !Task.isCancelled else { return .failure(.executionFailed) }
             do {
+                var data = try await runner.itemListJSON(vaultID: vault.vaultID)
+                defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
                 items.append(contentsOf: try OnePasswordReadModel.decodeItems(
-                    try await runner.itemListJSON(vaultID: vault.vaultID),
+                    data,
                     vaultID: vault.vaultID,
                     vaultName: vault.name
                 ))
@@ -248,17 +256,22 @@ struct OnePasswordAccountService: Sendable {
             }
         }
 
+        guard !Task.isCancelled else { return .failure(.executionFailed) }
         let snapshot = OnePasswordSnapshot(
             cliVersion: version.raw,
             accountIdentifier: accountUUID,
             capturedAt: now(),
-            vaults: vaults,
+            vaults: Array(vaults.prefix(Self.maximumVaults)),
             items: items
         )
-        // Best-effort: a host without the device Keychain key still returns the
-        // in-memory result; offline read simply won't be available until it can
-        // seal.
-        try? cache.save(snapshot, for: Self.vaultIdentity(for: accountUUID))
+        // Publish only a complete generation that has already been sealed and
+        // atomically committed. A failed cache write leaves the prior snapshot
+        // usable and cannot create a visible-only generation.
+        do {
+            try cache.save(snapshot, for: Self.vaultIdentity(for: accountUUID))
+        } catch {
+            return .failure(.localStorageFailed)
+        }
 
         return .success(OnePasswordRefreshResult(
             snapshot: snapshot,
@@ -272,7 +285,14 @@ struct OnePasswordAccountService: Sendable {
     /// without invoking the CLI. Returns nil when none exists or the seal
     /// cannot be opened.
     func cachedSnapshot(accountUUID: String) -> OnePasswordSnapshot? {
-        try? cache.load(for: Self.vaultIdentity(for: accountUUID))
+        let account = Self.vaultIdentity(for: accountUUID)
+        guard OnePasswordCLIRunner.isValidOpaqueIdentifier(accountUUID),
+              let snapshot = try? cache.load(for: account),
+              snapshot.accountIdentifier == accountUUID,
+              (try? versionGate.admit(OnePasswordCLIVersion(raw: snapshot.cliVersion))) != nil else {
+            return nil
+        }
+        return snapshot
     }
 
     func projections(
@@ -333,9 +353,14 @@ struct OnePasswordAccountService: Sendable {
         guard (try? await runner.probeVersion()) != nil else { return nil }
         let scoped = runner.scoped(toAccount: accountUUID)
         guard scoped.accountID != nil else { return nil }
-        guard let data = try? await scoped.itemGetJSON(itemID: itemID, vaultID: vaultID) else {
+        guard !Task.isCancelled,
+              var data = try? await scoped.itemGetJSON(
+            itemID: itemID, vaultID: vaultID
+        ) else {
             return nil
         }
+        defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+        guard !Task.isCancelled else { return nil }
         return try? OnePasswordReadModel.decodeItemContent(data)
     }
 

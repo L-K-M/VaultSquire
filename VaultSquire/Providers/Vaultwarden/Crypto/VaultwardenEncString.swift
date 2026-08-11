@@ -30,6 +30,13 @@ struct VaultwardenSymmetricKey: Sendable {
 /// types 3 through 6 parse read-only for existing shared material; anything
 /// else fails closed while the caller retains the original string.
 enum VaultwardenEncString: Hashable, Sendable {
+    /// Bounds untrusted strings before Base64 creates additional allocations.
+    /// Vault item fields are far smaller in practice; this leaves room for a
+    /// large secure note while preventing one field from multiplying a whole
+    /// sync response into unbounded transient memory.
+    static let maximumSerializedBytes = 16 * 1024 * 1024
+    static let maximumPlaintextBytes = 8 * 1024 * 1024
+    static let maximumAsymmetricPayloadBytes = 64 * 1024
     /// Type 2: AES-256-CBC ciphertext authenticated by HMAC-SHA256 over
     /// IV || ciphertext.
     case aesCbc256HmacSha256(iv: Data, ciphertext: Data, mac: Data)
@@ -40,7 +47,8 @@ enum VaultwardenEncString: Hashable, Sendable {
     case asymmetric(type: Int, payload: Data)
 
     static func parse(_ serialized: String) throws -> VaultwardenEncString {
-        guard let dotIndex = serialized.firstIndex(of: "."),
+        guard serialized.utf8.count <= maximumSerializedBytes,
+              let dotIndex = serialized.firstIndex(of: "."),
               dotIndex != serialized.startIndex else {
             throw VaultwardenCryptoError.unsupportedEncryptionType
         }
@@ -65,6 +73,7 @@ enum VaultwardenEncString: Hashable, Sendable {
                   iv.count == 16,
                   mac.count == 32,
                   !ciphertext.isEmpty,
+                  ciphertext.count <= maximumSerializedBytes,
                   ciphertext.count % 16 == 0 else {
                 throw VaultwardenCryptoError.integrityFailure
             }
@@ -72,9 +81,11 @@ enum VaultwardenEncString: Hashable, Sendable {
             return .aesCbc256HmacSha256(iv: iv, ciphertext: ciphertext, mac: mac)
         case 3, 4, 5, 6:
             guard !body.isEmpty,
+                  body.utf8.count <= ((maximumAsymmetricPayloadBytes + 2) / 3) * 4,
                   !body.contains("|"),
                   let payload = Data(base64Encoded: body),
-                  !payload.isEmpty else {
+                  !payload.isEmpty,
+                  payload.count <= maximumAsymmetricPayloadBytes else {
                 throw VaultwardenCryptoError.integrityFailure
             }
 
@@ -138,6 +149,9 @@ enum VaultwardenCipher {
         _ plaintext: Data,
         key: VaultwardenSymmetricKey
     ) throws -> String {
+        guard plaintext.count <= VaultwardenEncString.maximumPlaintextBytes else {
+            throw VaultwardenCryptoError.invalidKeyMaterial
+        }
         var iv = Data(count: 16)
         let randomStatus = iv.withUnsafeMutableBytes { buffer in
             SecRandomCopyBytes(kSecRandomDefault, 16, buffer.baseAddress!)
@@ -208,10 +222,12 @@ enum VaultwardenCipher {
             }
         }
         // CCCrypt returns CCCryptorStatus (Int32); kCCSuccess imports as Int.
-        guard status == Int32(kCCSuccess) else {
+        guard status == Int32(kCCSuccess), movedBytes >= 0, movedBytes <= output.count else {
+            VaultwardenCryptoZeroize.zero(&output)
             throw VaultwardenCryptoError.integrityFailure
         }
 
-        return output.prefix(movedBytes)
+        output.count = movedBytes
+        return output
     }
 }

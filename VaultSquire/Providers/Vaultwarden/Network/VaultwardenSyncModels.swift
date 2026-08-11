@@ -56,11 +56,13 @@ struct VaultwardenSyncResponse: Sendable, Decodable {
     struct Profile: Sendable, Decodable {
         let key: String?
         let privateKey: String?
+        let securityStamp: String?
         let organizations: [Organization]
 
         enum CodingKeys: String, CodingKey {
             case key = "Key", keyLower = "key"
             case privateKey = "PrivateKey", privateKeyLower = "privateKey"
+            case securityStamp = "SecurityStamp", securityStampLower = "securityStamp"
             case organizations = "Organizations", organizationsLower = "organizations"
         }
 
@@ -70,6 +72,8 @@ struct VaultwardenSyncResponse: Sendable, Decodable {
                 ?? c.decodeIfPresent(String.self, forKey: .keyLower)
             privateKey = try c.decodeIfPresent(String.self, forKey: .privateKey)
                 ?? c.decodeIfPresent(String.self, forKey: .privateKeyLower)
+            securityStamp = try c.decodeIfPresent(String.self, forKey: .securityStamp)
+                ?? c.decodeIfPresent(String.self, forKey: .securityStampLower)
             organizations = try c.decodeIfPresent([Organization].self, forKey: .organizations)
                 ?? c.decodeIfPresent([Organization].self, forKey: .organizationsLower)
                 ?? []

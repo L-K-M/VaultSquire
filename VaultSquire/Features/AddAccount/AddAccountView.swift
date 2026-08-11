@@ -61,20 +61,13 @@ struct AddAccountView: View {
     }
 
     private var providerHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Add Account")
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Add Vaultwarden Account")
                 .font(.title2.weight(.semibold))
-            Picker("Provider", selection: $provider) {
-                Text("Vaultwarden").tag(AddAccountProvider.vaultwarden)
-                Text("Proton Pass").tag(AddAccountProvider.protonPass)
-                Text("1Password").tag(AddAccountProvider.onePassword)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            // Mid-transaction provider hopping would hide the form the flow
-            // reports into.
-            .disabled(model.phase == .connecting)
-            .accessibilityIdentifier("add-account-provider")
+            Text("External CLI providers stay unavailable until their live executable, authorization, schema, and policy gates pass.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

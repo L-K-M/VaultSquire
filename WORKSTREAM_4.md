@@ -85,6 +85,13 @@ Proton outreach and legal review `PROTON_PASS_RESEARCH.md` records. `PLAN.md`
 `ARCHITECTURE.md`, and `README.md` were amended in the same change so the
 controlling documents and the implementation agree.
 
+**Current security-review supersession (2026-08-11):** the historical provider
+choice described above is no longer user-reachable. The Add Account sheet
+exposes Vaultwarden alone; Proton and 1Password remain dormant until exact live
+executable, authorization, command/schema, sandbox/direct, and policy gates
+produce a non-empty production allowlist. This narrows availability without
+changing the historical evidence for the merged slice.
+
 The locked shell now distinguishes "no accounts yet" from "vault locked". On
 appearance it probes the credential store for record existence only
 (`hasCredentials`, a metadata query that loads no secret bytes); this is not

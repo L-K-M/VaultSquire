@@ -14,7 +14,7 @@ enum AddAccountError: Error {
 /// one sanctioned place they appear — they are never folded into an error
 /// message. Non-HTTPS advertisements never reach this point: the
 /// authenticator discards them and stays on the entered origin.
-struct OriginApprovalRequest: Equatable {
+struct OriginApprovalRequest: Equatable, Sendable {
     let entered: VaultwardenOrigin
     let effectiveIdentity: VaultwardenOrigin
     let effectiveAPI: VaultwardenOrigin
@@ -61,6 +61,10 @@ struct RejectKDFChangePolicy: VaultwardenKDFChangePolicy {
 @MainActor
 final class AddAccountModel: ObservableObject, Identifiable {
     nonisolated let id = UUID()
+    nonisolated static let maximumServerURLBytes = 2_048
+    nonisolated static let maximumEmailBytes = 320
+    nonisolated static let maximumMasterPasswordBytes = 16 * 1024
+    nonisolated static let maximumTwoFactorBytes = 512
 
     enum Phase: Equatable {
         case editing
@@ -108,19 +112,25 @@ final class AddAccountModel: ObservableObject, Identifiable {
         deviceIdentity: VaultwardenDeviceIdentity,
         makeTransport: @escaping @Sendable (VaultwardenEnvironment) -> VaultwardenTransport = { VaultwardenTransport(environment: $0) },
         onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in },
-        accountService: VaultwardenAccountService = VaultwardenAccountService()
+        accountService: VaultwardenAccountService? = nil
     ) {
         self.credentialStore = credentialStore
         self.deviceIdentity = deviceIdentity
         self.makeTransport = makeTransport
         self.onAccountConfigured = onAccountConfigured
-        self.accountService = accountService
+        self.accountService = accountService ?? VaultwardenAccountService(
+            credentialStore: credentialStore,
+            makeTransport: makeTransport
+        )
     }
 
     var canSubmit: Bool {
         !serverURL.trimmingCharacters(in: .whitespaces).isEmpty
+            && serverURL.utf8.count <= Self.maximumServerURLBytes
             && !email.trimmingCharacters(in: .whitespaces).isEmpty
+            && email.utf8.count <= Self.maximumEmailBytes
             && !masterPassword.isEmpty
+            && masterPassword.utf8.count <= Self.maximumMasterPasswordBytes
             && phase != .connecting
     }
 
@@ -129,6 +139,11 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// task is cancelled first so it cannot mutate state behind the new one.
     func beginSignIn() {
         cancelActiveWork()
+        pending?.discardSensitiveMaterial()
+        pending = nil
+        authenticator = nil
+        environment = nil
+        twoFactorCode.removeAll(keepingCapacity: false)
         activeTask = Task { await signIn() }
     }
 
@@ -152,6 +167,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
     func cancel() {
         cancelActiveWork()
         activeTask = nil
+        clearSensitiveState()
     }
 
     /// Declines any pending origin approval and cancels the tracked task.
@@ -201,6 +217,23 @@ final class AddAccountModel: ObservableObject, Identifiable {
             return
         }
 
+        let lastAcceptedKDF: VaultwardenKDFConfiguration?
+        do {
+            lastAcceptedKDF = try accountService.loginBaseline(
+                serverBaseURL: environment.base,
+                email: email
+            )
+        } catch VaultwardenAccountError.existingAccountMismatch {
+            fail(with: "A different Vaultwarden account is already configured. Remove it before adding another one.")
+            return
+        } catch VaultwardenAccountError.inconsistentLocalState {
+            fail(with: "The existing account is only partly stored. Remove it before signing in again.")
+            return
+        } catch {
+            fail(with: "The existing account settings could not be verified safely.")
+            return
+        }
+
         let authenticator = VaultwardenAuthenticator(
             transport: makeTransport(environment),
             kdfChangePolicy: RejectKDFChangePolicy(),
@@ -223,13 +256,14 @@ final class AddAccountModel: ObservableObject, Identifiable {
                 email: email,
                 masterPasswordBytes: passwordBytes,
                 device: deviceIdentity,
-                lastAcceptedKDF: nil
+                lastAcceptedKDF: lastAcceptedKDF
             )
             // If the sheet was dismissed mid-request, do not persist or advance.
             guard !Task.isCancelled else { return }
             switch outcome {
             case .authenticated(let session):
-                try store(session)
+                try await store(session)
+                clearSensitiveState()
                 phase = .succeeded
                 onAccountConfigured(environment.base)
             case .twoFactorRequired(let challenge, let pending):
@@ -238,6 +272,8 @@ final class AddAccountModel: ObservableObject, Identifiable {
             }
         } catch AddAccountError.missingRefreshToken {
             fail(with: "The server did not return the tokens needed to stay signed in.")
+        } catch VaultwardenAccountError.replacementSyncFailed {
+            fail(with: "Sign-in succeeded, but a complete replacement vault sync did not finish. The prior locked cache was preserved.")
         } catch is VaultwardenCredentialStoreError {
             // Authentication succeeded; only the local save failed. Say so
             // rather than implying the password was wrong.
@@ -272,13 +308,16 @@ final class AddAccountModel: ObservableObject, Identifiable {
 
     /// Submits the entered second-factor code for the selected provider.
     func submitTwoFactor() async {
-        guard let authenticator, let pending, let provider = selectedProvider else {
+        guard let authenticator, let pending, let provider = selectedProvider,
+              !twoFactorCode.isEmpty,
+              twoFactorCode.utf8.count <= Self.maximumTwoFactorBytes else {
             // Inconsistent state (no active challenge); surface feedback rather
             // than a dead button.
             failureMessage = "Something went wrong. Please go back and try again."
             return
         }
         phase = .connecting
+        defer { twoFactorCode.removeAll(keepingCapacity: false) }
 
         let proof = VaultwardenTwoFactorProof(
             provider: provider,
@@ -289,22 +328,21 @@ final class AddAccountModel: ObservableObject, Identifiable {
             let session = try await authenticator.completeTwoFactor(pending, proof: proof)
             // If the sheet was dismissed mid-request, do not persist or advance.
             guard !Task.isCancelled else { return }
-            try store(session)
-            // Clear the code only once storage has succeeded, so a save failure
-            // does not also blank the field.
-            twoFactorCode = ""
+            try await store(session)
+            let configuredEnvironment = environment
+            clearSensitiveState()
             phase = .succeeded
-            if let environment {
-                onAccountConfigured(environment.base)
+            if let configuredEnvironment {
+                onAccountConfigured(configuredEnvironment.base)
             }
         } catch AddAccountError.missingRefreshToken {
-            phase = .challenged
-            self.failureMessage = "The server did not return the tokens needed to stay signed in."
+            fail(with: "The server did not return the tokens needed to stay signed in. Please start over.")
+        } catch VaultwardenAccountError.replacementSyncFailed {
+            fail(with: "Verification succeeded, but a complete replacement vault sync did not finish. The prior locked cache was preserved; please start over.")
         } catch is VaultwardenCredentialStoreError {
             // The code was accepted; only the local save failed. Do not claim
-            // the code was rejected.
-            phase = .challenged
-            self.failureMessage = "Verification succeeded, but the credentials could not be saved. Please start over."
+            // the code was rejected or retain a reusable proof context.
+            fail(with: "Verification succeeded, but the credentials could not be saved. Please start over.")
         } catch let error as VaultwardenAPIError {
             phase = .challenged
             self.failureMessage = error.safeDisplayMessage
@@ -319,12 +357,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// Returns from the challenge to the form, preserving the non-secret URL
     /// and email fields.
     func returnToForm() {
-        pending = nil
-        offeredProviders = []
-        selectedProvider = nil
-        twoFactorCode = ""
-        rememberDevice = false
-        failureMessage = nil
+        clearSensitiveState()
         phase = .editing
     }
 
@@ -337,7 +370,7 @@ final class AddAccountModel: ObservableObject, Identifiable {
         phase = .challenged
     }
 
-    private func store(_ session: VaultwardenAuthSession) throws {
+    private func store(_ session: VaultwardenAuthSession) async throws {
         guard let refreshToken = session.refreshToken else {
             // A session with no refresh token has nothing durable to persist,
             // so reporting success would strand the account with nothing to
@@ -349,26 +382,51 @@ final class AddAccountModel: ObservableObject, Identifiable {
             refreshToken: refreshToken,
             rememberedTwoFactorToken: session.rememberTwoFactorToken
         )
+        let previousCredentials = try credentialStore.load(for: .primary)
         try credentialStore.save(credentials, for: .primary)
 
-        // Persist the non-secret descriptor (so the shell always shows an unlock
-        // prompt) and seed the sealed vault. When the login token carried no
-        // wrapped key, the seed holds none and the first unlock's sync fetches
-        // it from the profile — the account is never stranded in a promptless
-        // locked state.
-        if let environment {
-            accountService.persistAfterLogin(
+        // The sealed cache is the only durable copy of the approved endpoints,
+        // KDF, and wrapped hierarchy. If it cannot commit, restore the prior
+        // atomic credential record (or remove this first-login record) instead
+        // of reporting a half-configured account as success.
+        do {
+            guard let environment else {
+                throw VaultwardenAccountError.inconsistentLocalState
+            }
+            try await accountService.persistAfterLogin(
                 session: session,
                 serverBaseURL: environment.base,
                 email: email
             )
+        } catch {
+            if let previousCredentials {
+                try? credentialStore.save(previousCredentials, for: .primary)
+            } else {
+                try? credentialStore.delete(for: .primary)
+            }
+            throw error
         }
+    }
+
+    private func clearSensitiveState() {
+        masterPassword.removeAll(keepingCapacity: false)
+        twoFactorCode.removeAll(keepingCapacity: false)
+        pending?.discardSensitiveMaterial()
+        pending = nil
+        authenticator = nil
+        environment = nil
+        offeredProviders = []
+        selectedProvider = nil
+        rememberDevice = false
+        failureMessage = nil
+        isSendingEmailChallenge = false
     }
 
     private func fail(with message: String) {
         // A cancelled flow (dismissed sheet, restarted sign-in) must not
         // repaint the form with a stale failure from behind the new state.
         guard !Task.isCancelled else { return }
+        clearSensitiveState()
         phase = .failed(message)
     }
 

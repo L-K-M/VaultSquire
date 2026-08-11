@@ -11,8 +11,8 @@ enum ProtonCLIVersionGateError: Error, Equatable, Sendable {
     /// The binary's `version` output had no recognizable version token.
     case unparseableVersion
     /// The reported version is not in the tested allowlist. Carries the exact
-    /// version so the UI can report which build was rejected, never a claim
-    /// that a nearby version would work.
+    /// bounded token, or `<invalid>` when retaining untrusted output would be
+    /// unsafe; never claims a nearby version would work.
     case unsupportedVersion(String)
 }
 
@@ -27,28 +27,23 @@ struct ProtonCLIVersionGate: Sendable {
         self.supportedVersions = supportedVersions
     }
 
-    /// The versions this build maps against Proton's documented `vault`/`item`/
-    /// `version` contract. 2.2.3/2.2.4 come from PROTON_PASS_RESEARCH.md;
-    /// 2.2.5/2.2.6 were added after confirming the published command reference
-    /// (binary `pass-cli`, `vault list`/`item list`/`item view`, `--share-id`,
-    /// `--item-id`, `--output json`) still documents the exact surface the
-    /// runner invokes. None has been exercised against a live CLI here, so a
-    /// maintainer should confirm the installed build's machine output against
-    /// the read model on macOS. Any output that does not match still fails
-    /// closed with an honest error rather than a false success, and narrowing
-    /// this set to an empty allowlist disables Proton reads entirely.
-    static let declaredSupportedVersions: Set<String> = ["2.2.3", "2.2.4", "2.2.5", "2.2.6"]
+    /// Releases observed in provider documentation and retained only as future
+    /// live-test candidates. They are not a production compatibility claim.
+    static let documentedCandidateVersions: Set<String> = ["2.2.3", "2.2.4"]
 
-    /// The gate the app runs. Swapping to an empty set here disables Proton
-    /// reads entirely without touching any other code.
-    static let production = ProtonCLIVersionGate(
-        supportedVersions: declaredSupportedVersions
-    )
+    /// The gate the app runs. No CLI build has completed the required live
+    /// executable-identity, command, schema, cancellation, and sandbox matrix,
+    /// so production must admit none. Documentation review is evidence for a
+    /// future candidate; it is not an executed compatibility test.
+    static let production = ProtonCLIVersionGate(supportedVersions: [])
 
     /// Admits a reported version or throws. An empty allowlist rejects every
     /// version, so a misconfigured gate can never silently admit an untested
     /// build.
     func admit(_ version: ProtonCLIVersion) throws {
+        guard Self.isSafeVersion(version.raw) else {
+            throw ProtonCLIVersionGateError.unsupportedVersion("<invalid>")
+        }
         guard supportedVersions.contains(version.raw) else {
             throw ProtonCLIVersionGateError.unsupportedVersion(version.raw)
         }
@@ -59,11 +54,20 @@ struct ProtonCLIVersionGate: Sendable {
     /// the caller maps to `unparseableVersion` and fails closed on.
     static func parseVersion(from output: String) -> ProtonCLIVersion? {
         guard let range = output.range(
-            of: #"[0-9]+\.[0-9]+\.[0-9]+"#,
+            of: #"(?<![0-9])[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}(?![0-9A-Za-z.-])"#,
             options: .regularExpression
         ) else {
             return nil
         }
-        return ProtonCLIVersion(raw: String(output[range]))
+        let raw = String(output[range])
+        guard isSafeVersion(raw) else { return nil }
+        return ProtonCLIVersion(raw: raw)
+    }
+
+    private static func isSafeVersion(_ raw: String) -> Bool {
+        guard !raw.isEmpty, raw.utf8.count <= 64 else { return false }
+        return raw.unicodeScalars.allSatisfy {
+            ($0.value >= 48 && $0.value <= 57) || $0.value == 46
+        }
     }
 }

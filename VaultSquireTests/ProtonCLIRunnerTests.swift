@@ -26,10 +26,13 @@ final class ProtonCLIRunnerTests: XCTestCase {
         let version = try await runner.probeVersion()
         XCTAssertEqual(version, ProtonCLIVersion(raw: "2.2.4"))
 
-        // The invoked executable is the approved absolute path, not the
-        // resolved real path.
+        // Execution is bound to the resolved target that was shown for review,
+        // not to a friendly symlink that can be retargeted afterward.
         let urls = await executor.recordedExecutableURLs
-        XCTAssertEqual(urls.first?.path, "/opt/homebrew/bin/proton-pass")
+        XCTAssertEqual(
+            urls.first?.path,
+            "/opt/homebrew/Cellar/proton-pass/2.2.4/bin/proton-pass"
+        )
     }
 
     func testProbeVersionRejectsAnUnsupportedVersion() async {

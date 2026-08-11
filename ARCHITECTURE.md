@@ -33,6 +33,12 @@ product scope and sequence. [`SECURITY_AND_TESTING.md`](SECURITY_AND_TESTING.md)
 controls security invariants and release gates. The report supplies pinned
 evidence and does not override those decisions.
 
+The current implementation is deliberately narrower than the target diagrams:
+only Vaultwarden is admitted by the production provider set, all mutation
+capabilities are absent, and both CLI production allowlists are empty pending
+live contract evidence. Dormant adapters and mutation services do not establish
+product availability.
+
 ### Goals
 
 - Native macOS startup, navigation, accessibility, and system integration.

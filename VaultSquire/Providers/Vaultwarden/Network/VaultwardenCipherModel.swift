@@ -13,6 +13,10 @@ import Foundation
 struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     /// Vaultwarden's item type discriminator.
     enum ItemType: Int, Sendable, Codable {
+        /// A discriminator this build does not understand. `rawType` below
+        /// preserves the exact wire integer; this sentinel only prevents an
+        /// unknown object from being interpreted as a nearby known shape.
+        case unknown = -1
         case login = 1
         case secureNote = 2
         case card = 3
@@ -21,6 +25,8 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
 
     let id: String
     let type: ItemType
+    /// Exact wire discriminator, including values unknown to this build.
+    let rawType: Int
     /// The organization that owns this cipher, or nil for a personal item. A
     /// personal item decrypts under the user key; an organization item under
     /// that organization's key.
@@ -28,6 +34,17 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     let folderID: String?
     let favorite: Bool
     let revisionDate: Date
+    /// Optional individual cipher key, wrapped under the owning user or
+    /// organization key. When present every item field uses the unwrapped key;
+    /// treating it as absent makes modern ciphers unreadable and makes writes
+    /// destructive.
+    let key: String?
+    /// Effective permissions returned by the server. Personal ciphers omit
+    /// these and retain full read permission; organization ciphers fail closed
+    /// when a permission is absent.
+    let edit: Bool
+    let viewPassword: Bool
+    let permissions: Permissions?
     /// Name EncString (always present for a real item).
     let name: String?
     /// Notes EncString.
@@ -39,6 +56,35 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     /// content here (serial numbers, license keys), so they are first-class:
     /// decoded, displayed, and passed through untouched on update.
     let fields: [CustomField]
+
+    struct Permissions: Sendable, Codable, Hashable {
+        let delete: Bool?
+        let restore: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case delete, restore
+            case deleteP = "Delete", restoreP = "Restore"
+        }
+
+        init(delete: Bool? = nil, restore: Bool? = nil) {
+            self.delete = delete
+            self.restore = restore
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            delete = try c.decodeIfPresent(Bool.self, forKey: .delete)
+                ?? c.decodeIfPresent(Bool.self, forKey: .deleteP)
+            restore = try c.decodeIfPresent(Bool.self, forKey: .restore)
+                ?? c.decodeIfPresent(Bool.self, forKey: .restoreP)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeIfPresent(delete, forKey: .delete)
+            try c.encodeIfPresent(restore, forKey: .restore)
+        }
+    }
 
     struct CustomField: Sendable, Codable, Hashable {
         /// Bitwarden field kind: 0 text, 1 hidden, 2 boolean, 3 linked.
@@ -62,7 +108,7 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             self.type = try c.decodeIfPresent(Int.self, forKey: .type)
-                ?? c.decodeIfPresent(Int.self, forKey: .typeP) ?? 0
+                ?? c.decodeIfPresent(Int.self, forKey: .typeP) ?? -1
             self.name = try c.decodeIfPresent(String.self, forKey: .name)
                 ?? c.decodeIfPresent(String.self, forKey: .nameP)
             self.value = try c.decodeIfPresent(String.self, forKey: .value)
@@ -254,9 +300,11 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     /// server — items still decrypted, but every one of them looked unfiled.
     enum CodingKeys: String, CodingKey {
         case id, type, organizationID, folderID, favorite, revisionDate
+        case key, edit, viewPassword, permissions
         case name, notes, login, card, identity, fields
         case idP = "Id", typeP = "Type", organizationIDP = "OrganizationId"
         case folderIDP = "FolderId", favoriteP = "Favorite", revisionDateP = "RevisionDate"
+        case keyP = "Key", editP = "Edit", viewPasswordP = "ViewPassword", permissionsP = "Permissions"
         case nameP = "Name", notesP = "Notes", loginP = "Login", cardP = "Card", identityP = "Identity"
         case fieldsP = "Fields"
         case organizationIDWire = "organizationId", folderIDWire = "folderId"
@@ -277,9 +325,10 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         }
         self.id = id
 
-        let rawType = try c.decodeIfPresent(Int.self, forKey: .type)
+        let decodedRawType = try c.decodeIfPresent(Int.self, forKey: .type)
             ?? c.decodeIfPresent(Int.self, forKey: .typeP)
-        self.type = rawType.flatMap(ItemType.init(rawValue:)) ?? .secureNote
+        self.rawType = decodedRawType ?? ItemType.unknown.rawValue
+        self.type = decodedRawType.flatMap(ItemType.init(rawValue:)) ?? .unknown
 
         self.organizationID = try str(.organizationID, .organizationIDP)
             ?? c.decodeIfPresent(String.self, forKey: .organizationIDWire)
@@ -288,11 +337,21 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         self.favorite = try c.decodeIfPresent(Bool.self, forKey: .favorite)
             ?? c.decodeIfPresent(Bool.self, forKey: .favoriteP) ?? false
 
-        if let date = try Self.decodeDate(c, .revisionDate, .revisionDateP) {
-            self.revisionDate = date
-        } else {
-            self.revisionDate = Date(timeIntervalSince1970: 0)
+        guard let date = try Self.decodeDate(c, .revisionDate, .revisionDateP) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.revisionDate,
+                .init(codingPath: decoder.codingPath, debugDescription: "missing or invalid revision date")
+            )
         }
+        self.revisionDate = date
+        self.key = try str(.key, .keyP)
+        let personal = organizationID == nil
+        self.edit = try c.decodeIfPresent(Bool.self, forKey: .edit)
+            ?? c.decodeIfPresent(Bool.self, forKey: .editP) ?? personal
+        self.viewPassword = try c.decodeIfPresent(Bool.self, forKey: .viewPassword)
+            ?? c.decodeIfPresent(Bool.self, forKey: .viewPasswordP) ?? personal
+        self.permissions = try c.decodeIfPresent(Permissions.self, forKey: .permissions)
+            ?? c.decodeIfPresent(Permissions.self, forKey: .permissionsP)
 
         self.name = try str(.name, .nameP)
         self.notes = try str(.notes, .notesP)
@@ -309,11 +368,15 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
-        try c.encode(type.rawValue, forKey: .type)
+        try c.encode(rawType, forKey: .type)
         try c.encodeIfPresent(organizationID, forKey: .organizationID)
         try c.encodeIfPresent(folderID, forKey: .folderID)
         try c.encode(favorite, forKey: .favorite)
         try c.encode(Self.wireDateString(revisionDate), forKey: .revisionDate)
+        try c.encodeIfPresent(key, forKey: .key)
+        try c.encode(edit, forKey: .edit)
+        try c.encode(viewPassword, forKey: .viewPassword)
+        try c.encodeIfPresent(permissions, forKey: .permissions)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(notes, forKey: .notes)
         try c.encodeIfPresent(login, forKey: .login)
@@ -331,6 +394,10 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         folderID: String? = nil,
         favorite: Bool = false,
         revisionDate: Date,
+        key: String? = nil,
+        edit: Bool = true,
+        viewPassword: Bool = true,
+        permissions: Permissions? = nil,
         name: String?,
         notes: String? = nil,
         login: Login? = nil,
@@ -340,16 +407,47 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     ) {
         self.id = id
         self.type = type
+        self.rawType = type.rawValue
         self.organizationID = organizationID
         self.folderID = folderID
         self.favorite = favorite
         self.revisionDate = revisionDate
+        self.key = key
+        self.edit = edit
+        self.viewPassword = viewPassword
+        self.permissions = permissions
         self.name = name
         self.notes = notes
         self.login = login
         self.card = card
         self.identity = identity
         self.fields = fields
+    }
+
+    /// Validates allocation and identity bounds after decoding but before a
+    /// snapshot is promoted or persisted. Encryption forms themselves stay
+    /// opaque here so unknown ciphertext is preserved for a future build.
+    var isStructurallyValid: Bool {
+        guard !id.isEmpty, id.utf8.count <= 512,
+              organizationID.map({ !$0.isEmpty && $0.utf8.count <= 512 }) != false,
+              folderID.map({ !$0.isEmpty && $0.utf8.count <= 512 }) != false,
+              revisionDate.timeIntervalSince1970.isFinite,
+              fields.count <= 1_000,
+              (login?.uris.count ?? 0) <= 1_000 else {
+            return false
+        }
+        let encryptedValues: [String?] = [
+            key, name, notes,
+            login?.username, login?.password, login?.totp,
+            card?.cardholderName, card?.brand, card?.number,
+            card?.expMonth, card?.expYear, card?.code,
+            identity?.title, identity?.firstName, identity?.lastName,
+            identity?.email, identity?.phone,
+        ] + (login?.uris.map(\.uri) ?? [])
+          + fields.flatMap { [$0.name, $0.value] }
+        return encryptedValues.allSatisfy { value in
+            value.map { $0.utf8.count <= VaultwardenEncString.maximumSerializedBytes } != false
+        }
     }
 
     /// A fresh formatter per call: `ISO8601DateFormatter` is a reference type and
@@ -378,6 +476,12 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     /// (microseconds), so over-precise output is trimmed to milliseconds
     /// before the fractional parse.
     static func parseWireDate(_ raw: String) -> Date? {
+        guard raw.utf8.count <= 128,
+              raw.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }) else {
+            return nil
+        }
         if let date = fractionalFormatter().date(from: raw) {
             return date
         }

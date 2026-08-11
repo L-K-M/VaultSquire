@@ -9,6 +9,8 @@ enum DeviceDataKeyStoreError: Error, Equatable, Sendable {
     case unavailable(OSStatus)
     /// A stored key record was the wrong size to be a 256-bit key.
     case malformedKey
+    /// An existing record does not carry the required device-only accessibility.
+    case insecureKeyRecord
     /// An unexpected platform failure.
     case unexpected(OSStatus)
 }
@@ -20,11 +22,10 @@ enum DeviceDataKeyStoreError: Error, Equatable, Sendable {
 /// to key an in-process AEAD, exactly like the database key the deferred
 /// SQLCipher store would use.
 ///
-/// The Data Protection Keychain is preferred, but a locally built or Developer
-/// ID app on macOS may not carry the entitlement it needs; in that case the
-/// store falls back to the legacy Keychain, which is available to any signed
-/// app. A stale record left by an earlier build is overwritten rather than
-/// allowed to wedge the seal, so a re-add always produces a usable key.
+/// The Data Protection Keychain is mandatory. An unentitled build reports the
+/// store unavailable instead of silently changing the security boundary. A
+/// malformed or weak existing record fails closed; it is never overwritten,
+/// because replacing an unknown key would strand every blob sealed under it.
 struct DeviceDataKeyStore: Sendable {
     let service: String
     let label: String
@@ -44,63 +45,65 @@ struct DeviceDataKeyStore: Sendable {
         if let existing = try load() {
             return existing
         }
-        let key = SymmetricKey(size: .bits256)
-        let bytes = key.withUnsafeBytes { Data($0) }
-        try store(bytes)
-        return key
+        // An older build could have placed this label in the legacy macOS
+        // Keychain. It is never read or adopted; delete it before creating the
+        // Data Protection record so weak duplicate material cannot linger.
+        try deleteLegacyRecord()
+
+        let generated = SymmetricKey(size: .bits256)
+        var bytes = generated.withUnsafeBytes { Data($0) }
+        defer { bytes.resetBytes(in: bytes.startIndex..<bytes.endIndex) }
+        let status = addKeyData(bytes)
+        switch status {
+        case errSecSuccess:
+            return generated
+        case errSecDuplicateItem:
+            // Another task/process won the generate-and-add race. Adopt its
+            // key; never overwrite it with this loser's random bytes.
+            guard let winner = try load() else {
+                throw DeviceDataKeyStoreError.unexpected(errSecDuplicateItem)
+            }
+            return winner
+        default:
+            throw Self.mapError(status)
+        }
     }
 
-    /// Returns the stored key from whichever Keychain holds it, or nil if none
-    /// exists in a reachable Keychain. Throws only when no Keychain is reachable.
     func load() throws -> SymmetricKey? {
-        var reachableKeychains = 0
-        for useDataProtection in [true, false] {
-            do {
-                if let key = try loadOne(useDataProtection: useDataProtection) {
-                    return key
-                }
-                reachableKeychains += 1
-            } catch let error as DeviceDataKeyStoreError {
-                // An unavailable Keychain is not fatal: try the other one.
-                if case .unavailable = error { continue }
-                throw error
-            }
-        }
-        if reachableKeychains == 0 {
-            throw DeviceDataKeyStoreError.unavailable(errSecNotAvailable)
-        }
-        return nil
+        try loadOne()
     }
 
     func delete() throws {
-        for useDataProtection in [true, false] {
-            let status = SecItemDelete(baseQuery(useDataProtection: useDataProtection) as CFDictionary)
-            switch status {
-            case errSecSuccess, errSecItemNotFound:
-                continue
-            default:
-                throw Self.mapError(status)
-            }
+        let status = SecItemDelete(baseQuery() as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            throw Self.mapError(status)
         }
+        // Cleanup only: remove a key an older build may have written through
+        // its prohibited legacy fallback. No load or store path uses it.
+        try deleteLegacyRecord()
     }
 
     // MARK: - Private
 
-    private func loadOne(useDataProtection: Bool) throws -> SymmetricKey? {
-        var query = baseQuery(useDataProtection: useDataProtection)
+    private func loadOne() throws -> SymmetricKey? {
+        var query = baseQuery()
         query[kSecReturnData] = kCFBooleanTrue
+        query[kSecReturnAttributes] = kCFBooleanTrue
         query[kSecMatchLimit] = kSecMatchLimitOne
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
         case errSecSuccess:
-            // A wrong-sized record (corrupt or from an incompatible earlier
-            // build) is treated as absent so a fresh key overwrites it, rather
-            // than throwing and wedging every seal.
-            guard let data = result as? Data, data.count == 32 else {
-                return nil
+            guard let attributes = result as? [CFString: Any],
+                  attributes[kSecAttrAccessible] as? CFString
+                    == kSecAttrAccessibleWhenUnlockedThisDeviceOnly else {
+                throw DeviceDataKeyStoreError.insecureKeyRecord
             }
+            guard var data = attributes[kSecValueData] as? Data, data.count == 32 else {
+                throw DeviceDataKeyStoreError.malformedKey
+            }
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
             return SymmetricKey(data: data)
         case errSecItemNotFound:
             return nil
@@ -109,61 +112,34 @@ struct DeviceDataKeyStore: Sendable {
         }
     }
 
-    private func store(_ bytes: Data) throws {
-        var lastUnavailable: DeviceDataKeyStoreError?
-        for useDataProtection in [true, false] {
-            do {
-                try storeOne(bytes, useDataProtection: useDataProtection)
-                return
-            } catch let error as DeviceDataKeyStoreError {
-                if case .unavailable = error {
-                    lastUnavailable = error
-                    continue
-                }
-                throw error
-            }
-        }
-        throw lastUnavailable ?? DeviceDataKeyStoreError.unavailable(errSecNotAvailable)
-    }
-
-    private func storeOne(_ bytes: Data, useDataProtection: Bool) throws {
-        var query = baseQuery(useDataProtection: useDataProtection)
+    private func addKeyData(_ bytes: Data) -> OSStatus {
+        var query = baseQuery()
         query[kSecValueData] = bytes
         query[kSecAttrAccessible] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        query[kSecAttrSynchronizable] = kCFBooleanFalse
-        let status = SecItemAdd(query as CFDictionary, nil)
-        switch status {
-        case errSecSuccess:
-            return
-        case errSecDuplicateItem:
-            // A record already exists under this identity (for example from an
-            // earlier build with slightly different attributes that a load could
-            // not read back). Overwrite its data so the seal is not wedged by a
-            // stale item. Any data sealed under a lost prior key was already
-            // unreadable, so nothing recoverable is discarded.
-            let attributes: [CFString: Any] = [kSecValueData: bytes]
-            let updateStatus = SecItemUpdate(
-                baseQuery(useDataProtection: useDataProtection) as CFDictionary,
-                attributes as CFDictionary
-            )
-            guard updateStatus == errSecSuccess else {
-                throw Self.mapError(updateStatus)
-            }
-        default:
+        query[kSecAttrDescription] = "vaultsquire-device-data-key-v1"
+        return SecItemAdd(query as CFDictionary, nil)
+    }
+
+    private func deleteLegacyRecord() throws {
+        let status = SecItemDelete(legacyQuery() as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
             throw Self.mapError(status)
         }
     }
 
-    private func baseQuery(useDataProtection: Bool) -> [CFString: Any] {
-        var query: [CFString: Any] = [
+    private func baseQuery() -> [CFString: Any] {
+        var query = legacyQuery()
+        query[kSecUseDataProtectionKeychain] = kCFBooleanTrue
+        return query
+    }
+
+    private func legacyQuery() -> [CFString: Any] {
+        [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: label,
+            kSecAttrSynchronizable: kCFBooleanFalse as Any,
         ]
-        if useDataProtection {
-            query[kSecUseDataProtectionKeychain] = kCFBooleanTrue
-        }
-        return query
     }
 
     private static func mapError(_ status: OSStatus) -> DeviceDataKeyStoreError {

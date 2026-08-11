@@ -59,11 +59,25 @@ final class OnePasswordCLIVersionGateTests: XCTestCase {
         }
     }
 
-    /// The shipped allowlist must contain only stable CLI 2 releases. A beta's
-    /// machine output is not a contract, and CLI 1 has a different command
-    /// surface entirely.
-    func testTheProductionAllowlistCarriesOnlyStableVersionTwoReleases() {
-        let versions = OnePasswordCLIVersionGate.declaredSupportedVersions
+    func testOversizedVersionCannotBeRetainedInAnError() {
+        let raw = String(repeating: "9", count: 10_000)
+        XCTAssertNil(OnePasswordCLIVersionGate.parseVersion(from: "\(raw).1.1"))
+        XCTAssertThrowsError(
+            try OnePasswordCLIVersionGate(supportedVersions: []).admit(
+                OnePasswordCLIVersion(raw: raw)
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? OnePasswordCLIVersionGateError,
+                .unsupportedVersion("<invalid>")
+            )
+        }
+    }
+
+    /// Documentation candidates still exclude betas and CLI 1, but are not
+    /// confused with the empty production compatibility allowlist.
+    func testDocumentationCandidatesCarryOnlyStableVersionTwoReleases() {
+        let versions = OnePasswordCLIVersionGate.documentedCandidateVersions
         XCTAssertFalse(versions.isEmpty)
         for version in versions {
             XCTAssertFalse(
@@ -83,10 +97,14 @@ final class OnePasswordCLIVersionGateTests: XCTestCase {
         }
     }
 
-    func testTheProductionGateUsesTheDeclaredAllowlist() {
-        XCTAssertEqual(
-            OnePasswordCLIVersionGate.production.supportedVersions,
-            OnePasswordCLIVersionGate.declaredSupportedVersions
-        )
+    func testTheProductionGateAdmitsNoDocumentationOnlyCandidate() {
+        XCTAssertTrue(OnePasswordCLIVersionGate.production.supportedVersions.isEmpty)
+        for candidate in OnePasswordCLIVersionGate.documentedCandidateVersions {
+            XCTAssertThrowsError(
+                try OnePasswordCLIVersionGate.production.admit(
+                    OnePasswordCLIVersion(raw: candidate)
+                )
+            )
+        }
     }
 }

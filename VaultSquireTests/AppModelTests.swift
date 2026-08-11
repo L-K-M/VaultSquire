@@ -10,7 +10,8 @@ final class AppModelTests: XCTestCase {
         presence: @escaping () -> AppModel.AccountPresence = { .none },
         descriptors: [AccountDescriptor] = [],
         protonService: ProtonAccountService = ProtonAccountService(),
-        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService()
+        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService(),
+        enabledProviders: Set<ProviderID> = [.vaultwarden, .protonCLI, .onePasswordCLI]
     ) -> (AppModel, AccountDescriptorStore) {
         let defaults = UserDefaults(suiteName: "VSQ-appmodel-\(UUID().uuidString)")!
         let store = AccountDescriptorStore(defaults: defaults)
@@ -31,7 +32,8 @@ final class AppModelTests: XCTestCase {
             service: service,
             protonService: protonService,
             onePasswordService: onePasswordService,
-            biometricStore: FakeBiometricVaultKeyStore(available: false)
+            biometricStore: FakeBiometricVaultKeyStore(available: false),
+            enabledProviders: enabledProviders
         )
         return (model, store)
     }
@@ -96,6 +98,124 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.items.isEmpty)
         XCTAssertTrue(model.allOpenItems.isEmpty)
         XCTAssertFalse(model.isUnlocked)
+    }
+
+    @MainActor
+    func testProductionProviderSetFiltersDormantCLIDescriptors() {
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: .vaultwardenPrimary,
+                    serverDisplay: "vault.example.com",
+                    email: "user@example.com"
+                ),
+                AccountDescriptor(
+                    account: ProtonAccountService.accountID,
+                    serverDisplay: "Proton Pass",
+                    email: "Official Proton Pass CLI"
+                ),
+                onePasswordDescriptor(),
+            ],
+            enabledProviders: [.vaultwarden]
+        )
+
+        model.refreshAccountPresence()
+
+        XCTAssertEqual(model.sessions.map(\.account), [.vaultwardenPrimary])
+    }
+
+    func testSameNamedVaultwardenFoldersRemainDistinctScopes() {
+        let account = AccountID.vaultwardenPrimary
+        func projection(_ item: String, folder: String) -> VaultItemProjection {
+            VaultItemProjection(
+                id: VaultItemID(
+                    space: VaultSpaceID(account: account, scope: .personal),
+                    rawValue: item
+                ),
+                displayTitle: item,
+                displaySubtitle: nil,
+                category: .login,
+                username: nil,
+                websites: [],
+                groupings: [VaultItemGrouping(id: folder, name: "Shared name")],
+                capabilities: [.viewItems],
+                cacheReference: ProviderCacheReference(
+                    scope: .wholeAccount(account),
+                    captureGeneration: SnapshotGeneration(rawValue: 1)
+                )
+            )
+        }
+        var slot = VaultSlot(
+            account: account,
+            kind: .vaultwarden,
+            title: "Vaultwarden",
+            subtitle: "user@example.com"
+        )
+        slot.state = .open
+        slot.items = [projection("one", folder: "f1"), projection("two", folder: "f2")]
+
+        XCTAssertEqual(slot.groups.map(\.name), ["Shared name", "Shared name"])
+        XCTAssertEqual(Set(slot.groups.map(\.id)), Set(["f1", "f2"]))
+        XCTAssertEqual(slot.items(inGroup: "f1").map(\.displayTitle), ["one"])
+        XCTAssertEqual(slot.items(inGroup: "f2").map(\.displayTitle), ["two"])
+    }
+
+    @MainActor
+    func testMalformedOnePasswordDescriptorIdentityIsNeverLoaded() {
+        let malformed = AccountDescriptor(
+            account: AccountID(provider: .onePasswordCLI, rawValue: "--account=other"),
+            serverDisplay: "example.1password.com",
+            email: "user@example.com"
+        )
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [malformed],
+            enabledProviders: [.onePasswordCLI]
+        )
+
+        model.refreshAccountPresence()
+
+        XCTAssertTrue(model.sessions.isEmpty)
+    }
+
+    func testCorruptDescriptorPreferencesAreNotOverwrittenAsAnEmptyList() {
+        let defaults = UserDefaults(suiteName: "VSQ-descriptors-\(UUID().uuidString)")!
+        let key = "ch.lkmc.VaultSquire.account-descriptors.v1"
+        let corrupt = Data("{not-json".utf8)
+        defaults.set(corrupt, forKey: key)
+        let store = AccountDescriptorStore(defaults: defaults)
+
+        XCTAssertTrue(store.all().isEmpty)
+        XCTAssertFalse(store.upsert(AccountDescriptor(
+            account: .vaultwardenPrimary,
+            serverDisplay: "vault.example.com",
+            email: "user@example.com"
+        )))
+        XCTAssertEqual(defaults.data(forKey: key), corrupt)
+    }
+
+    func testDuplicateDescriptorIdentitiesFailClosed() throws {
+        let defaults = UserDefaults(suiteName: "VSQ-descriptors-\(UUID().uuidString)")!
+        let key = "ch.lkmc.VaultSquire.account-descriptors.v1"
+        let duplicate = try JSONEncoder().encode([
+            AccountDescriptor(
+                account: .vaultwardenPrimary,
+                serverDisplay: "one.example",
+                email: "one@example.com"
+            ),
+            AccountDescriptor(
+                account: .vaultwardenPrimary,
+                serverDisplay: "two.example",
+                email: "two@example.com"
+            ),
+        ])
+        defaults.set(duplicate, forKey: key)
+        let store = AccountDescriptorStore(defaults: defaults)
+
+        XCTAssertTrue(store.all().isEmpty)
+        XCTAssertFalse(store.remove(.vaultwardenPrimary))
+        XCTAssertEqual(defaults.data(forKey: key), duplicate)
     }
 
     // MARK: - Proton, read-only, per vault
@@ -385,6 +505,39 @@ final class AppModelTests: XCTestCase {
         model.refreshAccountPresence()
         XCTAssertTrue(model.session(for: account)?.isOpen == true, "an open vault survives a refresh")
         XCTAssertEqual(model.allOpenItems.count, 1)
+    }
+
+    @MainActor
+    func testDescriptorRemovalLocksAndReleasesAnOpenVault() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"Canary"}]}"#
+        )
+        let account = ProtonAccountService.accountID
+        let (model, store) = makeModel(
+            presence: { .present },
+            descriptors: [AccountDescriptor(
+                account: account,
+                serverDisplay: "Proton Pass",
+                email: "Official Proton Pass CLI"
+            )],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        XCTAssertTrue(store.remove(account))
+        model.refreshAccountPresence()
+
+        XCTAssertNil(model.session(for: account))
+        XCTAssertFalse(model.allOpenItems.contains { $0.displayTitle == "Canary" })
     }
 
     /// Scoping narrows the list; All Vaults merges. Quick Search always spans

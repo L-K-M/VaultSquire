@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import VaultSquire
 
@@ -90,6 +91,38 @@ final class ProviderCapabilityTests: XCTestCase {
 
         XCTAssertEqual(authorization.mutation, mutation)
         XCTAssertEqual(authorization.entryPoint, .contextMenu)
+    }
+
+    func testVaultwardenMutationsRemainDisabledUntilTheirContractGatesPass() {
+        let mutations: Set<ProviderCapability> = [
+            .createItem, .updateItem, .archiveItem, .trashItem, .restoreItem,
+            .deleteItemPermanently, .favoriteItem,
+        ]
+
+        XCTAssertTrue(VaultwardenAccountService.capabilities.isDisjoint(with: mutations))
+        XCTAssertTrue(VaultwardenAccountService.capabilities.contains(.viewItems))
+        XCTAssertTrue(VaultwardenAccountService.capabilities.contains(.searchItems))
+    }
+
+    func testVaultwardenMutationEntryPointRejectsEvenIfCalledDirectly() async throws {
+        let service = VaultwardenAccountService()
+        let keyring = VaultwardenKeyring(
+            userKey: try VaultwardenSymmetricKey(
+                keyData: Data(repeating: 0x42, count: 64)
+            )
+        )
+        let draft = VaultItemDraft(
+            title: "VSQ-title",
+            username: "VSQ-user",
+            password: "VSQ-password"
+        )
+
+        let result = await service.create(draft: draft, keyring: keyring)
+
+        guard case .failure(let error) = result else {
+            return XCTFail("production mutation entry point must reject")
+        }
+        XCTAssertEqual(error, .rejected)
     }
 
     func testGateSupportsReportsExactCapabilities() {

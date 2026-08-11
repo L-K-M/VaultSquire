@@ -36,7 +36,7 @@ final class ProtonReadModelTests: XCTestCase {
 
     // MARK: - Items
 
-    func testDecodesItemsWithNestedContentAndMixedCasing() throws {
+    func testListDecodeKeepsOnlyReviewedSummaryFields() throws {
         let json = Data("""
         {"items":[
           {"id":"i1","type":"login","title":"GitHub",
@@ -53,8 +53,8 @@ final class ProtonReadModelTests: XCTestCase {
         XCTAssertEqual(login.type, .login)
         XCTAssertEqual(login.title, "GitHub")
         XCTAssertEqual(login.username, "octocat")
-        XCTAssertEqual(login.password, "VSQ-secret")
-        XCTAssertEqual(login.totp, "otpauth://x")
+        XCTAssertNil(login.password)
+        XCTAssertNil(login.totp)
         XCTAssertEqual(login.urls, ["https://github.com", "https://gist.github.com"])
         XCTAssertEqual(login.shareID, "S1")
         XCTAssertEqual(login.vaultName, "Personal")
@@ -62,7 +62,7 @@ final class ProtonReadModelTests: XCTestCase {
         let note = items[1]
         XCTAssertEqual(note.type, .note)
         XCTAssertEqual(note.title, "My Note")
-        XCTAssertEqual(note.note, "remember this")
+        XCTAssertNil(note.note)
         XCTAssertNil(note.username)
     }
 

@@ -71,6 +71,9 @@ tag.
 - `WORKSTREAM_1.md` contains outstanding evidence and not-implemented rows.
 - Workstreams 2 through 7 and Workstream 8 pre-artifact hardening have not completed.
 - No release feature manifest or release-candidate evidence set exists.
+- Remote writes, account logout/removal deletion, live CLI compatibility, and
+  current security-review regression evidence are incomplete; dormant code is
+  not release capability.
 - Developer ID, App Group provisioning, notarization, clean-Mac installation,
   independent checksum publication, and incident drills are unverified.
 - The protected `release` environment, two-reviewer `main` ruleset, immutable

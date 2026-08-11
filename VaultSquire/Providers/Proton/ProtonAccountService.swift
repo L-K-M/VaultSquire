@@ -28,6 +28,7 @@ enum ProtonServiceError: Error, Equatable, Sendable {
     case notAuthenticated
     case unreadableOutput
     case executionFailed
+    case localStorageFailed
 }
 
 /// The result of a full read refresh: the sealed-ready snapshot and its display
@@ -92,7 +93,9 @@ struct ProtonAccountService: Sendable {
         }
 
         do {
-            _ = try ProtonReadModel.decodeVaults(try await runner.vaultListJSON())
+            var data = try await runner.vaultListJSON()
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+            _ = try ProtonReadModel.decodeVaults(data)
         } catch ProtonCLIRunnerError.commandFailed {
             // A non-zero exit on a supported binary is taken as "no session".
             return .notAuthenticated
@@ -113,7 +116,7 @@ struct ProtonAccountService: Sendable {
 
     /// Runs a full authoritative read: version gate, vault list, and one item
     /// list per vault, then seals the snapshot to the cache and returns
-    /// projections. A cache write failure is non-fatal to the in-memory result.
+    /// projections. Publication requires that sealed cache commit to succeed.
     ///
     /// Secret fields are deliberately NOT fetched here. `item view` is one child
     /// process and one network round trip per item, so hydrating a whole vault
@@ -138,7 +141,9 @@ struct ProtonAccountService: Sendable {
 
         let vaults: [ProtonVault]
         do {
-            vaults = try ProtonReadModel.decodeVaults(try await runner.vaultListJSON())
+            var data = try await runner.vaultListJSON()
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+            vaults = try ProtonReadModel.decodeVaults(data)
         } catch ProtonCLIRunnerError.commandFailed {
             return .failure(.notAuthenticated)
         } catch is ProtonReadModelError {
@@ -149,9 +154,12 @@ struct ProtonAccountService: Sendable {
 
         var items: [ProtonItem] = []
         for vault in vaults.prefix(Self.maximumVaults) {
+            guard !Task.isCancelled else { return .failure(.executionFailed) }
             do {
+                var data = try await runner.itemListJSON(shareID: vault.shareID)
+                defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
                 items.append(contentsOf: try ProtonReadModel.decodeItems(
-                    try await runner.itemListJSON(shareID: vault.shareID),
+                    data,
                     shareID: vault.shareID,
                     vaultName: vault.name
                 ))
@@ -165,13 +173,21 @@ struct ProtonAccountService: Sendable {
             }
         }
 
+        guard !Task.isCancelled else { return .failure(.executionFailed) }
         let snapshot = ProtonSnapshot(
-            cliVersion: version.raw, capturedAt: now(), vaults: vaults, items: items
+            cliVersion: version.raw,
+            capturedAt: now(),
+            vaults: Array(vaults.prefix(Self.maximumVaults)),
+            items: items
         )
-        // Best-effort: a host without the device Keychain key still returns the
-        // in-memory result; offline read simply won't be available until it can
-        // seal.
-        try? cache.save(snapshot, for: Self.accountID)
+        // A capture is published only after its complete sealed generation is
+        // committed. Otherwise cancellation/crash semantics differ between the
+        // visible session and the last durable snapshot.
+        do {
+            try cache.save(snapshot, for: Self.accountID)
+        } catch {
+            return .failure(.localStorageFailed)
+        }
 
         return .success(ProtonRefreshResult(snapshot: snapshot, projections: projections(from: snapshot)))
     }
@@ -181,7 +197,11 @@ struct ProtonAccountService: Sendable {
     /// The last sealed snapshot, if any, for offline listing without invoking
     /// the CLI. Returns nil when none exists or the seal cannot be opened.
     func cachedSnapshot() -> ProtonSnapshot? {
-        try? cache.load(for: Self.accountID)
+        guard let snapshot = try? cache.load(for: Self.accountID),
+              (try? versionGate.admit(ProtonCLIVersion(raw: snapshot.cliVersion))) != nil else {
+            return nil
+        }
+        return snapshot
     }
 
     func projections(from snapshot: ProtonSnapshot) -> [VaultItemProjection] {
@@ -232,9 +252,14 @@ struct ProtonAccountService: Sendable {
         guard let binary = locator.locate() else { return nil }
         let runner = makeRunner(binary)
         guard (try? await runner.probeVersion()) != nil else { return nil }
-        guard let data = try? await runner.itemViewJSON(shareID: shareID, itemID: itemID) else {
+        guard !Task.isCancelled,
+              var data = try? await runner.itemViewJSON(
+            shareID: shareID, itemID: itemID
+        ) else {
             return nil
         }
+        defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+        guard !Task.isCancelled else { return nil }
         return try? ProtonReadModel.decodeItemContent(data)
     }
 

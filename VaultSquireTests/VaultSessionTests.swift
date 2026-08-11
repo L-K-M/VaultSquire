@@ -26,7 +26,7 @@ final class VaultSessionTests: XCTestCase {
             category: .login,
             username: nil,
             websites: [],
-            groupingLabels: [],
+            groupings: [],
             capabilities: [.viewItems],
             cacheReference: ProviderCacheReference(
                 scope: .wholeAccount(account),
@@ -244,14 +244,24 @@ final class VaultSessionTests: XCTestCase {
         }
     }
 
-    func testReauthenticationRequiredStillPermitsCacheUnlock() async throws {
+    func testReauthenticationRequiredLocksAndRejectsCacheUnlock() async throws {
         let session = try await makeAuthenticatedSession()
+        let generation = try await session.beginUnlock()
+        _ = await session.completeUnlock(generation)
+        _ = await session.publish([makeProjection("item-1")], generation: generation)
+
         try await session.requireReauthentication()
 
-        let generation = try await session.beginUnlock()
-        let accepted = await session.completeUnlock(generation)
-
-        XCTAssertTrue(accepted)
+        let state = await session.state
+        let projections = await session.projectedItems
+        XCTAssertEqual(state.vaultAccess, .locked)
+        XCTAssertTrue(projections.isEmpty)
+        do {
+            _ = try await session.beginUnlock()
+            XCTFail("reauthentication must block stale-cache unlock")
+        } catch {
+            XCTAssertEqual(error as? VaultSessionError, .invalidTransition)
+        }
     }
 
     func testCancelledReauthenticationReturnsToReauthenticationRequired() async throws {

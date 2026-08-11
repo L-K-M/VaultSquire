@@ -11,8 +11,8 @@ enum OnePasswordCLIVersionGateError: Error, Equatable, Sendable {
     /// The binary's `--version` output had no recognizable version token.
     case unparseableVersion
     /// The reported version is not in the tested allowlist. Carries the exact
-    /// version so the UI can report which build was rejected, never a claim
-    /// that a nearby version would work.
+    /// bounded token, or `<invalid>` when retaining untrusted output would be
+    /// unsafe; never claims a nearby version would work.
     case unsupportedVersion(String)
 }
 
@@ -28,35 +28,26 @@ struct OnePasswordCLIVersionGate: Sendable {
         self.supportedVersions = supportedVersions
     }
 
-    /// The stable releases this build maps against 1Password's documented
-    /// `vault list` / `item list` / `item get` / `whoami` contract and its
-    /// `--format json` switch, recorded in ONEPASSWORD_CLI_RESEARCH.md §1 and
-    /// §8 from the published release history.
-    ///
-    /// Only stable releases appear. 2.36.x, 2.37.x, and 2.38.0 shipped as betas
-    /// and are deliberately absent: a beta's machine output is not a contract.
-    /// A 1.x build can never be admitted either, because CLI 2's noun-verb
-    /// command surface is a documented breaking change from it.
-    ///
-    /// None of these has been exercised against a live CLI here, so a
-    /// maintainer must confirm an installed build's machine output against
-    /// `OnePasswordReadModel` on macOS. Output that does not match still fails
-    /// closed with an honest error rather than a false success, and narrowing
-    /// this set to an empty allowlist disables 1Password reads entirely.
-    static let declaredSupportedVersions: Set<String> = [
+    /// Stable releases observed in provider documentation and retained only as
+    /// future live-test candidates. They are not a production compatibility
+    /// claim; beta releases and CLI 1.x remain excluded even from this list.
+    static let documentedCandidateVersions: Set<String> = [
         "2.33.1", "2.34.0", "2.34.1", "2.35.0", "2.38.1"
     ]
 
-    /// The gate the app runs. Swapping to an empty set here disables 1Password
-    /// reads entirely without touching any other code.
-    static let production = OnePasswordCLIVersionGate(
-        supportedVersions: declaredSupportedVersions
-    )
+    /// The gate the app runs. Production admits no build until the terms gate,
+    /// TTY-less authorization spike, executable-identity check, and exact live
+    /// command/schema matrix have all passed. A release number observed in
+    /// documentation is only a candidate, never a tested compatibility claim.
+    static let production = OnePasswordCLIVersionGate(supportedVersions: [])
 
     /// Admits a reported version or throws. An empty allowlist rejects every
     /// version, so a misconfigured gate can never silently admit an untested
     /// build.
     func admit(_ version: OnePasswordCLIVersion) throws {
+        guard Self.isSafeVersion(version.raw) else {
+            throw OnePasswordCLIVersionGateError.unsupportedVersion("<invalid>")
+        }
         guard supportedVersions.contains(version.raw) else {
             throw OnePasswordCLIVersionGateError.unsupportedVersion(version.raw)
         }
@@ -73,11 +64,23 @@ struct OnePasswordCLIVersionGate: Sendable {
     /// exactly what this gate exists to prevent.
     static func parseVersion(from output: String) -> OnePasswordCLIVersion? {
         guard let range = output.range(
-            of: #"[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.]*)?"#,
+            of: #"(?<![0-9])[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}(-[0-9A-Za-z][0-9A-Za-z.]{0,31})?(?![0-9A-Za-z.-])"#,
             options: .regularExpression
         ) else {
             return nil
         }
-        return OnePasswordCLIVersion(raw: String(output[range]))
+        let raw = String(output[range])
+        guard isSafeVersion(raw) else { return nil }
+        return OnePasswordCLIVersion(raw: raw)
+    }
+
+    private static func isSafeVersion(_ raw: String) -> Bool {
+        guard !raw.isEmpty, raw.utf8.count <= 64 else { return false }
+        return raw.unicodeScalars.allSatisfy {
+            ($0.value >= 48 && $0.value <= 57)
+                || ($0.value >= 65 && $0.value <= 90)
+                || ($0.value >= 97 && $0.value <= 122)
+                || $0.value == 45 || $0.value == 46
+        }
     }
 }

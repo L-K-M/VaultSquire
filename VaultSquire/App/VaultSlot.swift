@@ -24,9 +24,9 @@ enum VaultScope: Hashable, Sendable {
 /// `id` is the container's stable identity, which is deliberately not its
 /// display name: a Proton account can hold two vaults called the same thing,
 /// and keying on the name would merge them into one row holding both vaults'
-/// items. Proton containers are keyed by the share identifier already carried
-/// in every item's compound id; Vaultwarden folders are keyed by their label,
-/// which is the only folder identity a projection carries.
+/// items. Proton containers are keyed by share identifier, 1Password containers
+/// by vault identifier, and Vaultwarden folders by folder identifier; labels
+/// remain display-only and may legitimately collide.
 struct VaultGroup: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
@@ -98,7 +98,10 @@ struct VaultSlot: Identifiable, Sendable {
     /// read-only: neither documented CLI has a write path that keeps private
     /// values out of argv without rebuilding an item from lossy output, so no
     /// write surface exists for them.
-    var isWritable: Bool { kind == .vaultwarden }
+    var isWritable: Bool {
+        !capabilities.isDisjoint(with: [.createItem, .updateItem, .archiveItem,
+                                       .trashItem, .restoreItem, .deleteItemPermanently])
+    }
 
     /// Whether opening this vault needs a credential VaultSquire has to collect.
     ///
@@ -129,14 +132,14 @@ struct VaultSlot: Identifiable, Sendable {
         var names: [String: String] = [:]
         // Seed with every folder the account has, so one holding no items still
         // appears rather than being invisible until something is filed in it.
-        for folder in (vaultwarden?.folderNames ?? [:]).values where !folder.isEmpty {
-            counts[folder] = 0
-            names[folder] = folder
+        for (folderID, folderName) in vaultwarden?.folderNames ?? [:] where !folderName.isEmpty {
+            counts[folderID] = 0
+            names[folderID] = folderName
         }
         for item in items {
-            for key in Self.groupKeys(of: item, kind: kind) {
-                counts[key.id, default: 0] += 1
-                names[key.id] = key.name
+            for grouping in item.groupings {
+                counts[grouping.id, default: 0] += 1
+                names[grouping.id] = grouping.name
             }
         }
         return counts
@@ -153,28 +156,7 @@ struct VaultSlot: Identifiable, Sendable {
     /// the sidebar row carries.
     func items(inGroup group: String) -> [VaultItemProjection] {
         items.filter { item in
-            Self.groupKeys(of: item, kind: kind).contains { $0.id == group }
-        }
-    }
-
-    /// The containers an item belongs to, as (identity, display name).
-    ///
-    /// A Proton item's container is its share and a 1Password item's is its
-    /// vault; either identifier is already part of the item's compound id, so
-    /// two containers sharing a name stay distinct. A Vaultwarden item's
-    /// container is its folder, and the folder's name is the only identity the
-    /// projection carries.
-    private static func groupKeys(
-        of item: VaultItemProjection,
-        kind: Kind
-    ) -> [(id: String, name: String)] {
-        switch kind {
-        case .proton, .onePassword:
-            guard case .providerSpace(let spaceID) = item.id.space.scope else { return [] }
-            let name = item.groupingLabels.first { !$0.isEmpty } ?? spaceID
-            return [(spaceID, name)]
-        case .vaultwarden:
-            return item.groupingLabels.filter { !$0.isEmpty }.map { ($0, $0) }
+            item.groupings.contains { $0.id == group }
         }
     }
 

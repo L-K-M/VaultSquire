@@ -64,14 +64,15 @@ only, and is weaker than every other row in this file.
 | Evidence | Exact identity | Purpose | License boundary |
 |---|---|---|---|
 | 1Password CLI documentation | `www.1password.dev`, captured 2026-08-11; no archive hash | Command, JSON, and authentication research | Proprietary; documentation only, never copied into product code |
-| 1Password CLI release history | `app-updates.agilebits.com/product_history/CLI2`, captured 2026-08-11 | Version allowlist source; latest stable `2.38.1` (2026-07-30) | Proprietary; mutable page |
+| 1Password CLI release history | `app-updates.agilebits.com/product_history/CLI2`, captured 2026-08-11 | Documentation-candidate source; latest stable `2.38.1` (2026-07-30) | Proprietary; mutable page |
 | API and SDK Terms of Service | `1password.com/legal/api-sdk-terms-of-service`, last updated 2026-06-16 | Licensing and competing-product analysis | Proprietary; unresolved release gate |
 | Terms of Service | `1password.com/legal/terms-of-service`, last updated 2024-09-12 | Automation and redistribution analysis | Proprietary |
 
 No 1Password version is supported yet, and no executable identity has been
-recorded. The allowlisted stable releases in
-`OnePasswordCLIVersionGate.declaredSupportedVersions` come from the release
-history above, not from a tested binary. Before release, record the selected
+recorded. The stable releases in
+`OnePasswordCLIVersionGate.documentedCandidateVersions` are candidates taken
+from the release history above, not an allowlist or a tested-binary claim.
+`OnePasswordCLIVersionGate.production` is intentionally empty. Before release, record the selected
 path, resolved path, hash, code-signature and notarization result, exact
 `--version` output, observed JSON schemas, and the `whoami` payload from
 clean-Mac tests — and resolve the terms question in

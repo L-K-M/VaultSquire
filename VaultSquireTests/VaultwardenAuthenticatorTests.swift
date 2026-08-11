@@ -71,10 +71,8 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
         guard case .authenticated(let session) = outcome else {
             return XCTFail("expected authenticated outcome")
         }
-        XCTAssertEqual(session.accessToken, "VSQ-Canary-access")
         XCTAssertEqual(session.refreshToken, "VSQ-Canary-refresh")
         XCTAssertEqual(session.wrappedUserKey, "2.aaa|bbb|ccc")
-        XCTAssertEqual(session.masterKey, Data(hexFixture: pbkdf2Case.masterKeyHex))
 
         let grant = try XCTUnwrap(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
         XCTAssertEqual(grant.formFields["grant_type"], "password")
@@ -237,7 +235,7 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
                 provider: .authenticator, token: "123456", rememberDevice: true
             )
         )
-        XCTAssertEqual(session.accessToken, "VSQ-2fa-access")
+        XCTAssertEqual(session.refreshToken, "r")
 
         let grant = try XCTUnwrap(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
         XCTAssertEqual(grant.formFields["two_factor_provider"], "0")
@@ -371,6 +369,32 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
         XCTAssertEqual(prelogin.url.host, "vault.example.com")
         let grant = try XCTUnwrap(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
         XCTAssertEqual(grant.url.host, "vault.example.com")
+    }
+
+    func testTraversalBearingAdvertisedServiceFallsBackToEnteredOrigin() async throws {
+        StubServer.shared.on(
+            "/api/config",
+            respond: .json(200, "{\"environment\":{\"identity\":\"https://identity.other.com/p/%2e%2e/identity\"}}")
+        )
+        stubPrelogin(kdf: 0, iterations: pbkdf2Case.iterations)
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r\"}")
+        )
+
+        let outcome = try await makeAuthenticator(origin: RejectAllOriginPolicy()).login(
+            email: email,
+            masterPasswordBytes: passwordBytes,
+            device: device,
+            lastAcceptedKDF: nil
+        )
+        guard case .authenticated = outcome else {
+            return XCTFail("a non-canonical service path should fall back safely")
+        }
+        XCTAssertEqual(
+            StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password")?.url.host,
+            "vault.example.com"
+        )
     }
 
     func testMalformedConfigFallsBackToEnteredOriginAndProceeds() async throws {

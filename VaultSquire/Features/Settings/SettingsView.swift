@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var siteIcons: SiteIconStore
+    @AppStorage(ApplicationCoordinator.clipboardExpirationPreference)
+    private var clipboardExpirationSeconds = 30
 
     var body: some View {
         TabView {
@@ -34,6 +36,10 @@ struct SettingsView: View {
 
                 Divider()
 
+                clipboardSection
+
+                Divider()
+
                 siteIconSection
                 Spacer()
             }
@@ -62,6 +68,22 @@ struct SettingsView: View {
         return open == 1 ? "1 vault open" : "\(open) vaults open"
     }
 
+    private var clipboardSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Clear copied vault values after", selection: $clipboardExpirationSeconds) {
+                Text("5 seconds").tag(5)
+                Text("10 seconds").tag(10)
+                Text("15 seconds").tag(15)
+                Text("30 seconds").tag(30)
+            }
+            .accessibilityIdentifier("settings-clipboard-expiration")
+            Text("VaultSquire clears only a value it still owns. A clipboard manager or another app may already have read it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     /// Site-icon opt-in. Off by default, and the wording says plainly what
     /// turning it on costs rather than describing it as a display preference:
     /// it is the one setting that sends anything derived from vault content to
@@ -71,7 +93,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle("Show site icons", isOn: $siteIcons.isEnabled)
                 .accessibilityIdentifier("settings-site-icons")
-            Text("Fetches each login's icon from that site itself. The site learns that this Mac holds an entry for it, so this is off until you ask for it. VaultSquire never uses an icon service, which would receive your whole list of sites instead, and no icon is written to disk.")
+            Text("Fetches each login's icon from that site itself. The site learns that this Mac holds an entry for it, so this is off until you ask for it. IP literals and local-only names are blocked, redirects are refused, and no icon is written to disk; a public hostname still controls where its DNS resolves.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

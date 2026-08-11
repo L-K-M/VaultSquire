@@ -20,9 +20,7 @@ final class OnePasswordLeakageTests: XCTestCase {
     /// sign-in and service accounts both deliver their credential through one
     /// of these, which is exactly why neither mode is supported.
     func testTheChildEnvironmentCarriesNoSessionOrTokenVariable() async {
-        let executor = CLIProcessExecutor(
-            environmentOverlay: ["OP_BIOMETRIC_UNLOCK_ENABLED": "true"]
-        )
+        let executor = CLIProcessExecutor(mode: .onePasswordDesktopAuthorization)
         let environment = await executor.childEnvironment()
 
         for prohibited in [

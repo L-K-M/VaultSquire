@@ -46,9 +46,9 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
     func show(
         items: [VaultItemProjection] = [],
         isUnlocked: Bool = false,
-        onOpen: ((VaultItemID) -> Void)? = nil
+        onOpen: (@MainActor (VaultItemID) -> Void)? = nil
     ) {
-        model.clear()
+        model.clearQuery()
         if !panel.isVisible {
             panel.center()
         }
@@ -62,7 +62,7 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
-        model.clear()
+        model.reset()
         panel.orderOut(nil)
         AppLog.record(.quickSearchDismissed)
     }
@@ -71,7 +71,7 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
     /// path both go through `dismiss()`. Both routes must record the dismissal so
     /// the diagnostic event cannot be missing for one of them.
     func windowWillClose(_ notification: Notification) {
-        model.clear()
+        model.reset()
         AppLog.record(.quickSearchDismissed)
     }
 }

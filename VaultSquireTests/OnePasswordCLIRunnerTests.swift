@@ -28,10 +28,13 @@ final class OnePasswordCLIRunnerTests: XCTestCase {
         let version = try await runner.probeVersion()
         XCTAssertEqual(version, OnePasswordCLIVersion(raw: "2.38.1"))
 
-        // The invoked executable is the approved absolute path, not the
-        // resolved real path.
+        // Execution is bound to the resolved target that was shown for review,
+        // not to a friendly symlink that can be retargeted afterward.
         let urls = await executor.recordedExecutableURLs
-        XCTAssertEqual(urls.first?.path, "/usr/local/bin/op")
+        XCTAssertEqual(
+            urls.first?.path,
+            "/opt/homebrew/Cellar/1password-cli/2.38.1/bin/op"
+        )
     }
 
     func testProbeVersionRejectsAnUnsupportedVersion() async {

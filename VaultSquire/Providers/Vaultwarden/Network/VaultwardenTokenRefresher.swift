@@ -48,8 +48,13 @@ actor VaultwardenTokenRefresher {
     /// Refreshes the access token, coalescing concurrent callers onto one
     /// request. The shared task's result is returned to every waiter.
     func refresh() async -> VaultwardenRefreshOutcome {
+        guard Self.isValidToken(refreshToken) else { return .sessionExpired }
         if let inFlight {
-            return await inFlight.value
+            return await withTaskCancellationHandler {
+                await inFlight.value
+            } onCancel: {
+                inFlight.cancel()
+            }
         }
 
         let token = refreshToken
@@ -63,8 +68,13 @@ actor VaultwardenTokenRefresher {
             )
         }
         inFlight = task
-        let outcome = await task.value
+        let outcome = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         inFlight = nil
+        guard !Task.isCancelled else { return .transientFailure }
 
         // Replace the stored token only on success; a failed refresh leaves the
         // last valid refresh token in place for a later retry.
@@ -90,20 +100,30 @@ actor VaultwardenTokenRefresher {
         ]
         let tokenURL = identityBaseURL.appendingPathComponent("connect/token")
 
-        let response: VaultwardenHTTPResponse
+        var response: VaultwardenHTTPResponse
         do {
-            response = try await transport.send(.post, url: tokenURL, body: .form(fields))
+            response = try await transport.send(
+                .post,
+                url: tokenURL,
+                body: .form(fields),
+                responseLimit: 1 * 1024 * 1024
+            )
         } catch {
             // A transport failure is transient; the caller retries later. It is
             // not a session-ending condition.
             return .transientFailure
         }
+        defer { response.discardBody() }
 
         if (200..<300).contains(response.status) {
             if let token = try? JSONDecoder().decode(
                    VaultwardenTokenResponse.self, from: response.body
                ),
-               let newRefreshToken = token.refreshToken {
+               let newRefreshToken = token.refreshToken,
+               isValidToken(token.accessToken),
+               isValidToken(newRefreshToken),
+               token.tokenType.map({ $0.caseInsensitiveCompare("Bearer") == .orderedSame }) != false,
+               token.expiresIn.map({ $0 > 0 && $0 <= 31_536_000 }) != false {
                 return .refreshed(
                     accessToken: token.accessToken,
                     refreshToken: newRefreshToken,
@@ -124,5 +144,13 @@ actor VaultwardenTokenRefresher {
         }
 
         return .transientFailure
+    }
+
+    private static func isValidToken(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.utf8.count <= 16 * 1024
+            && value.unicodeScalars.allSatisfy {
+                !CharacterSet.controlCharacters.contains($0)
+            }
     }
 }

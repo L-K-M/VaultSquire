@@ -5,13 +5,6 @@ import Foundation
 /// the keyring, tolerating individual field failures, and never persists a
 /// decrypted value.
 enum VaultwardenItemDecryptor {
-    /// Read-side capabilities every decrypted item supports. Write capabilities
-    /// are added by the write path per account, so absence here never implies a
-    /// mutation is unsupported — it just is not part of the read slice.
-    static let readCapabilities: Set<ProviderCapability> = [
-        .viewItems, .searchItems, .revealSecret, .copySecret,
-    ]
-
     static func itemID(for cipher: VaultwardenCipherModel, account: AccountID) -> VaultItemID {
         let scope: VaultSpaceID.Scope = cipher.organizationID
             .map { .providerSpace($0) } ?? .personal
@@ -41,6 +34,7 @@ enum VaultwardenItemDecryptor {
         case .secureNote: return .secureNote
         case .card: return .card
         case .identity: return .identity
+        case .unknown: return .unsupported
         }
     }
 
@@ -51,15 +45,29 @@ enum VaultwardenItemDecryptor {
         folderNames: [String: String],
         generation: UInt64
     ) -> VaultItemProjection {
-        let org = cipher.organizationID
-        let title = keyring.decrypt(cipher.name, organizationID: org) ?? "Unnamed item"
-        let username = keyring.decrypt(cipher.login?.username, organizationID: org)
-        let websites = (cipher.login?.uris ?? []).compactMap {
-            keyring.decrypt($0.uri, organizationID: org)
+        let contentKey = keyring.key(for: cipher)
+        let title = keyring.decrypt(
+            cipher.name, key: contentKey, maximumUTF8Bytes: 16 * 1024
+        ) ?? "Unreadable item"
+        let username = cipher.type == .login
+            ? keyring.decrypt(
+                cipher.login?.username, key: contentKey, maximumUTF8Bytes: 64 * 1024
+            ) : nil
+        let websites = cipher.type == .login
+            ? (cipher.login?.uris ?? []).prefix(100).compactMap {
+                keyring.decrypt($0.uri, key: contentKey, maximumUTF8Bytes: 2_048)
+            }
+            : []
+        let groupings: [VaultItemGrouping]
+        if let folderID = cipher.folderID, let folderName = folderNames[folderID] {
+            groupings = [VaultItemGrouping(id: folderID, name: folderName)]
+        } else {
+            groupings = []
         }
-        let groupingLabels = cipher.folderID
-            .flatMap { folderNames[$0] }
-            .map { [$0] } ?? []
+        var capabilities: Set<ProviderCapability> = [.viewItems, .searchItems]
+        if cipher.type != .unknown, cipher.viewPassword {
+            capabilities.formUnion([.revealSecret, .copySecret])
+        }
 
         return VaultItemProjection(
             id: itemID(for: cipher, account: account),
@@ -68,8 +76,8 @@ enum VaultwardenItemDecryptor {
             category: category(for: cipher.type),
             username: username,
             websites: websites,
-            groupingLabels: groupingLabels,
-            capabilities: readCapabilities,
+            groupings: groupings,
+            capabilities: capabilities,
             cacheReference: cacheReference(for: cipher, account: account, generation: generation)
         )
     }
@@ -80,31 +88,53 @@ enum VaultwardenItemDecryptor {
         account: AccountID,
         generation: UInt64
     ) -> VaultItemDetail {
-        let org = cipher.organizationID
-        func decrypt(_ value: String?) -> String? { keyring.decrypt(value, organizationID: org) }
+        let contentKey = keyring.key(for: cipher)
+        var remainingPlaintextBytes = 4 * 1024 * 1024
+        func decrypt(
+            _ value: String?,
+            maximumBytes: Int = 1 * 1024 * 1024
+        ) -> String? {
+            let allowance = min(maximumBytes, remainingPlaintextBytes)
+            guard allowance > 0,
+                  let plaintext = keyring.decrypt(
+                      value, key: contentKey, maximumUTF8Bytes: allowance
+                  ) else {
+                return nil
+            }
+            remainingPlaintextBytes -= plaintext.utf8.count
+            return plaintext
+        }
+        let title = decrypt(cipher.name, maximumBytes: 16 * 1024) ?? "Unreadable item"
 
         var fields: [VaultItemDetail.DetailField] = []
         func add(_ label: String, _ value: String?, _ kind: VaultItemDetail.DetailField.Kind) {
-            guard let value, !value.isEmpty else { return }
+            guard fields.count < 512, label.utf8.count <= 16 * 1024,
+                  let value, !value.isEmpty else { return }
             fields.append(.init(id: "\(label)#\(fields.count)", label: label, value: value, kind: kind))
         }
 
         switch cipher.type {
         case .login:
-            add("Username", decrypt(cipher.login?.username), .plain)
-            add("Password", decrypt(cipher.login?.password), .secret)
-            add("One-time code", decrypt(cipher.login?.totp), .totpSeed)
-            for uri in cipher.login?.uris ?? [] {
-                add("Website", decrypt(uri.uri), .uri)
+            add("Username", decrypt(cipher.login?.username, maximumBytes: 64 * 1024), .plain)
+            if cipher.viewPassword {
+                add("Password", decrypt(cipher.login?.password), .secret)
+                add("One-time code", decrypt(cipher.login?.totp, maximumBytes: 8_192), .totpSeed)
+            }
+            for uri in (cipher.login?.uris ?? []).prefix(100) {
+                add("Website", decrypt(uri.uri, maximumBytes: 2_048), .uri)
             }
         case .card:
             add("Cardholder", decrypt(cipher.card?.cardholderName), .plain)
             add("Brand", decrypt(cipher.card?.brand), .plain)
-            add("Number", decrypt(cipher.card?.number), .secret)
+            if cipher.viewPassword {
+                add("Number", decrypt(cipher.card?.number), .secret)
+            }
             if let month = decrypt(cipher.card?.expMonth), let year = decrypt(cipher.card?.expYear) {
                 add("Expires", "\(month)/\(year)", .plain)
             }
-            add("Security code", decrypt(cipher.card?.code), .secret)
+            if cipher.viewPassword {
+                add("Security code", decrypt(cipher.card?.code), .secret)
+            }
         case .identity:
             let name = [decrypt(cipher.identity?.firstName), decrypt(cipher.identity?.lastName)]
                 .compactMap { $0 }.joined(separator: " ")
@@ -113,21 +143,35 @@ enum VaultwardenItemDecryptor {
             add("Phone", decrypt(cipher.identity?.phone), .plain)
         case .secureNote:
             break
+        case .unknown:
+            // The exact ciphertext remains in the snapshot, but this build has
+            // no reviewed field interpretation for the unknown object type.
+            break
         }
-        add("Notes", decrypt(cipher.notes), .plain)
+        if cipher.type != .unknown {
+            add("Notes", decrypt(cipher.notes, maximumBytes: 2 * 1024 * 1024), .plain)
+        }
 
         // Custom fields carry much of an imported item's real content (serial
         // numbers, license keys). Hidden fields stay concealed like passwords;
         // linked fields are references with no value of their own and are not
         // rendered.
-        for field in cipher.fields where field.type != 3 {
-            let label = decrypt(field.name) ?? "Field"
-            add(label, decrypt(field.value), field.type == 1 ? .secret : .plain)
+        if cipher.type != .unknown {
+            for field in cipher.fields.prefix(500) where field.type != 3 {
+                // Only explicitly documented text/boolean fields are plain.
+                // Hidden and unknown kinds are secret, and are omitted when the
+                // server denies password viewing.
+                let kind: VaultItemDetail.DetailField.Kind =
+                    (field.type == 0 || field.type == 2) ? .plain : .secret
+                guard kind != .secret || cipher.viewPassword else { continue }
+                let label = decrypt(field.name, maximumBytes: 16 * 1024) ?? "Field"
+                add(label, decrypt(field.value), kind)
+            }
         }
 
         return VaultItemDetail(
             id: itemID(for: cipher, account: account),
-            title: decrypt(cipher.name) ?? "Unnamed item",
+            title: title,
             category: category(for: cipher.type),
             fields: fields
         )

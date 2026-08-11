@@ -20,8 +20,12 @@ final class FakeBiometricVaultKeyStore: BiometricVaultKeyStoring, @unchecked Sen
     var loadFailure: BiometricUnlockError?
     /// When true, `store` throws, standing in for a Keychain refusal.
     var storeFails = false
+    /// When true, revocation fails so the model's fail-closed suppression can
+    /// be verified without a real Keychain fault injector.
+    var removeFails = false
 
     private(set) var loadCallCount = 0
+    private(set) var cancelCallCount = 0
 
     init(available: Bool = true) {
         self.available = available
@@ -64,7 +68,13 @@ final class FakeBiometricVaultKeyStore: BiometricVaultKeyStoring, @unchecked Sen
         return entry.userKey
     }
 
+    func cancelAuthentication() {
+        lock.lock(); defer { lock.unlock() }
+        cancelCallCount += 1
+    }
+
     func remove(for account: AccountID) throws {
+        if removeFails { throw BiometricUnlockError.failed(-2) }
         lock.lock(); defer { lock.unlock() }
         entries.removeValue(forKey: account)
     }

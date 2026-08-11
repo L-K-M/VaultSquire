@@ -32,6 +32,9 @@ final class ProtonSnapshotCacheTests: XCTestCase {
     func testSaveThenLoadRoundTrips() throws {
         let (cache, _) = makeCache(key: SymmetricKey(size: .bits256))
         let snapshot = makeSnapshot()
+        XCTAssertNil(snapshot.items.first?.password)
+        XCTAssertNil(snapshot.items.first?.totp)
+        XCTAssertNil(snapshot.items.first?.note)
 
         XCTAssertFalse(cache.exists(for: account))
         try cache.save(snapshot, for: account)
@@ -64,6 +67,22 @@ final class ProtonSnapshotCacheTests: XCTestCase {
         var bytes = try Data(contentsOf: file)
         bytes[bytes.count / 2] ^= 0xFF
         try bytes.write(to: file)
+
+        XCTAssertThrowsError(try cache.load(for: account)) { error in
+            XCTAssertEqual(error as? ProtonSnapshotCacheError, .corrupt)
+        }
+    }
+
+    func testOversizedCacheFileIsRejectedBeforeOpening() throws {
+        let (cache, directory) = makeCache(key: SymmetricKey(size: .bits256))
+        try cache.save(makeSnapshot(), for: account)
+        let file = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "protoncache" }
+        )
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.truncate(atOffset: UInt64(8 * 1024 * 1024 + 1))
+        try handle.close()
 
         XCTAssertThrowsError(try cache.load(for: account)) { error in
             XCTAssertEqual(error as? ProtonSnapshotCacheError, .corrupt)

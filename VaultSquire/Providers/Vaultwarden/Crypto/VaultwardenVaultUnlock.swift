@@ -29,7 +29,7 @@ enum VaultwardenVaultUnlock {
             throw VaultwardenUnlockError.malformedVault
         }
 
-        let masterKey: Data
+        var masterKey: Data
         do {
             masterKey = try await VaultwardenKeyDerivation.deriveMasterKey(
                 passwordBytes: masterPasswordBytes,
@@ -44,12 +44,16 @@ enum VaultwardenVaultUnlock {
             throw VaultwardenUnlockError.malformedVault
         }
 
-        let stretched: Data
+        defer { VaultwardenCryptoZeroize.zero(&masterKey) }
+
+        var stretched: Data
         do {
             stretched = try VaultwardenKeyDerivation.stretchMasterKey(masterKey)
         } catch {
             throw VaultwardenUnlockError.malformedVault
         }
+
+        defer { VaultwardenCryptoZeroize.zero(&stretched) }
 
         let userKey: VaultwardenSymmetricKey
         do {
@@ -92,20 +96,29 @@ enum VaultwardenVaultUnlock {
     ) -> [String: VaultwardenSymmetricKey] {
         guard let wrappedPrivateKey = snapshot.wrappedPrivateKey,
               !snapshot.organizations.isEmpty,
-              let privateKey = try? VaultwardenKeyUnwrap.decryptPrivateKey(
+              var privateKey = try? VaultwardenKeyUnwrap.decryptPrivateKey(
                   wrapped: wrappedPrivateKey,
                   userKey: userKey
               ) else {
+            return [:]
+        }
+        defer { VaultwardenCryptoZeroize.zero(&privateKey) }
+        guard let rsaPrivateKey = try? VaultwardenKeyUnwrap.rsaPrivateKey(
+            fromPKCS8: privateKey
+        ) else {
             return [:]
         }
 
         var keys: [String: VaultwardenSymmetricKey] = [:]
         for organization in snapshot.organizations {
             guard let parsed = try? VaultwardenEncString.parse(organization.wrappedKey),
-                  case .asymmetric(_, let payload) = parsed,
+                  // The reviewed V1 organization path is RSA-2048 OAEP-SHA1
+                  // (EncString type 4). Never reinterpret SHA-256 or HMAC
+                  // asymmetric forms as the "close" SHA-1 algorithm.
+                  case .asymmetric(type: 4, payload: let payload) = parsed,
                   let key = try? VaultwardenKeyUnwrap.unwrapOrganizationKey(
                       wrappedOrganizationKey: payload,
-                      privateKeyPKCS8: privateKey
+                      privateKey: rsaPrivateKey
                   ) else {
                 continue
             }

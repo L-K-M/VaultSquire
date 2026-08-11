@@ -75,6 +75,10 @@ actor VaultSession {
             throw VaultSessionError.invalidTransition
         }
 
+        // Rotation or revocation is a session boundary, not a banner over an
+        // otherwise-open vault. Invalidate the generation and clear every
+        // decrypted projection before publishing the account transition.
+        lock()
         state.account = .reauthenticationRequired
     }
 
@@ -111,16 +115,18 @@ actor VaultSession {
     // MARK: Vault-access dimension
 
     /// Issues the new session generation an unlock attempt must carry.
-    /// Reauthentication gates remote access, not the local cache, so an
-    /// account in `reauthenticationRequired` may still unlock cached data.
+    /// A durable reauthentication requirement blocks both password and quick
+    /// unlock: opening an old cache under a rotated hierarchy would revive a
+    /// security state the provider has already invalidated.
     func beginUnlock() throws -> SessionGeneration {
-        switch state.account {
-        case .authenticated, .reauthenticationRequired:
-            break
-        case .noAccount, .authenticating, .challenged, .loggingOut:
+        guard state.account == .authenticated else {
             throw VaultSessionError.invalidTransition
         }
-        guard state.vaultAccess == .locked else {
+        guard state.vaultAccess == .locked,
+              generationCounter < UInt64.max else {
+            // Exhaustion is fantastically unlikely, but wrapping would let a
+            // stale generation become current again. Permanently refuse new
+            // unlocks instead of weakening the publication token.
             throw VaultSessionError.invalidTransition
         }
 
@@ -170,7 +176,9 @@ actor VaultSession {
     /// locked.
     func lock() {
         state.vaultAccess = .locking
-        generationCounter += 1
+        if generationCounter < UInt64.max {
+            generationCounter += 1
+        }
         activeGeneration = nil
 
         let work = registeredWork.values

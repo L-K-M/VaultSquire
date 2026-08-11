@@ -18,6 +18,14 @@ struct ProviderCacheReference: Hashable, Sendable {
     let captureGeneration: SnapshotGeneration
 }
 
+/// One provider container an item belongs to. Identity and display text are
+/// deliberately separate: two folders or vaults may share a name without
+/// becoming one scope in the sidebar.
+struct VaultItemGrouping: Hashable, Sendable {
+    let id: String
+    let name: String
+}
+
 /// The narrow immutable projection shared UI and search may consume. It
 /// carries display fields, non-secret labels, and exact action capabilities —
 /// nothing more. Secrets, provider wire shapes, and unknown fields remain
@@ -29,9 +37,10 @@ struct VaultItemProjection: Hashable, Sendable, Identifiable {
     let category: VaultItemCategory
     let username: String?
     let websites: [String]
-    /// Non-secret folder or collection labels; empty when a provider has no
-    /// such grouping.
-    let groupingLabels: [String]
+    /// Non-secret folder, collection, vault, or share identities and labels;
+    /// empty when a provider has no such grouping.
+    let groupings: [VaultItemGrouping]
+    var groupingLabels: [String] { groupings.map(\.name) }
     let capabilities: Set<ProviderCapability>
     let cacheReference: ProviderCacheReference
 }

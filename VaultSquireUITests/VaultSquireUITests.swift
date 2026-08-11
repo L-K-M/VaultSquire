@@ -63,83 +63,37 @@ final class VaultSquireUITests: XCTestCase {
     }
 
     @MainActor
-    func testAddAccountListsProtonPassAsStagedWithoutCredentialFields() {
+    func testSecurityLockDismissesAddAccountWithEnteredPassword() {
         let app = launchApp()
         defer { app.terminate() }
 
         app.buttons["open-add-account"].click()
         let sheet = element("add-account-view", in: app)
         XCTAssertTrue(sheet.waitForExistence(timeout: 2))
+        let password = app.secureTextFields["add-account-password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 2))
+        password.click()
+        password.typeText("VSQ-transient-password")
 
-        // The provider choice defaults to Vaultwarden with its form visible.
-        XCTAssertTrue(app.textFields["add-account-url"].waitForExistence(timeout: 2))
+        app.typeKey("l", modifierFlags: [.command, .shift])
 
-        selectProvider("Proton Pass", expecting: element("add-account-proton", in: app), in: app)
-
-        // The staged pane collects nothing: no plain or secure fields anywhere
-        // in the sheet while Proton Pass is selected.
-        XCTAssertEqual(sheet.textFields.count, 0)
-        XCTAssertEqual(sheet.secureTextFields.count, 0)
-
-        selectProvider("Vaultwarden", expecting: app.textFields["add-account-url"], in: app)
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 2))
     }
 
-    /// Selects one provider segment and waits for its content to appear.
-    ///
-    /// Two defenses, both observed necessary on hosted runners (run
-    /// 31336737076): a stray `UserNotificationCenter` dialog can float over
-    /// the sheet so a synthesized click lands on the dialog instead of the
-    /// segment — dialogs are dismissed before each attempt and the click is
-    /// retried until the expected content appears. And macOS exposes a
-    /// SwiftUI segmented control differently across releases, so the
-    /// plausible queries are tried in order (the radio-button form is the one
-    /// macOS 26 uses). A total miss fails with the live hierarchy in the
-    /// message.
     @MainActor
-    private func selectProvider(
-        _ label: String,
-        expecting marker: XCUIElement,
-        in app: XCUIApplication
-    ) {
-        for _ in 0..<3 {
-            dismissStrayNotificationDialogs()
-            let candidates: [XCUIElement] = [
-                app.radioButtons[label],
-                app.segmentedControls.buttons[label],
-                app.buttons[label],
-                app.staticTexts[label],
-            ]
-            guard let segment = candidates.first(where: { $0.waitForExistence(timeout: 1) }) else {
-                continue
-            }
-            segment.click()
-            if marker.waitForExistence(timeout: 3) {
-                return
-            }
-        }
-        XCTFail(
-            "Selecting '\(label)' never presented its content. Hierarchy: \(app.debugDescription)"
-        )
-    }
+    func testAddAccountExposesOnlyVaultwardenWhileCLIGatesAreOpen() {
+        let app = launchApp()
+        defer { app.terminate() }
 
-    /// Closes any dialog the system notification agent floated over the app,
-    /// preferring its close-style button and falling back to Escape.
-    @MainActor
-    private func dismissStrayNotificationDialogs() {
-        let center = XCUIApplication(bundleIdentifier: "com.apple.UserNotificationCenter")
-        for _ in 0..<3 {
-            let dialog = center.dialogs.firstMatch
-            guard dialog.exists else { return }
-            let close = dialog.buttons["Close"].exists
-                ? dialog.buttons["Close"]
-                : dialog.buttons.firstMatch
-            if close.exists {
-                close.click()
-            } else {
-                dialog.typeKey(.escape, modifierFlags: [])
-            }
-            _ = dialog.waitForNonExistence(timeout: 2)
-        }
+        app.buttons["open-add-account"].click()
+        let sheet = element("add-account-view", in: app)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Add Vaultwarden Account"].exists)
+        XCTAssertTrue(app.textFields["add-account-url"].exists)
+        XCTAssertTrue(app.secureTextFields["add-account-password"].exists)
+        XCTAssertFalse(element("add-account-provider", in: app).exists)
+        XCTAssertFalse(element("add-account-proton", in: app).exists)
+        XCTAssertFalse(element("add-account-onepassword", in: app).exists)
     }
 
     @MainActor

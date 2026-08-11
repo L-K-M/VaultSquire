@@ -8,16 +8,10 @@ struct VaultwardenDeviceIdentity: Hashable, Sendable {
     let name: String
 }
 
-/// The in-memory result of a completed login. Tokens and key material stay in
-/// memory; nothing is persisted in this slice.
+/// The in-memory result of a completed login. Credential tokens are handed to
+/// the Keychain transaction; credential-derived keys are deliberately absent.
 struct VaultwardenAuthSession: Sendable {
-    let accessToken: String
     let refreshToken: String?
-    let expiresIn: Int?
-    /// 32-byte master key and 64-byte stretched key for later unlock, held by
-    /// the caller's session owner.
-    let masterKey: Data
-    let stretchedMasterKey: Data
     let wrappedUserKey: String?
     let wrappedPrivateKey: String?
     let rememberTwoFactorToken: String?
@@ -32,13 +26,11 @@ struct VaultwardenAuthSession: Sendable {
     let apiBaseURL: URL
 }
 
-/// Carries the derived proof and key material across a 2FA prompt so the grant
-/// can be resubmitted without re-deriving from the master password. Its
+/// Carries only the derived authentication proof across a 2FA prompt so the
+/// grant can be resubmitted without retaining the master or stretched key. Its
 /// members are non-public: only the authenticator constructs and consumes it.
 struct VaultwardenPendingTwoFactor: Sendable {
-    fileprivate let authHash: String
-    fileprivate let masterKey: Data
-    fileprivate let stretchedMasterKey: Data
+    fileprivate var authHash: String
     fileprivate let kdfConfiguration: VaultwardenKDFConfiguration
     fileprivate let normalizedEmail: String
     fileprivate let device: VaultwardenDeviceIdentity
@@ -47,6 +39,10 @@ struct VaultwardenPendingTwoFactor: Sendable {
     /// transaction already approved.
     fileprivate let identityBaseURL: URL
     fileprivate let apiBaseURL: URL
+
+    mutating func discardSensitiveMaterial() {
+        authHash.removeAll(keepingCapacity: false)
+    }
 }
 
 enum VaultwardenLoginOutcome: Sendable {
@@ -86,6 +82,12 @@ protocol VaultwardenOriginApprovalPolicy: Sendable {
 /// confirmation, local derivation, the token grant, and 2FA continuation.
 /// It performs no persistence and owns no UI.
 struct VaultwardenAuthenticator: Sendable {
+    private static let maximumEmailBytes = 320
+    private static let maximumPasswordBytes = 16 * 1024
+    private static let maximumTwoFactorBytes = 512
+    private static let maximumURLBytes = 2_048
+    private static let maximumAuthResponseBytes = 1 * 1024 * 1024
+
     let transport: VaultwardenTransport
     let kdfChangePolicy: VaultwardenKDFChangePolicy
     let originApprovalPolicy: VaultwardenOriginApprovalPolicy
@@ -101,9 +103,31 @@ struct VaultwardenAuthenticator: Sendable {
         device: VaultwardenDeviceIdentity,
         lastAcceptedKDF: VaultwardenKDFConfiguration?
     ) async throws -> VaultwardenLoginOutcome {
+        let normalizedEmail = VaultwardenKeyDerivation.normalizedEmail(email)
+        guard !normalizedEmail.isEmpty,
+              normalizedEmail.utf8.count <= Self.maximumEmailBytes,
+              normalizedEmail.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }),
+              !masterPasswordBytes.isEmpty,
+              masterPasswordBytes.count <= Self.maximumPasswordBytes,
+              !device.identifier.isEmpty,
+              device.identifier.utf8.count <= 256,
+              device.identifier.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }),
+              !device.name.isEmpty,
+              device.name.utf8.count <= 512,
+              device.name.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }) else {
+            throw VaultwardenAPIError(
+                category: .unexpected,
+                safeDisplayMessage: "The sign-in input is invalid or too large."
+            )
+        }
         let endpoints = try await resolveEffectiveEndpoints()
 
-        let normalizedEmail = VaultwardenKeyDerivation.normalizedEmail(email)
         let prelogin = try await fetchPrelogin(
             email: normalizedEmail,
             identityBase: endpoints.identityBase
@@ -127,8 +151,7 @@ struct VaultwardenAuthenticator: Sendable {
             }
         }
 
-        let masterKey: Data
-        let stretchedMasterKey: Data
+        var masterKey = Data()
         let authHash: String
         do {
             masterKey = try await VaultwardenKeyDerivation.deriveMasterKey(
@@ -136,7 +159,7 @@ struct VaultwardenAuthenticator: Sendable {
                 email: normalizedEmail,
                 configuration: kdfConfiguration
             )
-            stretchedMasterKey = try VaultwardenKeyDerivation.stretchMasterKey(masterKey)
+            defer { VaultwardenCryptoZeroize.zero(&masterKey) }
             authHash = try VaultwardenKeyDerivation.authenticationHash(
                 masterKey: masterKey,
                 passwordBytes: masterPasswordBytes
@@ -147,8 +170,6 @@ struct VaultwardenAuthenticator: Sendable {
 
         let pending = VaultwardenPendingTwoFactor(
             authHash: authHash,
-            masterKey: masterKey,
-            stretchedMasterKey: stretchedMasterKey,
             kdfConfiguration: kdfConfiguration,
             normalizedEmail: normalizedEmail,
             device: device,
@@ -164,7 +185,12 @@ struct VaultwardenAuthenticator: Sendable {
         _ pending: VaultwardenPendingTwoFactor,
         proof: VaultwardenTwoFactorProof
     ) async throws -> VaultwardenAuthSession {
-        guard proof.provider.isUserCompletable else {
+        guard proof.provider.isUserCompletable,
+              !proof.token.isEmpty,
+              proof.token.utf8.count <= Self.maximumTwoFactorBytes,
+              proof.token.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }) else {
             throw VaultwardenAPIError(
                 category: .unsupportedTwoFactorProvider,
                 safeDisplayMessage: "This two-factor method is not supported yet."
@@ -192,12 +218,19 @@ struct VaultwardenAuthenticator: Sendable {
     /// pinned-container contract lane.
     func sendEmailChallenge(pending: VaultwardenPendingTwoFactor) async throws {
         let url = pending.apiBaseURL.appendingPathComponent("two-factor/send-email-login")
-        let body = try JSONEncoder().encode([
+        var body = try JSONEncoder().encode([
             "email": pending.normalizedEmail,
             "masterPasswordHash": pending.authHash,
             "deviceIdentifier": pending.device.identifier,
         ])
-        let response = try await transport.send(.post, url: url, body: .json(body))
+        defer { body.resetBytes(in: body.startIndex..<body.endIndex) }
+        var response = try await transport.send(
+            .post,
+            url: url,
+            body: .json(body),
+            responseLimit: Self.maximumAuthResponseBytes
+        )
+        defer { response.discardBody() }
         guard (200..<300).contains(response.status) else {
             throw Self.error(from: response)
         }
@@ -211,12 +244,17 @@ struct VaultwardenAuthenticator: Sendable {
     /// so prelogin, the token grant, and the email challenge all target them.
     private func resolveEffectiveEndpoints() async throws -> (identityBase: URL, apiBase: URL) {
         let configURL = environment.apiURL.appendingPathComponent("config")
-        let response: VaultwardenHTTPResponse
+        var response: VaultwardenHTTPResponse
         do {
-            response = try await transport.send(.get, url: configURL)
+            response = try await transport.send(
+                .get,
+                url: configURL,
+                responseLimit: Self.maximumAuthResponseBytes
+            )
         } catch {
             throw Self.mapTransportError(error)
         }
+        defer { response.discardBody() }
         guard (200..<300).contains(response.status) else {
             throw Self.error(from: response)
         }
@@ -258,15 +296,28 @@ struct VaultwardenAuthenticator: Sendable {
         email: String,
         identityBase: URL
     ) async throws -> VaultwardenPrelogin {
-        let body = try Self.emailBody(email)
+        var body = try Self.emailBody(email)
+        defer { body.resetBytes(in: body.startIndex..<body.endIndex) }
         let currentURL = identityBase.appendingPathComponent("accounts/prelogin/password")
-        var response = try await transport.send(.post, url: currentURL, body: .json(body))
+        var response = try await transport.send(
+            .post,
+            url: currentURL,
+            body: .json(body),
+            responseLimit: Self.maximumAuthResponseBytes
+        )
 
         // Legacy servers expose only the un-suffixed alias.
         if response.status == 404 {
+            response.discardBody()
             let legacyURL = identityBase.appendingPathComponent("accounts/prelogin")
-            response = try await transport.send(.post, url: legacyURL, body: .json(body))
+            response = try await transport.send(
+                .post,
+                url: legacyURL,
+                body: .json(body),
+                responseLimit: Self.maximumAuthResponseBytes
+            )
         }
+        defer { response.discardBody() }
         guard (200..<300).contains(response.status) else {
             throw Self.error(from: response)
         }
@@ -305,16 +356,18 @@ struct VaultwardenAuthenticator: Sendable {
         }
 
         let tokenURL = pending.identityBaseURL.appendingPathComponent("connect/token")
-        let response = try await transport.send(.post, url: tokenURL, body: .form(fields))
+        var response = try await transport.send(
+            .post,
+            url: tokenURL,
+            body: .form(fields),
+            responseLimit: Self.maximumAuthResponseBytes
+        )
+        defer { response.discardBody() }
 
         if (200..<300).contains(response.status) {
             let token = try decodeToken(response)
             let session = VaultwardenAuthSession(
-                accessToken: token.accessToken,
                 refreshToken: token.refreshToken,
-                expiresIn: token.expiresIn,
-                masterKey: pending.masterKey,
-                stretchedMasterKey: pending.stretchedMasterKey,
                 wrappedUserKey: token.key,
                 wrappedPrivateKey: token.privateKey,
                 rememberTwoFactorToken: token.twoFactorToken,
@@ -347,9 +400,25 @@ struct VaultwardenAuthenticator: Sendable {
 
     private func decodeToken(_ response: VaultwardenHTTPResponse) throws -> VaultwardenTokenResponse {
         do {
-            return try JSONDecoder().decode(
+            let token = try JSONDecoder().decode(
                 VaultwardenTokenResponse.self, from: response.body
             )
+            guard Self.isValidToken(token.accessToken),
+                  token.refreshToken.map(Self.isValidToken) != false,
+                  token.twoFactorToken.map(Self.isValidToken) != false,
+                  token.key.map(Self.isValidWrappedKey) != false,
+                  token.privateKey.map(Self.isValidWrappedKey) != false,
+                  token.tokenType.map({ $0.caseInsensitiveCompare("Bearer") == .orderedSame }) != false,
+                  token.expiresIn.map({ $0 > 0 && $0 <= 31_536_000 }) != false else {
+                throw VaultwardenAPIError(
+                    category: .unexpected,
+                    httpStatus: response.status,
+                    safeDisplayMessage: "The server returned invalid token fields."
+                )
+            }
+            return token
+        } catch let error as VaultwardenAPIError {
+            throw error
         } catch {
             throw VaultwardenAPIError(
                 category: .unexpected,
@@ -357,6 +426,18 @@ struct VaultwardenAuthenticator: Sendable {
                 safeDisplayMessage: "The server returned an unreadable token response."
             )
         }
+    }
+
+    private static func isValidToken(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.utf8.count <= 16 * 1024
+            && value.unicodeScalars.allSatisfy {
+                !CharacterSet.controlCharacters.contains($0)
+            }
+    }
+
+    private static func isValidWrappedKey(_ value: String) -> Bool {
+        !value.isEmpty && value.utf8.count <= VaultwardenEncString.maximumSerializedBytes
     }
 
     /// Builds a JSON body for a single email field with proper escaping, so an
@@ -383,14 +464,45 @@ struct VaultwardenAuthenticator: Sendable {
     /// advertises `http://localhost` service URLs, and treating those as
     /// unusable keeps login on the entered origin instead of failing it.
     private func baseURL(from urlString: String?, fallback: URL) -> URL {
-        guard let urlString, !urlString.isEmpty,
-              let url = URL(string: urlString),
-              url.scheme?.lowercased() == "https",
-              url.host != nil else {
+        guard let urlString else { return fallback }
+        let lowered = urlString.lowercased()
+        guard !urlString.isEmpty,
+              urlString.utf8.count <= Self.maximumURLBytes,
+              urlString.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }),
+              !lowered.contains("%25"),
+              !lowered.contains("%2e"),
+              !lowered.contains("%2f"),
+              !lowered.contains("%5c"),
+              !urlString.contains("\\"),
+              let components = URLComponents(string: urlString),
+              components.scheme?.lowercased() == "https",
+              components.host != nil,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              Self.hasCanonicalPath(components),
+              let url = components.url else {
             return fallback
         }
 
         return url
+    }
+
+    private static func hasCanonicalPath(_ components: URLComponents) -> Bool {
+        let encoded = components.percentEncodedPath.lowercased()
+        guard !encoded.contains("%25"),
+              !encoded.contains("%2e"),
+              !encoded.contains("%2f"),
+              !encoded.contains("%5c"),
+              !encoded.contains("\\") else {
+            return false
+        }
+        return !components.path
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .contains(where: { $0 == "." || $0 == ".." })
     }
 
     private func originOf(_ url: URL, fallback: VaultwardenOrigin) -> VaultwardenOrigin {

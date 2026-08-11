@@ -65,19 +65,15 @@ enum CacheEnvelopeCipherError: Error, Equatable, Sendable {
     case openFailed
 }
 
-/// The versioned generic AEAD that wraps a provider's lossy, decrypted payload
-/// (for example Proton CLI JSON) before it ever rests, producing the
-/// `lossyApplicationEncrypted` bytes a `ProviderCacheEnvelope` carries. It binds
-/// each sealed payload to its account, provider, and envelope schema version so
-/// a blob is inseparable from its identity. Provider-native ciphertext (for
-/// example Vaultwarden records) is never wrapped by this cipher — it rests as
-/// its own lossless bytes — so this type only ever touches already-decrypted,
-/// re-sealed provider output.
+/// The versioned generic AEAD used by provider-owned caches. CLI snapshots are
+/// decrypted, lossy provider output; a Vaultwarden snapshot instead contains
+/// lossless provider ciphertext plus approved bootstrap context. Wrapping both
+/// authenticates local metadata, account identity, and atomic snapshot layout
+/// without treating those payload classes as semantically equivalent.
 ///
-/// The wrapping key is a test-only in-memory key in this workstream; the
-/// production cache-envelope key is a device-only Keychain key introduced with
-/// the real store. ChaCha20-Poly1305 is used through CryptoKit (an Apple system
-/// framework), so no dependency is added.
+/// Production providers obtain the wrapping key from a device-only Data
+/// Protection Keychain record; tests inject synthetic in-memory keys.
+/// ChaCha20-Poly1305 is used through CryptoKit, so no dependency is added.
 enum CacheEnvelopeCipher {
     /// A stable format tag folded into the authenticated data, so a future
     /// format revision can never be confused with this one.

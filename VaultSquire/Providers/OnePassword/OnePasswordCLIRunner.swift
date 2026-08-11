@@ -5,14 +5,16 @@ import Foundation
 /// are shown to the user during connection so a redirected or unexpected target
 /// is visible rather than hidden behind the friendly path.
 struct OnePasswordCLIBinary: Equatable, Sendable {
-    /// The allowlisted absolute path selected for invocation. Always the value
-    /// actually passed to the process, so approval and execution cannot diverge.
+    /// The allowlisted discovery path shown to the user.
     let approvedPath: String
     /// The fully symlink-resolved real path, for display and signature review.
     let resolvedRealPath: String
 
+    /// Execute the path whose symlink resolution was displayed and reviewed,
+    /// not the mutable friendly symlink. A future live identity gate still
+    /// revalidates the target immediately before every launch.
     var executableURL: URL {
-        URL(fileURLWithPath: approvedPath)
+        URL(fileURLWithPath: resolvedRealPath)
     }
 }
 
@@ -143,9 +145,10 @@ struct OnePasswordCLIRunner: Sendable {
     /// error on an unparseable or unsupported version so the caller can present
     /// the exact state without any partial trust.
     func probeVersion() async throws -> OnePasswordCLIVersion {
-        let execution = try await run(
+        var execution = try await run(
             ["--version"], timeout: Self.versionTimeout, outputLimit: 64 * 1024, scoped: false
         )
+        defer { execution.discardStandardOutput() }
         let text = String(decoding: execution.standardOutput, as: UTF8.self)
         guard let version = OnePasswordCLIVersionGate.parseVersion(from: text) else {
             throw OnePasswordCLIRunnerError.unparseableVersion
@@ -237,14 +240,16 @@ struct OnePasswordCLIRunner: Sendable {
             timeout: timeout,
             outputLimit: outputLimit
         )
-        let execution: CLIExecution
+        var execution: CLIExecution
         do {
             execution = try await executor.execute(invocation, executableURL: binary.executableURL)
         } catch let error as CLIExecutionError {
             throw OnePasswordCLIRunnerError.execution(error)
         }
         guard execution.exitCode == 0 else {
-            throw OnePasswordCLIRunnerError.commandFailed(execution.exitCode)
+            let exitCode = execution.exitCode
+            execution.discardStandardOutput()
+            throw OnePasswordCLIRunnerError.commandFailed(exitCode)
         }
         return execution
     }

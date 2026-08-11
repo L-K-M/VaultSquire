@@ -111,7 +111,7 @@ final class OnePasswordReadModelTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(items.first).username)
     }
 
-    func testUsesTheCLIsDisplayHintAsASubtitleFallback() throws {
+    func testUndocumentedDisplayHintIsDroppedFromSummary() throws {
         let json = """
         [{"id":"ITEM1","title":"Hinted","category":"LOGIN",
           "additional_information":"squire@example.com"}]
@@ -121,12 +121,12 @@ final class OnePasswordReadModelTests: XCTestCase {
         )
         let item = try XCTUnwrap(items.first)
         XCTAssertNil(item.username)
-        XCTAssertEqual(item.additionalInformation, "squire@example.com")
+        XCTAssertNil(item.additionalInformation)
 
         let projection = OnePasswordReadModel.projection(
             for: item, account: account, captureGeneration: SnapshotGeneration(rawValue: 1)
         )
-        XCTAssertEqual(projection.displaySubtitle, "squire@example.com")
+        XCTAssertNil(projection.displaySubtitle)
     }
 
     // MARK: - Categories

@@ -1,14 +1,14 @@
 # VaultSquire
 
-VaultSquire is a native macOS client for self-hosted Vaultwarden instances,
-Proton Pass accounts, and 1Password accounts. The Vaultwarden provider is
-implemented end to end — sign-in with an optional second factor,
-master-password unlock, sync, a device-sealed encrypted offline cache, item
-browsing with reveal, copy, and rotating TOTP, and create, edit, and archive
-writes. The Proton Pass and 1Password providers are implemented read-only
-through their official user-installed CLIs: detection, a fail-closed version
-gate, vault and item reads, and a device-sealed lossy offline snapshot. There is
-no supported or distributable release; release automation stays blocked by
+VaultSquire is a planned native macOS client for self-hosted Vaultwarden and,
+later, Proton Pass and 1Password through their official user-installed CLIs.
+The current source tree implements the Vaultwarden sign-in, read, unlock, sync,
+and sealed-cache slices. Remote mutation code remains dormant behind an empty
+write-capability set until the required interoperability, conflict, ambiguity,
+cancellation, permission, and unknown-field gates pass. The two CLI adapters
+remain testable scaffolding only: production version allowlists are empty and
+the Add Account UI exposes Vaultwarden alone. There is no supported or
+distributable release; release automation stays blocked by
 [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md).
 
 Current source version: <!-- version -->0.1.0<!-- /version -->. This is a source
@@ -34,11 +34,9 @@ The intended product is small, fast, local-first, and explicit about its
 security boundaries:
 
 - one clean-room native Swift application named VaultSquire;
-- one add-account sheet whose provider choice lists Vaultwarden (a form for
-  server URL, email, and master password, followed by a second-factor step only
-  when the server requires one), Proton Pass, and 1Password (credential-free
-  detection panes that connect to your own official CLI and open the vault
-  read-only);
+- one add-account sheet currently exposing only Vaultwarden (server URL, email,
+  master password, and a second-factor step only when required); dormant CLI
+  panes are not user-reachable until their live contract gates pass;
 - Proton Pass access through the official user-installed CLI, with required
   reads and writes enabled only per exact tested command/version when complete
   private input uses a protected non-argv, non-environment, non-filesystem
@@ -46,43 +44,33 @@ security boundaries:
 - Vaultwarden-native ciphertext and VaultSquire-AEAD-wrapped lossy Proton
   snapshots for encrypted offline access;
 - fast launch, keyboard-first navigation, and fast local search;
-- browsing, creating, and archiving entries, enabled per provider only where the
-  provider actually supports the operation: Vaultwarden 1.37.1 has per-user
-  cipher archiving, and the researched Proton CLI documentation exposes no
-  archive command, so that action remains disabled there rather than mapped onto
-  trash or deletion unless a tested future command contract supports it;
+- browsing entries now; creating, updating, and archiving remain disabled for
+  every provider until each operation's provider-specific release gates pass;
 - no plaintext vault database, default telemetry, or TLS bypass;
 - provider boundaries that support Vaultwarden and the Proton CLI without
   pretending that the two services share one protocol or cryptographic model.
 
 ## Implementation Status
 
-- **Vaultwarden — read and write.** Origin-approved sign-in with optional
-  second factor, PBKDF2/HKDF key derivation and EncString decryption, sync into
-  a ChaCha20-Poly1305 device-sealed cache, master-password unlock, item list and
-  detail with reveal, clipboard, and RFC 6238 TOTP, custom fields (hidden ones
-  concealed), and create, edit, and archive writes gated per capability. An edit
-  preserves the item's folder and custom fields verbatim. Sync and writes target
-  the API origin approved at sign-in, so a split-origin server works. Argon2id
-  KDF fails closed.
-- **Proton Pass — read only, through your own CLI.** VaultSquire never asks for
-  a Proton credential; sign-in stays with the official user-installed `pass-cli`.
-  The provider locates an allowlisted absolute binary path (symlink resolved and
-  shown), runs it with no shell, a fixed environment (`HOME` passed through, not
-  relocated), standard input bound to the null device, and bounded output, and
-  gates the reported version against a fail-closed allowlist. It lists vaults and
-  items, projects them into the shared read UI, and seals a lossy snapshot with
-  the same AEAD envelope for offline read. Listing fetches no secrets — one CLI
-  call per item made opening a real vault take minutes — so an item's secret
-  fields are fetched when it is opened and held in memory for that session only.
-  No write, argv secret, or environment secret is ever produced.
+- **Vaultwarden — read-only surface today.** Origin-approved sign-in with an
+  optional second factor, PBKDF2/HKDF key derivation and EncString decryption,
+  sync into a ChaCha20-Poly1305 device-sealed cache, master-password unlock,
+  item list/detail with controlled reveal and clipboard expiry, RFC 6238 TOTP,
+  custom-field concealment, individual cipher keys, and permission-aware reads.
+  Split identity/API origins require explicit approval; Argon2id and unknown
+  cryptographic forms fail closed. Every mutation capability is absent.
+- **Proton Pass — dormant read-only adapter.** The no-shell runner, bounded
+  process boundary, secret-free summary projection, and sealed lossy snapshot
+  are exercised with synthetic fake-executor tests. No live executable/schema,
+  authorization, identity, sandbox, or policy matrix has passed, so the
+  production allowlist is empty and no Proton account can be added or opened.
 - **Several vaults open at once.** Each configured vault is its own session with
   its own open state, items, and decrypted material, so locking one leaves the
   others open. A sidebar lists every vault with per-vault unlock and lock, and an
   "All Vaults" scope merges every open vault into one searchable list, tagging
   each row with the vault it came from. Capabilities are gated per item, so a
-  read-only Proton item offers no Edit or Archive even beside a writable
-  Vaultwarden one. Quick Search always spans every open vault and never surfaces
+  read-only item offers no Edit or Archive. Quick Search always spans every open
+  vault and never surfaces
   a locked vault's items.
 - **Touch ID unlock (opt-in).** Enrolling generates a random quick-unlock key
   stored in an access-controlled Keychain item requiring the current biometric
@@ -102,33 +90,19 @@ security boundaries:
   entry for it. When it is on, each icon comes from that site's own origin and
   never from an icon service, which would instead receive your entire list of
   sites; nothing is cached to disk, so the set of sites leaves no trace.
-- **One unlock opens the app.** Unlocking — by master password or by Touch ID —
-  also opens every configured vault that has no credential of its own to
-  collect, which is both CLI providers: their sessions live in the official CLI
-  or the 1Password app, so a second "Open Vault" press would collect nothing.
-  Those vaults are not opened on launch, though: the unlock is the gate, and a
-  CLI vault appearing with no gesture at all would put vault contents on screen
-  for whoever opened the window. A CLI that is missing or signed out fails onto
-  its own sidebar row and never touches the vault that was unlocked.
-- **1Password — read only, through your own CLI.** VaultSquire never asks for a
-  1Password credential: the account password and Secret Key stay with
-  1Password's own desktop app, which authorizes the CLI with a biometric prompt.
-  Desktop-app integration is the only supported mode, because manual sign-in and
-  service accounts both deliver a credential through argv or the environment.
-  The provider locates an allowlisted absolute `op` path, gates the reported
-  version against a fail-closed allowlist of stable releases, resolves the
-  account so a second signed-in account cannot answer a read, and lists vaults
-  and items. Its sealed snapshot carries no secret at all — not even a note — so
-  opening an item is what fetches secrets, and they live in memory for that
-  session only. Every write is disabled.
-- **Caveat.** Both CLI command and JSON contracts are implemented against their
-  vendors' *documented* surfaces (PROTON_PASS_RESEARCH.md §5, §8;
-  ONEPASSWORD_CLI_RESEARCH.md §5, §8) and gated to the releases recorded there;
-  neither has been exercised against a live CLI in this environment. On a real
-  machine the version allowlists and the JSON key mappings are the points to
-  reconcile against the installed builds — a mismatch fails closed with an
-  honest "couldn't read the CLI output", never a false success. All CLI-boundary
-  logic is covered by unit tests over a fake executor.
+- **One unlock opens the admitted app state.** Vaultwarden never opens without
+  a password or enrolled Touch ID gesture. The aggregate session model can open
+  credential-free providers after that gesture, but both CLI providers are
+  currently excluded from the production provider set.
+- **1Password — dormant read-only adapter.** Synthetic tests cover account
+  scoping, the closed desktop-authorization environment mode, secret-free
+  summaries, on-demand content, and sealed snapshots. The production allowlist
+  is empty, every write is disabled, and no 1Password UI is reachable.
+- **CLI caveat.** Documentation-observed release numbers are candidate evidence,
+  not compatibility claims. Neither CLI has been exercised live for this app;
+  exact executable identity, authorization, commands, schemas, leakage,
+  cancellation, and sandbox/direct behavior must pass before a version can move
+  into a non-empty production allowlist.
 - **1Password's two open gates.** 1Password's API and SDK Terms define its CLI
   into "Developer Tools", grant no affirmative licence to it, and prohibit
   building a product that replicates a substantial portion of the Services;

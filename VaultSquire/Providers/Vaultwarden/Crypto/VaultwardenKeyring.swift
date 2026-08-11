@@ -25,16 +25,54 @@ struct VaultwardenKeyring: Sendable {
         return organizationKeys[organizationID]
     }
 
-    /// Decrypts one EncString field under the item's key. Returns nil for a nil
-    /// or undecryptable field, so a single bad field never aborts a whole item;
-    /// the caller shows what decrypted and omits what did not.
-    func decrypt(_ encString: String?, organizationID: String?) -> String? {
-        guard let encString,
-              let key = key(forOrganization: organizationID),
-              let parsed = try? VaultwardenEncString.parse(encString),
-              let data = try? VaultwardenCipher.decrypt(parsed, key: key) else {
+    /// Resolves the actual content key for a cipher. Modern personal and
+    /// organization ciphers carry an individual 64-byte key wrapped under the
+    /// owner key; legacy ciphers without one use the owner key directly. A
+    /// present but malformed wrapper never falls back to the owner key.
+    func key(for cipher: VaultwardenCipherModel) -> VaultwardenSymmetricKey? {
+        guard let ownerKey = key(forOrganization: cipher.organizationID) else {
             return nil
         }
+        guard let wrapped = cipher.key else { return ownerKey }
+        guard let parsed = try? VaultwardenEncString.parse(wrapped),
+              var bytes = try? VaultwardenCipher.decrypt(parsed, key: ownerKey) else {
+            return nil
+        }
+        defer { VaultwardenCryptoZeroize.zero(&bytes) }
+        return try? VaultwardenSymmetricKey(keyData: bytes)
+    }
+
+    /// Decrypts one EncString under an already-resolved content key. Returns
+    /// nil for a nil, unauthenticated, non-UTF-8, or otherwise unsupported
+    /// field; no caller guesses a fallback algorithm.
+    func decrypt(
+        _ encString: String?,
+        key: VaultwardenSymmetricKey?,
+        maximumUTF8Bytes: Int = VaultwardenEncString.maximumPlaintextBytes
+    ) -> String? {
+        guard maximumUTF8Bytes >= 0,
+              let encString,
+              let key,
+              let parsed = try? VaultwardenEncString.parse(encString),
+              var data = try? VaultwardenCipher.decrypt(parsed, key: key) else {
+            return nil
+        }
+        defer { VaultwardenCryptoZeroize.zero(&data) }
+        guard data.count <= maximumUTF8Bytes else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// Owner-key decryption remains appropriate for account-level values such
+    /// as folder names, which never use an individual cipher key.
+    func decrypt(
+        _ encString: String?,
+        organizationID: String?,
+        maximumUTF8Bytes: Int = VaultwardenEncString.maximumPlaintextBytes
+    ) -> String? {
+        decrypt(
+            encString,
+            key: key(forOrganization: organizationID),
+            maximumUTF8Bytes: maximumUTF8Bytes
+        )
     }
 }

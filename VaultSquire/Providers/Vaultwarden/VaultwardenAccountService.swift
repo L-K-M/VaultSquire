@@ -14,6 +14,17 @@ enum VaultwardenAccountError: Error, Equatable, Sendable {
     /// The server did not return the wrapped user key at login, so nothing can
     /// be unlocked.
     case missingKeyMaterial
+    /// This single-account build already holds a different server/account.
+    case existingAccountMismatch
+    /// Only part of the local account transaction exists; overwriting it would
+    /// hide credentials or ciphertext rather than repairing it atomically.
+    case inconsistentLocalState
+    /// The provider hierarchy changed or its refresh session ended; a complete
+    /// login is required before cached content can be opened again.
+    case reauthenticationRequired
+    /// Reauthentication succeeded, but its mandatory replacement full sync did
+    /// not complete, so the prior marked snapshot remains authoritative.
+    case replacementSyncFailed
 }
 
 /// The unlocked material and derived items for one account, held only while the
@@ -60,27 +71,60 @@ struct VaultwardenAccountService: Sendable {
 
     // MARK: - Configuration
 
-    /// Persists the just-authenticated account so the shell can offer an unlock
-    /// prompt and the first unlock can open the vault.
-    ///
-    /// The non-secret descriptor is written first and unconditionally: a login
-    /// that authenticated must always produce an unlock prompt, never the dead
-    /// "locked with no prompt" state, even if sealing the cache is momentarily
-    /// unavailable. The sealed cache is then seeded from the login. Some servers
-    /// return the wrapped user key only from the sync profile, not the token
-    /// grant; in that case the seed carries an empty key and the first unlock's
-    /// sync populates it before deriving any keyring.
+    /// Returns the persisted KDF baseline for a login to the same configured
+    /// account. A different server/email or a partial prior transaction fails
+    /// before any credential-derived proof is sent; this single-account build
+    /// never silently overwrites one account with another.
+    func loginBaseline(
+        serverBaseURL: URL,
+        email: String
+    ) throws -> VaultwardenKDFConfiguration? {
+        let snapshot = try vaultCache.load(for: account)
+        let descriptor = descriptorStore.descriptor(for: account)
+        // This is a security transaction, not a shell presence probe: load and
+        // validate the complete record so malformed/weak Keychain state blocks
+        // before any credential-derived proof leaves.
+        let credentialsExist = try credentialStore.load(for: .primary) != nil
+
+        guard snapshot != nil || descriptor != nil || credentialsExist else {
+            return nil
+        }
+        // Every durable part must agree before credential-derived proof leaves.
+        // A token alone cannot identify its server/account, and a descriptor or
+        // cache alone is likewise an interrupted transaction; none is silently
+        // adopted or overwritten as a fresh account.
+        guard let snapshot, descriptor != nil, credentialsExist else {
+            throw VaultwardenAccountError.inconsistentLocalState
+        }
+        let storedEnvironment = try VaultwardenEnvironment(configuredURL: snapshot.serverBaseURL)
+        let normalizedEmail = VaultwardenKeyDerivation.normalizedEmail(email)
+        guard storedEnvironment.base == serverBaseURL,
+              snapshot.email == normalizedEmail else {
+            throw VaultwardenAccountError.existingAccountMismatch
+        }
+        return try snapshot.kdf.configuration()
+    }
+
+    /// Commits a just-authenticated account. A first login may persist an empty
+    /// seed because it has no prior ciphertext to revive. Reauthentication is
+    /// stricter: its replacement hierarchy must complete a full sync while the
+    /// prior cache remains marked/authoritative, and only that complete
+    /// candidate may replace it.
     func persistAfterLogin(
         session: VaultwardenAuthSession,
         serverBaseURL: URL,
         email: String
-    ) {
-        descriptorStore.upsert(AccountDescriptor(
+    ) async throws {
+        let descriptor = AccountDescriptor(
             account: account,
             serverDisplay: serverBaseURL.host ?? serverBaseURL.absoluteString,
             email: VaultwardenKeyDerivation.normalizedEmail(email)
-        ))
-        let snapshot = VaultwardenVaultSnapshot(
+        )
+        let previousSnapshot = try vaultCache.load(for: account)
+        guard previousSnapshot?.generation != UInt64.max else {
+            throw VaultwardenAccountError.inconsistentLocalState
+        }
+        var snapshot = VaultwardenVaultSnapshot(
             version: VaultwardenVaultSnapshot.currentVersion,
             serverBaseURL: serverBaseURL.absoluteString,
             identityBaseURL: session.identityBaseURL.absoluteString,
@@ -93,11 +137,53 @@ struct VaultwardenAccountService: Sendable {
             folders: [],
             ciphers: [],
             syncedAt: now(),
-            generation: 1
+            generation: previousSnapshot?.generation ?? 1
         )
-        // Best-effort: a host without the device sealing key still completes the
-        // sign-in with a usable descriptor, and the cache seeds on the next sync.
-        try? vaultCache.save(snapshot, for: account)
+
+        if previousSnapshot != nil {
+            guard let stored = try credentialStore.load(for: .primary) else {
+                throw VaultwardenAccountError.replacementSyncFailed
+            }
+            let environment = try VaultwardenEnvironment(
+                configuredURL: serverBaseURL.absoluteString
+            )
+            let transport = makeTransport(environment)
+            let refresher = VaultwardenTokenRefresher(
+                transport: transport,
+                refreshToken: stored.refreshToken,
+                identityBaseURL: session.identityBaseURL
+            )
+            let syncService = VaultwardenSyncService(
+                transport: transport,
+                apiBaseURL: session.apiBaseURL
+            )
+            let result = await syncService.sync(
+                current: snapshot,
+                refresher: refresher,
+                capturedAt: now(),
+                persistRefreshToken: { token in
+                    try credentialStore.replaceRefreshToken(token, for: .primary)
+                }
+            )
+            guard !Task.isCancelled,
+                  case .success(let success) = result else {
+                throw VaultwardenAccountError.replacementSyncFailed
+            }
+            snapshot = success.snapshot
+        }
+
+        // The cache is the only durable copy of the approved origins, KDF, and
+        // wrapped hierarchy. Commit it before the non-secret descriptor, and
+        // restore the prior cache if descriptor verification fails.
+        try vaultCache.save(snapshot, for: account)
+        guard descriptorStore.upsert(descriptor) else {
+            if let previousSnapshot {
+                try? vaultCache.save(previousSnapshot, for: account)
+            } else {
+                try? vaultCache.wipe(for: account)
+            }
+            throw VaultwardenAccountError.inconsistentLocalState
+        }
     }
 
     func loadSnapshot() throws -> VaultwardenVaultSnapshot? {
@@ -110,6 +196,9 @@ struct VaultwardenAccountService: Sendable {
         guard var snapshot = try vaultCache.load(for: account) else {
             throw VaultwardenAccountError.noVault
         }
+        guard snapshot.reauthenticationRequired != true else {
+            throw VaultwardenAccountError.reauthenticationRequired
+        }
         // Some servers return the wrapped user key only from the sync profile,
         // so a freshly added account can hold a seed with no key yet. Fetch the
         // authoritative vault before deriving any keyring; a successful sync
@@ -120,6 +209,9 @@ struct VaultwardenAccountService: Sendable {
                 throw VaultwardenAccountError.noVault
             }
             snapshot = refreshed
+            guard snapshot.reauthenticationRequired != true else {
+                throw VaultwardenAccountError.reauthenticationRequired
+            }
         }
         guard !snapshot.wrappedUserKey.isEmpty else {
             throw VaultwardenAccountError.missingKeyMaterial
@@ -127,11 +219,14 @@ struct VaultwardenAccountService: Sendable {
         let keyring = try await VaultwardenVaultUnlock.unlock(
             snapshot: snapshot, masterPasswordBytes: masterPasswordBytes
         )
+        let folderNames = decryptFolderNames(keyring: keyring, snapshot: snapshot)
         return VaultwardenUnlockedVault(
             keyring: keyring,
             snapshot: snapshot,
-            items: projections(keyring: keyring, snapshot: snapshot),
-            folderNames: decryptFolderNames(keyring: keyring, snapshot: snapshot)
+            items: projections(
+                keyring: keyring, snapshot: snapshot, folderNames: folderNames
+            ),
+            folderNames: folderNames
         )
     }
 
@@ -139,33 +234,58 @@ struct VaultwardenAccountService: Sendable {
     /// unlock. The key came from the biometry-protected Keychain entry, which is
     /// bound to the snapshot's current wrapped user key, so a rotated key cannot
     /// silently open a vault it no longer matches.
-    func unlock(userKeyData: Data) throws -> VaultwardenUnlockedVault {
+    func unlock(userKeyData: Data) async throws -> VaultwardenUnlockedVault {
         guard let snapshot = try vaultCache.load(for: account) else {
             throw VaultwardenAccountError.noVault
+        }
+        guard snapshot.reauthenticationRequired != true else {
+            throw VaultwardenAccountError.reauthenticationRequired
         }
         guard let userKey = try? VaultwardenSymmetricKey(keyData: userKeyData) else {
             throw VaultwardenAccountError.missingKeyMaterial
         }
         let keyring = VaultwardenVaultUnlock.keyring(snapshot: snapshot, userKey: userKey)
+        let folderNames = decryptFolderNames(keyring: keyring, snapshot: snapshot)
         return VaultwardenUnlockedVault(
             keyring: keyring,
             snapshot: snapshot,
-            items: projections(keyring: keyring, snapshot: snapshot),
-            folderNames: decryptFolderNames(keyring: keyring, snapshot: snapshot)
+            items: projections(
+                keyring: keyring, snapshot: snapshot, folderNames: folderNames
+            ),
+            folderNames: folderNames
         )
     }
 
     /// The wrapped user key a biometric entry is bound to, so enrollment and
     /// unlock can agree on which key material the stored key belongs to.
-    func currentWrappedUserKey() -> String? {
-        (try? vaultCache.load(for: account))?.wrappedUserKey
+    func reauthenticationIsRequired() throws -> Bool {
+        try vaultCache.load(for: account)?.reauthenticationRequired == true
+    }
+
+    func currentWrappedUserKey() async -> String? {
+        guard let snapshot = try? vaultCache.load(for: account),
+              snapshot.reauthenticationRequired != true else {
+            return nil
+        }
+        return snapshot.wrappedUserKey
     }
 
     func projections(
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot
     ) -> [VaultItemProjection] {
-        let folderNames = decryptFolderNames(keyring: keyring, snapshot: snapshot)
+        return projections(
+            keyring: keyring,
+            snapshot: snapshot,
+            folderNames: decryptFolderNames(keyring: keyring, snapshot: snapshot)
+        )
+    }
+
+    private func projections(
+        keyring: VaultwardenKeyring,
+        snapshot: VaultwardenVaultSnapshot,
+        folderNames: [String: String]
+    ) -> [VaultItemProjection] {
         return snapshot.ciphers
             .map {
                 VaultwardenItemDecryptor.projection(
@@ -186,7 +306,10 @@ struct VaultwardenAccountService: Sendable {
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot
     ) -> VaultItemDetail? {
-        guard let cipher = snapshot.ciphers.first(where: { $0.id == itemID.rawValue }) else {
+        guard itemID.account == account,
+              let cipher = snapshot.ciphers.first(where: {
+                  VaultwardenItemDecryptor.itemID(for: $0, account: account) == itemID
+              }) else {
             return nil
         }
         return VaultwardenItemDecryptor.detail(
@@ -202,19 +325,24 @@ struct VaultwardenAccountService: Sendable {
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot
     ) -> VaultItemDraft? {
-        guard let cipher = snapshot.ciphers.first(where: { $0.id == itemID.rawValue }),
+        guard itemID.account == account,
+              let cipher = snapshot.ciphers.first(where: {
+                  VaultwardenItemDecryptor.itemID(for: $0, account: account) == itemID
+              }),
               cipher.type == .login else {
             return nil
         }
-        let org = cipher.organizationID
-        func decrypt(_ value: String?) -> String { keyring.decrypt(value, organizationID: org) ?? "" }
+        let contentKey = keyring.key(for: cipher)
+        func decrypt(_ value: String?) -> String { keyring.decrypt(value, key: contentKey) ?? "" }
         return VaultItemDraft(
             itemID: itemID,
             title: decrypt(cipher.name),
             username: decrypt(cipher.login?.username),
             password: decrypt(cipher.login?.password),
             totp: decrypt(cipher.login?.totp),
-            websites: (cipher.login?.uris ?? []).compactMap { keyring.decrypt($0.uri, organizationID: org) },
+            websites: (cipher.login?.uris ?? []).compactMap {
+                keyring.decrypt($0.uri, key: contentKey)
+            },
             notes: decrypt(cipher.notes),
             favorite: cipher.favorite
         )
@@ -225,76 +353,54 @@ struct VaultwardenAccountService: Sendable {
         snapshot: VaultwardenVaultSnapshot
     ) -> [String: String] {
         var names: [String: String] = [:]
+        var remainingBytes = 4 * 1024 * 1024
         for folder in snapshot.folders {
-            if let name = keyring.decrypt(folder.name, organizationID: nil) {
-                names[folder.id] = name
-            }
+            let maximum = min(4_096, remainingBytes)
+            let decrypted = maximum > 0 ? keyring.decrypt(
+                folder.name,
+                organizationID: nil,
+                maximumUTF8Bytes: maximum
+            ) : nil
+            let safeName = (decrypted?.isEmpty == false) ? decrypted! : "Folder"
+            names[folder.id] = safeName
+            remainingBytes = max(0, remainingBytes - safeName.utf8.count)
         }
         return names
     }
 
     // MARK: - Capabilities and writes
 
-    /// The actions a Vaultwarden personal vault supports. Reads plus the writes
-    /// this release implements; archive is included because Vaultwarden exposes
-    /// per-user archiving. Every mutation is checked against this set through
-    /// `CapabilityGate`, so a disabled control is never the only guard.
+    /// The actions this build is authorized to expose. Mutations stay absent:
+    /// the required official-client interoperability, revision/conflict,
+    /// ambiguity, cancellation, permission-change, and unsupported-field
+    /// survival gates have not passed. Keeping the dormant implementation
+    /// behind this use-case gate makes an accidental UI action fail closed too.
     static let capabilities: Set<ProviderCapability> = [
         .viewItems, .searchItems, .revealSecret, .copySecret,
-        .createItem, .updateItem, .archiveItem,
     ]
 
     var capabilityGate: CapabilityGate { CapabilityGate(capabilities: Self.capabilities) }
 
-    /// Creates a login item from an unlocked draft, then the caller re-syncs.
+    /// Production mutation entry points are hard-disabled in addition to the
+    /// empty capability set. The implementation harness lives behind DEBUG for
+    /// protocol tests, but no release call path can obtain network credentials
+    /// or construct a mutation request.
     func create(
         draft: VaultItemDraft,
         keyring: VaultwardenKeyring
     ) async -> Result<Void, VaultwardenWriteError> {
-        let space = VaultSpaceID(account: account, scope: .personal)
-        guard (try? capabilityGate.authorize(.createItem(space), from: .menu)) != nil else {
-            return .failure(.rejected)
-        }
-        return await performWrite { token, transport, apiBase, _ in
-            await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
-                .createLogin(draft: draft, userKey: keyring.userKey, accessToken: token)
-        }
+        .failure(.rejected)
     }
 
-    /// Updates an existing login item.
     func update(
         draft: VaultItemDraft,
         keyring: VaultwardenKeyring
     ) async -> Result<Void, VaultwardenWriteError> {
-        guard let itemID = draft.itemID else { return .failure(.rejected) }
-        guard (try? capabilityGate.authorize(.updateItem(itemID), from: .menu)) != nil else {
-            return .failure(.rejected)
-        }
-        return await performWrite { token, transport, apiBase, snapshot in
-            // Pass the existing folder membership and custom fields through so
-            // the replacing PUT does not wipe them.
-            let existing = snapshot.ciphers.first { $0.id == itemID.rawValue }
-            return await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
-                .updateLogin(
-                    cipherID: itemID.rawValue,
-                    draft: draft,
-                    userKey: keyring.userKey,
-                    accessToken: token,
-                    folderID: existing?.folderID,
-                    preservedFields: existing?.fields ?? []
-                )
-        }
+        .failure(.rejected)
     }
 
-    /// Archives an item where the server supports it.
     func archive(itemID: VaultItemID) async -> Result<Void, VaultwardenWriteError> {
-        guard (try? capabilityGate.authorize(.archiveItem(itemID), from: .menu)) != nil else {
-            return .failure(.rejected)
-        }
-        return await performWrite { token, transport, apiBase, _ in
-            await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
-                .archive(cipherID: itemID.rawValue, accessToken: token)
-        }
+        .failure(.rejected)
     }
 
     /// The API base approved at login, parsed from the snapshot. Nil for
@@ -304,60 +410,12 @@ struct VaultwardenAccountService: Sendable {
         snapshot.apiBaseURL.flatMap(URL.init(string:))
     }
 
-    /// Loads the account context, refreshes to an access token, runs a write,
-    /// and persists the rotated refresh token. A failed refresh reports
-    /// session-expired; the write itself never touches the sealed cache — the
-    /// caller re-syncs on success to pull the authoritative new state.
-    private func performWrite(
-        _ body: @Sendable (
-            String, VaultwardenTransport, URL?, VaultwardenVaultSnapshot
-        ) async -> Result<Void, VaultwardenWriteError>
-    ) async -> Result<Void, VaultwardenWriteError> {
-        let snapshot: VaultwardenVaultSnapshot
-        let refreshToken: String
-        do {
-            guard let loaded = try vaultCache.load(for: account),
-                  let stored = try credentialStore.load(for: .primary) else {
-                return .failure(.sessionExpired)
-            }
-            snapshot = loaded
-            refreshToken = stored.refreshToken
-        } catch {
-            return .failure(.transient)
-        }
-
-        let environment: VaultwardenEnvironment
-        do {
-            environment = try VaultwardenEnvironment(configuredURL: snapshot.serverBaseURL)
-        } catch {
-            return .failure(.transient)
-        }
-        let transport = makeTransport(environment)
-        let refresher = VaultwardenTokenRefresher(
-            transport: transport,
-            refreshToken: refreshToken,
-            identityBaseURL: URL(string: snapshot.identityBaseURL)
-        )
-        let token: String
-        switch await refresher.refresh() {
-        case .refreshed(let accessToken, _, _):
-            token = accessToken
-        case .sessionExpired:
-            return .failure(.sessionExpired)
-        case .transientFailure:
-            return .failure(.transient)
-        }
-        let rotatedRefreshToken = await refresher.currentRefreshToken
-        try? credentialStore.replaceRefreshToken(rotatedRefreshToken, for: .primary)
-
-        return await body(token, transport, Self.approvedAPIBase(of: snapshot), snapshot)
-    }
-
     // MARK: - Sync
 
     /// Refreshes and fetches the vault, persisting the updated snapshot and the
-    /// rotated refresh token on success. Returns the new snapshot, or a sync
-    /// error that never disturbs the last good cache.
+    /// rotated refresh token on success. Ordinary failures preserve the last
+    /// good cache; observed bootstrap drift replaces it with a durable lockout
+    /// marker (or destroys its sealing path) before requiring login.
     func sync() async -> Result<VaultwardenVaultSnapshot, VaultwardenSyncError> {
         let snapshot: VaultwardenVaultSnapshot
         do {
@@ -367,6 +425,9 @@ struct VaultwardenAccountService: Sendable {
             snapshot = loaded
         } catch {
             return .failure(.localStorageFailed)
+        }
+        guard snapshot.reauthenticationRequired != true else {
+            return .failure(.reauthenticationRequired)
         }
 
         let refreshToken: String
@@ -396,18 +457,58 @@ struct VaultwardenAccountService: Sendable {
             apiBaseURL: Self.approvedAPIBase(of: snapshot)
         )
 
-        let result = await service.sync(current: snapshot, refresher: refresher, capturedAt: now())
+        let result = await service.sync(
+            current: snapshot,
+            refresher: refresher,
+            capturedAt: now(),
+            persistRefreshToken: { token in
+                try credentialStore.replaceRefreshToken(token, for: .primary)
+            }
+        )
         switch result {
         case .success(let success):
-            // The fetched vault is authoritative — a failed local re-seal must
-            // never hide it behind an error. The token is persisted first so a
-            // rotated refresh token survives a cache-save failure; the cache
-            // simply keeps the previous good snapshot and reseals next sync.
-            try? credentialStore.replaceRefreshToken(success.refreshToken, for: .primary)
-            try? vaultCache.save(success.snapshot, for: account)
+            guard !Task.isCancelled else { return .failure(.transient) }
+            // Publication requires a complete durable cache commit. The rotated
+            // token was already replaced immediately after refresh, so a cache
+            // failure leaves the prior snapshot intact without stranding the
+            // network session.
+            do {
+                try vaultCache.save(success.snapshot, for: account)
+            } catch {
+                return .failure(.localStorageFailed)
+            }
             return .success(success.snapshot)
+        case .failure(.reauthenticationRequired):
+            persistReauthenticationMarker(over: snapshot)
+            return .failure(.reauthenticationRequired)
+        case .failure(.sessionExpired):
+            // Refresh invalid_grant is an account-state transition, not an
+            // ordinary sync error. Keep ciphertext but prevent another offline
+            // or biometric unlock until a complete login replaces the marker.
+            persistReauthenticationMarker(over: snapshot)
+            return .failure(.sessionExpired)
         case .failure(let error):
             return .failure(error)
+        }
+    }
+
+    private func persistReauthenticationMarker(
+        over snapshot: VaultwardenVaultSnapshot
+    ) {
+        var blocked = snapshot
+        blocked.reauthenticationRequired = true
+        do {
+            try vaultCache.save(blocked, for: account)
+        } catch {
+            // If the durable marker cannot be committed, destroy the old
+            // offline-open path. If even the file cannot be removed,
+            // invalidate its device-only sealing key as the final durable
+            // fail-closed boundary.
+            do {
+                try vaultCache.wipe(for: account)
+            } catch {
+                try? vaultCache.invalidateSealingKey()
+            }
         }
     }
 }

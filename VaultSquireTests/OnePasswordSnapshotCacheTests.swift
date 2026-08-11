@@ -19,10 +19,10 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
         return directory
     }
 
-    private func makeSnapshot() -> OnePasswordSnapshot {
+    private func makeSnapshot(accountIdentifier: String = "ACCOUNT1") -> OnePasswordSnapshot {
         OnePasswordSnapshot(
             cliVersion: "2.38.1",
-            accountIdentifier: "ACCOUNT1",
+            accountIdentifier: accountIdentifier,
             capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
             vaults: [OnePasswordVault(vaultID: "VAULT1", name: "Private")],
             items: [
@@ -52,6 +52,27 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
         let cache = makeCache()
         XCTAssertFalse(cache.exists(for: account))
         XCTAssertNil(try cache.load(for: account))
+    }
+
+    func testSnapshotInitializerStripsUndocumentedDisplayContent() {
+        let snapshot = OnePasswordSnapshot(
+            cliVersion: "2.38.1",
+            accountIdentifier: "ACCOUNT1",
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            vaults: [OnePasswordVault(vaultID: "VAULT1", name: "Private")],
+            items: [OnePasswordItem(
+                itemID: "ITEM1",
+                vaultID: "VAULT1",
+                vaultName: "Private",
+                category: .login,
+                title: "Example",
+                username: nil,
+                additionalInformation: "VSQ-unreviewed-value",
+                urls: []
+            )]
+        )
+
+        XCTAssertNil(snapshot.items.first?.additionalInformation)
     }
 
     func testASnapshotIsAlwaysMarkedLossy() throws {
@@ -85,7 +106,7 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
         let cache = OnePasswordSnapshotCache(keyProvider: { sealingKey }, directory: directory)
         let other = AccountID(provider: .onePasswordCLI, rawValue: "other-account")
 
-        try cache.save(makeSnapshot(), for: other)
+        try cache.save(makeSnapshot(accountIdentifier: other.rawValue), for: other)
         let otherFile = try XCTUnwrap(Self.files(in: directory).first)
         let otherBytes = try Data(contentsOf: otherFile)
 
@@ -94,6 +115,21 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
 
         // Drop the other account's sealed blob into this account's slot.
         try otherBytes.write(to: mySlot)
+
+        XCTAssertThrowsError(try cache.load(for: account)) { error in
+            XCTAssertEqual(error as? OnePasswordSnapshotCacheError, .corrupt)
+        }
+    }
+
+    func testOversizedCacheFileIsRejectedBeforeOpening() throws {
+        let directory = makeDirectory()
+        let sealingKey = key
+        let cache = OnePasswordSnapshotCache(keyProvider: { sealingKey }, directory: directory)
+        try cache.save(makeSnapshot(), for: account)
+        let file = try XCTUnwrap(Self.files(in: directory).first)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.truncate(atOffset: UInt64(8 * 1024 * 1024 + 1))
+        try handle.close()
 
         XCTAssertThrowsError(try cache.load(for: account)) { error in
             XCTAssertEqual(error as? OnePasswordSnapshotCacheError, .corrupt)

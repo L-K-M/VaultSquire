@@ -39,7 +39,13 @@ struct ItemIconIdentity: Equatable, Sendable {
     /// The one place the icon address is built, so the "site's own origin, over
     /// TLS, never an aggregator" rule has a single site to hold it.
     static func iconURL(forHost host: String) -> URL? {
-        URL(string: "https://\(host)/favicon.ico")
+        let normalized = host.lowercased()
+        guard isSafeIconHost(normalized) else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = normalized
+        components.path = "/favicon.ico"
+        return components.url
     }
 
     // MARK: - Derivation
@@ -72,7 +78,47 @@ struct ItemIconIdentity: Equatable, Sendable {
         if host.hasPrefix("www.") {
             host = String(host.dropFirst(4))
         }
-        return host.isEmpty ? nil : host
+        return isSafeIconHost(host) ? host : nil
+    }
+
+    private static func isSafeIconHost(_ host: String) -> Bool {
+        guard !host.isEmpty, host.utf8.count <= 253,
+              host.unicodeScalars.allSatisfy({ scalar in
+                  (scalar.value >= 48 && scalar.value <= 57)
+                      || (scalar.value >= 97 && scalar.value <= 122)
+                      || scalar.value == 45 || scalar.value == 46
+              }),
+              !host.hasPrefix("."), !host.hasSuffix("."),
+              !host.contains("..") else {
+            return false
+        }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2,
+              labels.allSatisfy({ label in
+                  !label.isEmpty && label.utf8.count <= 63
+                      && !label.hasPrefix("-") && !label.hasSuffix("-")
+              }) else {
+            return false
+        }
+        // Never turn vault content into an obvious local-network request. DNS
+        // rebinding remains a residual of this opt-in feature, but literals and
+        // common local-only suffixes are rejected before URLSession is touched.
+        let looksNumericAddress = labels.allSatisfy { label in
+            let scalars = label.unicodeScalars
+            if scalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }) {
+                return true
+            }
+            guard label.hasPrefix("0x"), label.count > 2 else { return false }
+            return label.dropFirst(2).unicodeScalars.allSatisfy {
+                ($0.value >= 48 && $0.value <= 57)
+                    || ($0.value >= 97 && $0.value <= 102)
+            }
+        }
+        if looksNumericAddress { return false }
+        let blockedSuffixes = [
+            "local", "localdomain", "localhost", "internal", "home", "lan"
+        ]
+        return !blockedSuffixes.contains(String(labels.last!))
     }
 
     /// The letter drawn without artwork. The site's own name is preferred over

@@ -67,6 +67,21 @@ struct ProtonItem: Equatable, Sendable, Codable {
 
     /// Overlays the secret fields fetched from an item read onto a summary,
     /// leaving identity and display fields intact.
+    var withoutSecretContent: ProtonItem {
+        ProtonItem(
+            itemID: itemID,
+            shareID: shareID,
+            vaultName: vaultName,
+            type: type,
+            title: title,
+            username: username,
+            password: nil,
+            totp: nil,
+            urls: urls,
+            note: nil
+        )
+    }
+
     func merging(_ content: ProtonItemContent) -> ProtonItem {
         ProtonItem(
             itemID: itemID,
@@ -136,18 +151,28 @@ enum ProtonReadModel {
             let rawType = string(object, ["type", "itemType", "item_type", "kind"]) ?? "unknown"
             let type = ProtonItemType.from(raw: rawType)
             let title = string(object, ["title", "name"], searchNested: true) ?? "Untitled"
-            let content = decodeContent(object)
+            // Extract only the reviewed summary fields. JSONSerialization must
+            // parse the bounded object, but no password/TOTP/note is copied into
+            // a canonical model on this persistence path.
+            let username = string(object, ["username", "user", "email"], searchNested: true)
+            let urls = stringArray(
+                object, ["urls", "uris", "websites", "url"], searchNested: true
+            )
             return ProtonItem(
                 itemID: itemID,
                 shareID: shareID,
                 vaultName: vaultName,
                 type: type,
                 title: title,
-                username: content.username,
-                password: content.password,
-                totp: content.totp,
-                urls: content.urls,
-                note: content.note
+                // `item list` is a summary boundary. Even if an admitted CLI
+                // unexpectedly emits secret-looking fields, they must not
+                // enter the snapshot that can be sealed to disk. Secrets are
+                // accepted only from the explicit `item view` path below.
+                username: username,
+                password: nil,
+                totp: nil,
+                urls: urls,
+                note: nil
             )
         }
     }
@@ -182,7 +207,9 @@ enum ProtonReadModel {
             category: item.type.category,
             username: item.username,
             websites: item.urls,
-            groupingLabels: item.vaultName.isEmpty ? [] : [item.vaultName],
+            groupings: item.vaultName.isEmpty ? [] : [
+                VaultItemGrouping(id: item.shareID, name: item.vaultName)
+            ],
             capabilities: capabilities,
             cacheReference: ProviderCacheReference(
                 scope: .wholeAccount(account),
@@ -230,11 +257,25 @@ enum ProtonReadModel {
 
     private static func decodeContent(_ object: [String: Any]) -> ProtonItemContent {
         ProtonItemContent(
-            username: string(object, ["username", "user", "email"], searchNested: true),
-            password: string(object, ["password", "pass"], searchNested: true),
-            totp: string(object, ["totp", "totpUri", "totp_uri", "otp"], searchNested: true),
-            urls: stringArray(object, ["urls", "uris", "websites", "url"], searchNested: true),
-            note: string(object, ["note", "notes"], searchNested: true)
+            username: bounded(
+                string(object, ["username", "user", "email"], searchNested: true),
+                maximumBytes: 64 * 1024
+            ),
+            password: bounded(
+                string(object, ["password", "pass"], searchNested: true),
+                maximumBytes: 1 * 1024 * 1024
+            ),
+            totp: bounded(
+                string(object, ["totp", "totpUri", "totp_uri", "otp"], searchNested: true),
+                maximumBytes: 8_192
+            ),
+            urls: stringArray(
+                object, ["urls", "uris", "websites", "url"], searchNested: true
+            ),
+            note: bounded(
+                string(object, ["note", "notes"], searchNested: true),
+                maximumBytes: 2 * 1024 * 1024
+            )
         )
     }
 
@@ -305,18 +346,32 @@ enum ProtonReadModel {
     private static func firstStringArray(_ object: [String: Any], _ keys: [String]) -> [String]? {
         for key in keys {
             if let array = object[key] as? [String] {
-                return array.filter { !$0.isEmpty }
+                return Array(array.prefix(100)).filter {
+                    !$0.isEmpty && $0.utf8.count <= 2_048
+                }
             }
             // A URL list of objects like [{"url": "..."}].
             if let array = object[key] as? [[String: Any]] {
-                let extracted = array.compactMap { firstString($0, ["url", "uri", "value"]) }
+                let extracted = array.prefix(100).compactMap {
+                    bounded(
+                        firstString($0, ["url", "uri", "value"]),
+                        maximumBytes: 2_048
+                    )
+                }
                 if !extracted.isEmpty { return extracted }
             }
             // A single string standing in for a one-element list.
-            if let single = object[key] as? String, !single.isEmpty {
+            if let single = bounded(
+                object[key] as? String, maximumBytes: 2_048
+            ), !single.isEmpty {
                 return [single]
             }
         }
         return nil
+    }
+
+    private static func bounded(_ value: String?, maximumBytes: Int) -> String? {
+        guard let value, value.utf8.count <= maximumBytes else { return nil }
+        return value
     }
 }

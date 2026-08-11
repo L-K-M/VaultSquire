@@ -9,6 +9,9 @@ enum VaultwardenWriteError: Error, Equatable, Sendable {
     case rejected
 }
 
+#if DEBUG
+/// Test-only implementation harness for the future Vaultwarden mutation
+/// contract. Release builds compile no request constructor or mutation route.
 /// Builds and sends Vaultwarden cipher mutations. Every user-authored field is
 /// encrypted with the account's user key into the canonical type-2 EncString
 /// before it is placed in the request body, so no plaintext field ever leaves
@@ -91,12 +94,13 @@ struct VaultwardenWriteService: Sendable {
         body: Data,
         accessToken: String
     ) async -> Result<Void, VaultwardenWriteError> {
-        let response: VaultwardenHTTPResponse
+        var response: VaultwardenHTTPResponse
         do {
             response = try await transport.send(method, url: url, body: .json(body), bearer: accessToken)
         } catch {
             return .failure(.transient)
         }
+        defer { response.discardBody() }
         if response.status == 401 { return .failure(.sessionExpired) }
         guard (200..<300).contains(response.status) else { return .failure(.rejected) }
         return .success(())
@@ -198,3 +202,4 @@ struct VaultwardenWriteService: Sendable {
         }
     }
 }
+#endif

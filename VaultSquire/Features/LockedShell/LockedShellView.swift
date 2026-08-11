@@ -33,6 +33,12 @@ struct LockedShellView: View {
             appModel.refreshAccountPresence()
             ApplicationCoordinator.shared.quickSearchDataSource = appModel
         }
+        .onReceive(NotificationCenter.default.publisher(
+            for: ApplicationCoordinator.securityLockNotification
+        )) { _ in
+            addAccountModel?.cancel()
+            addAccountModel = nil
+        }
     }
 
     // MARK: - Empty shell

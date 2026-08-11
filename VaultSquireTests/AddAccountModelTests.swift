@@ -20,19 +20,24 @@ final class AddAccountModelTests: XCTestCase {
 
     private func makeModel(
         store: any VaultwardenCredentialStore,
-        onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in }
+        onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in },
+        accountService: VaultwardenAccountService? = nil
     ) -> AddAccountModel {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let session = URLSession(configuration: configuration)
+        let makeTransport: @Sendable (VaultwardenEnvironment) -> VaultwardenTransport = {
+            VaultwardenTransport(environment: $0, session: session)
+        }
         return AddAccountModel(
             credentialStore: store,
             deviceIdentity: device,
-            makeTransport: { environment in
-                VaultwardenTransport(environment: environment, session: session)
-            },
+            makeTransport: makeTransport,
             onAccountConfigured: onAccountConfigured,
-            accountService: makeIsolatedAccountService()
+            accountService: accountService ?? makeIsolatedAccountService(
+                credentialStore: store,
+                makeTransport: makeTransport
+            )
         )
     }
 
@@ -41,16 +46,20 @@ final class AddAccountModelTests: XCTestCase {
     /// app's real UserDefaults and Application Support, and a descriptor left
     /// there makes the app launch into the vault browser — which the UI tests,
     /// running later in the same job, see instead of the locked shell.
-    private func makeIsolatedAccountService() -> VaultwardenAccountService {
+    private func makeIsolatedAccountService(
+        credentialStore: any VaultwardenCredentialStore,
+        makeTransport: @escaping @Sendable (VaultwardenEnvironment) -> VaultwardenTransport
+    ) -> VaultwardenAccountService {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VSQ-addaccount-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let key = SymmetricKey(size: .bits256)
         let defaults = UserDefaults(suiteName: "VSQ-addaccount-\(UUID().uuidString)")!
         return VaultwardenAccountService(
-            credentialStore: InMemoryCredentialStore(),
+            credentialStore: credentialStore,
             vaultCache: VaultwardenVaultCache(keyProvider: { key }, directory: directory),
-            descriptorStore: AccountDescriptorStore(defaults: defaults)
+            descriptorStore: AccountDescriptorStore(defaults: defaults),
+            makeTransport: makeTransport
         )
     }
 
@@ -81,6 +90,160 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertEqual(
             store.record(for: .primary)?.refreshToken, "VSQ-refresh"
         )
+    }
+
+    func testConfiguredAccountCannotBeSilentlyReplacedByAnotherIdentity() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        stubSuccessfulLogin()
+        model.serverURL = "https://vault.example.com"
+        model.email = "first@example.com"
+        model.masterPassword = "VSQ-first-password"
+        await model.signIn()
+        XCTAssertEqual(model.phase, .succeeded)
+        let requestCount = StubServer.shared.requests.count
+        let storedToken = store.record(for: .primary)?.refreshToken
+
+        model.email = "other@example.com"
+        model.masterPassword = "VSQ-other-password"
+        await model.signIn()
+
+        guard case .failed(let message) = model.phase else {
+            return XCTFail("expected account replacement to fail closed")
+        }
+        XCTAssertTrue(message.contains("different Vaultwarden account"))
+        XCTAssertEqual(StubServer.shared.requests.count, requestCount)
+        XCTAssertEqual(store.record(for: .primary)?.refreshToken, storedToken)
+        XCTAssertEqual(model.masterPassword, "")
+    }
+
+    func testRepeatLoginCommitsOnlyAfterAFullReplacementSync() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        stubSuccessfulLogin()
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "VSQ-password"
+        await model.signIn()
+        XCTAssertEqual(model.phase, .succeeded)
+        StubServer.shared.on(
+            "/api/sync",
+            respond: .json(200, """
+            {"Profile":{"Key":"2.synced|synced|synced","Organizations":[]},
+             "Folders":[],"Ciphers":[]}
+            """)
+        )
+
+        model.masterPassword = "VSQ-password"
+        await model.signIn()
+
+        XCTAssertEqual(model.phase, .succeeded)
+        XCTAssertNotNil(StubServer.shared.lastRequest(pathSuffix: "/api/sync"))
+    }
+
+    func testChangedKDFIsComparedWithPersistedBaselineAndRejectedBeforeGrant() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        stubSuccessfulLogin()
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "VSQ-password"
+        await model.signIn()
+        XCTAssertEqual(model.phase, .succeeded)
+        let grantsBefore = StubServer.shared.requests.filter {
+            $0.url.path.hasSuffix("/connect/token")
+        }.count
+        StubServer.shared.on(
+            "/accounts/prelogin/password",
+            respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":200000}")
+        )
+
+        model.masterPassword = "VSQ-password"
+        await model.signIn()
+
+        guard case .failed(let message) = model.phase else {
+            return XCTFail("changed KDF must require an approval this UI does not provide")
+        }
+        XCTAssertTrue(message.contains("key-derivation settings changed"))
+        XCTAssertEqual(
+            StubServer.shared.requests.filter { $0.url.path.hasSuffix("/connect/token") }.count,
+            grantsBefore
+        )
+    }
+
+    func testCredentialOnlyPartialStateBlocksFreshLoginBeforeNetwork() async throws {
+        let store = InMemoryCredentialStore()
+        try store.save(
+            VaultwardenStoredCredentials(refreshToken: "orphaned-refresh"),
+            for: .primary
+        )
+        let model = makeModel(store: store)
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "VSQ-password"
+
+        await model.signIn()
+
+        guard case .failed(let message) = model.phase else {
+            return XCTFail("partial state must fail closed")
+        }
+        XCTAssertTrue(message.contains("partly stored"))
+        XCTAssertTrue(StubServer.shared.requests.isEmpty)
+        XCTAssertEqual(store.record(for: .primary)?.refreshToken, "orphaned-refresh")
+    }
+
+    func testInputBoundsRejectBeforeSendingCredentialDerivedProof() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        StubServer.shared.on("/api/config", respond: .json(200, "{}"))
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = String(
+            repeating: "x",
+            count: AddAccountModel.maximumMasterPasswordBytes + 1
+        )
+
+        await model.signIn()
+
+        guard case .failed = model.phase else {
+            return XCTFail("oversized input must fail")
+        }
+        XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/accounts/prelogin/password"))
+        XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
+        XCTAssertNil(store.record(for: .primary))
+        XCTAssertEqual(model.masterPassword, "")
+    }
+
+    func testCacheCommitFailureRollsBackNewCredentialsAndDescriptor() async {
+        enum TestFailure: Error { case unavailable }
+        let store = InMemoryCredentialStore()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VSQ-addaccount-fail-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let defaults = UserDefaults(suiteName: "VSQ-addaccount-fail-\(UUID().uuidString)")!
+        let descriptors = AccountDescriptorStore(defaults: defaults)
+        let service = VaultwardenAccountService(
+            credentialStore: store,
+            vaultCache: VaultwardenVaultCache(
+                keyProvider: { throw TestFailure.unavailable },
+                directory: directory
+            ),
+            descriptorStore: descriptors
+        )
+        let model = makeModel(store: store, accountService: service)
+        stubSuccessfulLogin()
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "VSQ-password"
+
+        await model.signIn()
+
+        guard case .failed = model.phase else {
+            return XCTFail("a failed sealed-cache commit must fail the account transaction")
+        }
+        XCTAssertNil(store.record(for: .primary))
+        XCTAssertTrue(descriptors.all().isEmpty)
+        XCTAssertEqual(model.masterPassword, "")
     }
 
     func testSuccessfulSignInReportsAccountConfiguredOnce() async {
@@ -254,6 +417,7 @@ final class AddAccountModelTests: XCTestCase {
         await model.submitTwoFactor()
 
         XCTAssertEqual(model.phase, .succeeded)
+        XCTAssertTrue(model.twoFactorCode.isEmpty)
         XCTAssertEqual(store.record(for: .primary)?.refreshToken, "r2")
         XCTAssertEqual(
             store.record(for: .primary)?.rememberedTwoFactorToken, "VSQ-remember"

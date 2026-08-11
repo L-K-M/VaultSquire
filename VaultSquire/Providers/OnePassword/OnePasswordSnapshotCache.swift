@@ -42,8 +42,87 @@ struct OnePasswordSnapshot: Equatable, Sendable, Codable {
         self.accountIdentifier = accountIdentifier
         self.capturedAt = capturedAt
         self.vaults = vaults
-        self.items = items
+        self.items = items.map(\.withoutPotentialSecrets)
         self.lossy = true
+    }
+
+    var withoutPotentialSecrets: OnePasswordSnapshot {
+        OnePasswordSnapshot(
+            cliVersion: cliVersion,
+            accountIdentifier: accountIdentifier,
+            capturedAt: capturedAt,
+            vaults: vaults,
+            items: items
+        )
+    }
+
+    var isStructurallyValid: Bool {
+        guard version == Self.currentVersion, lossy,
+              !cliVersion.isEmpty,
+              Self.isDisplayString(cliVersion, maximumBytes: 128),
+              let accountIdentifier,
+              OnePasswordCLIRunner.isValidOpaqueIdentifier(accountIdentifier),
+              capturedAt.timeIntervalSince1970.isFinite,
+              vaults.count <= 50, items.count <= 100_000,
+              Self.hasBoundedContent(vaults: vaults, items: items),
+              items.allSatisfy({ $0.additionalInformation == nil }) else {
+            return false
+        }
+        let vaultIDs = vaults.map(\.vaultID)
+        let itemIDs = items.map { "\($0.vaultID)|\($0.itemID)" }
+        let vaultIDSet = Set(vaultIDs)
+        guard vaultIDSet.count == vaultIDs.count,
+              Set(itemIDs).count == itemIDs.count,
+              items.allSatisfy({ vaultIDSet.contains($0.vaultID) }) else {
+            return false
+        }
+        return vaults.allSatisfy {
+            OnePasswordCLIRunner.isValidOpaqueIdentifier($0.vaultID)
+                && Self.isDisplayString($0.name)
+        } && items.allSatisfy {
+            OnePasswordCLIRunner.isValidOpaqueIdentifier($0.itemID)
+                && OnePasswordCLIRunner.isValidOpaqueIdentifier($0.vaultID)
+                && Self.isDisplayString($0.vaultName)
+                && Self.isDisplayString($0.title)
+                && $0.username.map(Self.isDisplayString) != false
+                && $0.urls.count <= 100
+                && $0.urls.allSatisfy { Self.isDisplayString($0, maximumBytes: 2_048) }
+        }
+    }
+
+    private static func hasBoundedContent(
+        vaults: [OnePasswordVault],
+        items: [OnePasswordItem]
+    ) -> Bool {
+        var total = 0
+        func add(_ value: String?) -> Bool {
+            guard let value else { return true }
+            let (next, overflow) = total.addingReportingOverflow(value.utf8.count)
+            guard !overflow, next <= 4 * 1024 * 1024 else { return false }
+            total = next
+            return true
+        }
+        for vault in vaults {
+            guard add(vault.vaultID), add(vault.name) else { return false }
+        }
+        for item in items {
+            guard add(item.itemID), add(item.vaultID), add(item.vaultName),
+                  add(item.title), add(item.username),
+                  item.urls.allSatisfy({ add($0) }) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func isDisplayString(
+        _ value: String,
+        maximumBytes: Int = 4_096
+    ) -> Bool {
+        value.utf8.count <= maximumBytes
+            && value.unicodeScalars.allSatisfy {
+                !CharacterSet.controlCharacters.contains($0)
+            }
     }
 }
 
@@ -73,7 +152,7 @@ enum OnePasswordSnapshotCacheError: Error, Equatable, Sendable {
 /// `CacheEnvelopeCipher`, so the cryptography itself lives in a single place.
 struct OnePasswordSnapshotCache: Sendable {
     private let keyProvider: @Sendable () throws -> SymmetricKey
-    private let directory: URL
+    private let directory: URL?
     // FileManager is thread-safe for the operations used here but is not
     // Sendable; vouch for it so the cache stays Sendable.
     nonisolated(unsafe) private let fileManager: FileManager
@@ -82,6 +161,7 @@ struct OnePasswordSnapshotCache: Sendable {
     /// Distinct from the other providers' version spaces; the account's
     /// provider is authenticated too, so they can never be confused.
     private static let schemaVersion = 1
+    private static let maximumSealedBytes = 8 * 1024 * 1024
 
     init(
         keyStore: DeviceDataKeyStore = DeviceDataKeyStore(label: "onepassword-snapshot-cache"),
@@ -113,30 +193,37 @@ struct OnePasswordSnapshotCache: Sendable {
         if let directory {
             self.directory = directory
         } else {
-            let base = (try? fileManager.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: false
-            )) ?? fileManager.temporaryDirectory
-            self.directory = base
-                .appendingPathComponent("VaultSquire", isDirectory: true)
-                .appendingPathComponent("OnePasswordSnapshots", isDirectory: true)
+            self.directory = fileManager.containerURL(
+                forSecurityApplicationGroupIdentifier: "group.ch.lkmc.VaultSquire"
+            )?.appendingPathComponent("OnePasswordSnapshots", isDirectory: true)
         }
     }
 
     func save(_ snapshot: OnePasswordSnapshot, for account: AccountID) throws {
+        guard let directory else { throw OnePasswordSnapshotCacheError.storeUnavailable }
+        let sanitized = snapshot.withoutPotentialSecrets
+        guard sanitized.accountIdentifier == account.rawValue,
+              sanitized.isStructurallyValid else {
+            throw OnePasswordSnapshotCacheError.corrupt
+        }
         let key = try sealingKey()
-        let plaintext: Data
+        var plaintext: Data
         do {
-            plaintext = try JSONEncoder().encode(snapshot)
+            plaintext = try JSONEncoder().encode(sanitized)
         } catch {
             throw OnePasswordSnapshotCacheError.ioFailed
         }
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        guard plaintext.count <= Self.maximumSealedBytes else {
+            throw OnePasswordSnapshotCacheError.ioFailed
+        }
         let sealed = try seal(plaintext, key: key, account: account)
+        guard sealed.count <= Self.maximumSealedBytes else {
+            throw OnePasswordSnapshotCacheError.ioFailed
+        }
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Self.writeSealed(sealed, to: fileURL(for: account))
+            try Self.writeSealed(sealed, to: fileURL(for: account, directory: directory))
         } catch {
             throw OnePasswordSnapshotCacheError.ioFailed
         }
@@ -155,29 +242,52 @@ struct OnePasswordSnapshotCache: Sendable {
     }
 
     func load(for account: AccountID) throws -> OnePasswordSnapshot? {
-        let url = fileURL(for: account)
+        guard let directory else { throw OnePasswordSnapshotCacheError.storeUnavailable }
+        let url = fileURL(for: account, directory: directory)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         let key = try sealingKey()
         let sealed: Data
         do {
-            sealed = try Data(contentsOf: url)
+            let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            guard let size = attributes[.size] as? NSNumber,
+                  size.intValue > 0,
+                  size.intValue <= Self.maximumSealedBytes else {
+                throw OnePasswordSnapshotCacheError.corrupt
+            }
+            sealed = try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch let error as OnePasswordSnapshotCacheError {
+            throw error
         } catch {
             throw OnePasswordSnapshotCacheError.ioFailed
         }
-        let plaintext = try open(sealed, key: key, account: account)
+        var plaintext = try open(sealed, key: key, account: account)
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        guard plaintext.count <= Self.maximumSealedBytes else {
+            throw OnePasswordSnapshotCacheError.corrupt
+        }
         do {
-            return try JSONDecoder().decode(OnePasswordSnapshot.self, from: plaintext)
+            let decoded = try JSONDecoder().decode(OnePasswordSnapshot.self, from: plaintext)
+            let sanitized = decoded.withoutPotentialSecrets
+            guard sanitized.accountIdentifier == account.rawValue,
+                  sanitized.isStructurallyValid else {
+                throw OnePasswordSnapshotCacheError.corrupt
+            }
+            return sanitized
+        } catch let error as OnePasswordSnapshotCacheError {
+            throw error
         } catch {
             throw OnePasswordSnapshotCacheError.corrupt
         }
     }
 
     func exists(for account: AccountID) -> Bool {
-        fileManager.fileExists(atPath: fileURL(for: account).path)
+        guard let directory else { return false }
+        return fileManager.fileExists(atPath: fileURL(for: account, directory: directory).path)
     }
 
     func wipe(for account: AccountID) throws {
-        let url = fileURL(for: account)
+        guard let directory else { throw OnePasswordSnapshotCacheError.storeUnavailable }
+        let url = fileURL(for: account, directory: directory)
         guard fileManager.fileExists(atPath: url.path) else { return }
         do {
             try fileManager.removeItem(at: url)
@@ -216,7 +326,7 @@ struct OnePasswordSnapshotCache: Sendable {
         }
     }
 
-    private func fileURL(for account: AccountID) -> URL {
+    private func fileURL(for account: AccountID, directory: URL) -> URL {
         // Hash the account identity into the filename: opaque, filesystem-safe,
         // and leaking nothing even if a raw value ever carried readable text.
         let material = "\(account.provider.rawValue)|\(account.rawValue)"

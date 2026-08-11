@@ -1,11 +1,57 @@
 import AppKit
 import SwiftUI
 
+enum VaultURLPolicy {
+    static func safeURL(_ raw: String) -> URL? {
+        guard raw.utf8.count <= 2_048,
+              raw.unicodeScalars.allSatisfy(Self.isSafeScalar) else {
+            return nil
+        }
+        let candidate = raw.contains("://") ? raw : "https://\(raw)"
+        guard let components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = components.host, !host.isEmpty,
+              components.user == nil,
+              components.password == nil,
+              let url = components.url else {
+            return nil
+        }
+        return url
+    }
+
+    static func destinationLabel(_ url: URL) -> String {
+        let scheme = url.scheme?.lowercased() ?? "https"
+        let host = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .percentEncodedHost ?? url.host ?? "website"
+        if let port = url.port {
+            return "\(scheme)://\(host):\(port)"
+        }
+        return "\(scheme)://\(host)"
+    }
+
+    private static func isSafeScalar(_ scalar: UnicodeScalar) -> Bool {
+        guard !CharacterSet.controlCharacters.contains(scalar),
+              !CharacterSet.illegalCharacters.contains(scalar) else {
+            return false
+        }
+        // Bidirectional and isolate controls can visually reverse or hide the
+        // effective host in a security confirmation without changing the URL.
+        switch scalar.value {
+        case 0x061C, 0x200E, 0x200F, 0x202A...0x202E, 0x2066...0x2069:
+            return false
+        default:
+            return true
+        }
+    }
+}
+
 /// Renders one decrypted item. Secret fields stay concealed until revealed and
 /// are never logged; a TOTP field shows the live rotating code, not the seed.
 struct VaultItemDetailView: View {
     let detail: VaultItemDetail
     @State private var revealed: Set<String> = []
+    @State private var pendingURL: URL?
 
     var body: some View {
         ScrollView {
@@ -19,6 +65,29 @@ struct VaultItemDetailView: View {
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .confirmationDialog(
+            "Open website?",
+            isPresented: Binding(
+                get: { pendingURL != nil },
+                set: { if !$0 { pendingURL = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let pendingURL {
+                Button("Open \(VaultURLPolicy.destinationLabel(pendingURL))") {
+                    let url = pendingURL
+                    self.pendingURL = nil
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingURL = nil }
+        } message: {
+            if let pendingURL {
+                Text(pendingURL.scheme?.lowercased() == "http"
+                    ? "This address uses unencrypted HTTP. Confirm the effective scheme and host before leaving VaultSquire."
+                    : "Confirm the effective scheme and host before leaving VaultSquire.")
+            }
+        }
         .accessibilityIdentifier("vault-item-detail")
     }
 
@@ -28,7 +97,6 @@ struct VaultItemDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(detail.title)
                     .font(.largeTitle.weight(.semibold))
-                    .textSelection(.enabled)
                 Text(categoryLabel)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -70,21 +138,26 @@ struct VaultItemDetailView: View {
     private func plainRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
             Text(field.value)
-                .textSelection(.enabled)
             Spacer()
-            copyButton(field.value)
+            copyButton(field.value, concealed: false)
         }
     }
 
     private func uriRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
-            if let url = normalizedURL(field.value) {
-                Link(field.value, destination: url)
-            } else {
-                Text(field.value).textSelection(.enabled)
-            }
+            Text(field.value)
             Spacer()
-            copyButton(field.value)
+            if let url = VaultURLPolicy.safeURL(field.value) {
+                Button {
+                    pendingURL = url
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .buttonStyle(.borderless)
+                .help("Open after confirming the destination")
+                .accessibilityLabel("Open website")
+            }
+            copyButton(field.value, concealed: false)
         }
     }
 
@@ -92,7 +165,6 @@ struct VaultItemDetailView: View {
         HStack {
             Text(revealed.contains(field.id) ? field.value : "••••••••••")
                 .font(.body.monospaced())
-                .textSelection(.enabled)
             Spacer()
             Button {
                 toggleReveal(field.id)
@@ -102,7 +174,7 @@ struct VaultItemDetailView: View {
             .buttonStyle(.borderless)
             .help(revealed.contains(field.id) ? "Hide" : "Reveal")
             .accessibilityIdentifier("reveal-\(field.label)")
-            copyButton(field.value)
+            copyButton(field.value, concealed: true)
         }
     }
 
@@ -117,7 +189,7 @@ struct VaultItemDetailView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                     Spacer()
-                    copyButton(generated.code)
+                    copyButton(generated.code, concealed: true)
                 }
             } else {
                 Text("Unreadable one-time code seed")
@@ -127,9 +199,9 @@ struct VaultItemDetailView: View {
         }
     }
 
-    private func copyButton(_ value: String) -> some View {
+    private func copyButton(_ value: String, concealed: Bool) -> some View {
         Button {
-            copyToPasteboard(value)
+            ApplicationCoordinator.shared.copyVaultValue(value, concealed: concealed)
         } label: {
             Image(systemName: "doc.on.doc")
         }
@@ -143,17 +215,6 @@ struct VaultItemDetailView: View {
         } else {
             revealed.insert(id)
         }
-    }
-
-    private func copyToPasteboard(_ value: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(value, forType: .string)
-    }
-
-    private func normalizedURL(_ raw: String) -> URL? {
-        if let url = URL(string: raw), url.scheme != nil { return url }
-        return URL(string: "https://\(raw)")
     }
 
     private func spacedCode(_ code: String) -> String {

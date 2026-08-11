@@ -13,6 +13,12 @@ This plan complements [`ARCHITECTURE.md`](ARCHITECTURE.md) and the pinned
 Vaultwarden scenarios in
 [`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md#compatibility-test-matrix).
 
+**Current source posture (2026-08-11):** no supported release exists. The
+production provider set exposes Vaultwarden only; both CLI production version
+allowlists are empty. Every remote mutation capability is disabled. Account
+logout/removal is not yet a user-facing operation, so its required deletion
+contract remains a release-blocking future gate rather than an implied feature.
+
 ## 1. Security Objectives
 
 ### Required Properties

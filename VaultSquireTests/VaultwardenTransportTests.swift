@@ -62,7 +62,7 @@ final class VaultwardenTransportTests: XCTestCase {
         configuration.protocolClasses = [StubURLProtocol.self]
         let transport = VaultwardenTransport(
             environment: environment,
-            maximumResponseBytes: 16,
+            maximumResponseBytes: 64,
             session: URLSession(configuration: configuration)
         )
         StubServer.shared.on(
@@ -72,12 +72,48 @@ final class VaultwardenTransportTests: XCTestCase {
 
         do {
             _ = try await transport.send(
-                .get, url: environment.apiURL.appendingPathComponent("config")
+                .get,
+                url: environment.apiURL.appendingPathComponent("config"),
+                responseLimit: 16
             )
             XCTFail("Oversized response must be rejected")
         } catch {
             XCTAssertEqual(error as? VaultwardenTransportError, .responseTooLarge)
         }
+    }
+
+    func testInvalidBearerAndOversizedRequestAreRejectedBeforeNetwork() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        let url = transport.environment.apiURL.appendingPathComponent("sync")
+
+        do {
+            _ = try await transport.send(.get, url: url, bearer: "token\nInjected: value")
+            XCTFail("control characters in a bearer token must be rejected")
+        } catch {
+            XCTAssertEqual(error as? VaultwardenTransportError, .transportFailure)
+        }
+        do {
+            _ = try await transport.send(
+                .post,
+                url: url,
+                body: .json(Data(repeating: 0x41, count: 2 * 1024 * 1024 + 1))
+            )
+            XCTFail("oversized request body must be rejected")
+        } catch {
+            XCTAssertEqual(error as? VaultwardenTransportError, .transportFailure)
+        }
+        do {
+            _ = try await transport.send(
+                .get,
+                url: try XCTUnwrap(URL(
+                    string: "https://vault.example.com/api/%252e%252e/other"
+                ))
+            )
+            XCTFail("double-encoded traversal must be rejected")
+        } catch {
+            XCTAssertEqual(error as? VaultwardenTransportError, .transportFailure)
+        }
+        XCTAssertTrue(StubServer.shared.requests.isEmpty)
     }
 
     func testFormBodyIsEncodedAndRecorded() async throws {
@@ -106,6 +142,8 @@ final class VaultwardenTransportTests: XCTestCase {
         XCTAssertEqual(VaultwardenTransport.parseRetryAfter("  5 "), 5)
         XCTAssertNil(VaultwardenTransport.parseRetryAfter("Wed, 21 Oct 2026 07:28:00 GMT"))
         XCTAssertNil(VaultwardenTransport.parseRetryAfter("-1"))
+        XCTAssertNil(VaultwardenTransport.parseRetryAfter("nan"))
+        XCTAssertNil(VaultwardenTransport.parseRetryAfter(String(repeating: "9", count: 65)))
     }
 
     func testRetryAfterIsCappedAtOneDay() {

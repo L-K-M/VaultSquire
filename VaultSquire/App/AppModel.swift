@@ -1,5 +1,29 @@
 import Combine
 import Foundation
+import Security
+
+/// Moves one transient secret buffer into its owning task without retaining an
+/// immutable copy beside the mutable buffer the task later overwrites.
+private final class TransientSecretBytes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Data
+
+    init(_ storage: Data) {
+        self.storage = storage
+    }
+
+    func take() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        let result = storage
+        storage = Data()
+        return result
+    }
+
+    deinit {
+        VaultwardenCryptoZeroize.zero(&storage)
+    }
+}
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -39,12 +63,19 @@ final class AppModel: ObservableObject {
     @Published private(set) var canEnrollBiometrics = false
     /// A non-blocking message when enrolling or revoking Touch ID failed.
     @Published private(set) var biometricError: String?
+    /// Set after a deletion failure so a stale Keychain record cannot be
+    /// offered again merely because a later availability refresh finds it.
+    private var biometricEnrollmentSuppressed = false
 
     private let queryAccountPresence: () -> AccountPresence
     private let service: VaultwardenAccountService
     private let protonService: ProtonAccountService
     private let onePasswordService: OnePasswordAccountService
     private let biometricStore: any BiometricVaultKeyStoring
+    /// Provider integrations admitted by this build. Production starts with the
+    /// native Vaultwarden provider only: both CLI providers remain dormant until
+    /// their live executable, schema, authorization, and policy gates pass.
+    private let enabledProviders: Set<ProviderID>
     /// Secret fields fetched on demand for opened Proton items. In memory only
     /// for the life of the session — never sealed into the snapshot — and
     /// dropped when that vault locks.
@@ -52,19 +83,29 @@ final class AppModel: ObservableObject {
     /// The same, for opened 1Password items.
     @Published private var onePasswordContent: [VaultItemID: OnePasswordItemContent] = [:]
     private var hydratingItems: Set<VaultItemID> = []
+    /// Every plaintext-producing operation is retained so lock can cancel it
+    /// after advancing the owning slot's generation. Generation checks remain
+    /// the publication invariant; cancellation shortens secret and child-
+    /// process lifetime rather than replacing that invariant.
+    private var openTasks: [AccountID: Task<Void, Never>] = [:]
+    private var syncTasks: [AccountID: Task<Void, Never>] = [:]
+    private var hydrationTasks: [VaultItemID: Task<Void, Never>] = [:]
+    private var writeTask: (account: AccountID, task: Task<Void, Never>)?
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
         service: VaultwardenAccountService = VaultwardenAccountService(),
         protonService: ProtonAccountService = ProtonAccountService(),
         onePasswordService: OnePasswordAccountService = OnePasswordAccountService(),
-        biometricStore: any BiometricVaultKeyStoring = BiometricVaultKeyStore()
+        biometricStore: any BiometricVaultKeyStoring = BiometricVaultKeyStore(),
+        enabledProviders: Set<ProviderID> = [.vaultwarden]
     ) {
         self.queryAccountPresence = queryAccountPresence
         self.service = service
         self.protonService = protonService
         self.onePasswordService = onePasswordService
         self.biometricStore = biometricStore
+        self.enabledProviders = enabledProviders
     }
 
     // MARK: - Aggregate state
@@ -152,7 +193,24 @@ final class AppModel: ObservableObject {
     /// state of vaults that are already open.
     func refreshAccountPresence() {
         accountPresence = queryAccountPresence()
-        accounts = service.descriptorStore.all()
+        var seen = Set<AccountID>()
+        accounts = service.descriptorStore.all().filter { descriptor in
+            guard enabledProviders.contains(descriptor.account.provider),
+                  Self.isValidDescriptorIdentity(descriptor.account),
+                  seen.insert(descriptor.account).inserted else {
+                return false
+            }
+            return true
+        }
+
+        let configuredAccounts = Set(accounts.map(\.account))
+        let removedAccounts = sessions.map(\.account).filter {
+            !configuredAccounts.contains($0)
+        }
+        // A descriptor disappearing or becoming invalid is a security
+        // boundary. Lock and cancel its work before removing the slot; never
+        // preserve plaintext under account state that no longer validates.
+        for account in removedAccounts { lock(account) }
 
         var rebuilt: [VaultSlot] = []
         for descriptor in accounts {
@@ -162,18 +220,25 @@ final class AppModel: ObservableObject {
             }
             rebuilt.append(Self.makeSession(for: descriptor))
         }
-        // Keep any open vault whose descriptor vanished rather than silently
-        // dropping decrypted state on the floor.
-        for previous in sessions
-        where previous.isOpen && !rebuilt.contains(where: { $0.account == previous.account }) {
-            rebuilt.append(previous)
-        }
         sessions = rebuilt
 
         if let account = scope.account, session(for: account) == nil {
             scope = .allVaults
         }
         refreshBiometricAvailability()
+    }
+
+    private static func isValidDescriptorIdentity(_ account: AccountID) -> Bool {
+        switch account.provider {
+        case .vaultwarden:
+            return account == .vaultwardenPrimary
+        case .protonCLI:
+            return account == ProtonAccountService.accountID
+        case .onePasswordCLI:
+            return OnePasswordCLIRunner.isValidOpaqueIdentifier(account.rawValue)
+        default:
+            return false
+        }
     }
 
     private static func makeSession(for descriptor: AccountDescriptor) -> VaultSlot {
@@ -204,14 +269,51 @@ final class AppModel: ObservableObject {
     /// (available but not yet enrolled). Never prompts.
     private func refreshBiometricAvailability() {
         let available = biometricStore.isBiometryAvailable
-        let enrolled = available && biometricStore.hasKey(for: .vaultwardenPrimary)
+        let securityChanged = (try? service.reauthenticationIsRequired()) == true
+        if securityChanged {
+            // A rollback of the sealed cache must not make an old quick-unlock
+            // key useful again after hierarchy drift was observed.
+            try? biometricStore.remove(for: .vaultwardenPrimary)
+        }
+        let enrolled = !securityChanged && !biometricEnrollmentSuppressed && available
+            && biometricStore.hasKey(for: .vaultwardenPrimary)
         canUnlockWithBiometrics = enrolled && accountPresence != .none
         let vaultwardenOpen = session(for: .vaultwardenPrimary)?.isOpen == true
         canEnrollBiometrics = available && !enrolled && vaultwardenOpen
     }
 
-    /// Notes a just-configured account without another store round trip.
+    private func revokeBiometricForReauthentication() {
+        biometricStore.cancelAuthentication()
+        do {
+            try biometricStore.remove(for: .vaultwardenPrimary)
+            biometricEnrollmentSuppressed = false
+            biometricError = nil
+        } catch {
+            biometricEnrollmentSuppressed = true
+            biometricError = "Touch ID could not be cleared when reauthentication became required. Sign in again before using this vault."
+        }
+        canUnlockWithBiometrics = false
+        canEnrollBiometrics = false
+    }
+
+    /// Notes a just-configured account. Replacing an existing Vaultwarden
+    /// transaction first invalidates its live generation and old quick-unlock
+    /// enrollment; the newly committed snapshot is never paired with plaintext
+    /// or biometric material from the prior hierarchy.
     func noteAccountConfigured() {
+        if session(for: .vaultwardenPrimary) != nil {
+            lock(.vaultwardenPrimary)
+            do {
+                try biometricStore.remove(for: .vaultwardenPrimary)
+                biometricEnrollmentSuppressed = false
+                biometricError = nil
+            } catch {
+                biometricEnrollmentSuppressed = true
+                biometricError = "Touch ID could not be cleared after sign-in. Keep this vault locked until Touch ID is disabled successfully."
+            }
+            canUnlockWithBiometrics = false
+            canEnrollBiometrics = false
+        }
         accountPresence = .present
         refreshAccountPresence()
     }
@@ -220,6 +322,7 @@ final class AppModel: ObservableObject {
     /// then opens it. Called from the Add Account pane once the CLI reports
     /// ready.
     func addProtonVault() {
+        guard enabledProviders.contains(.protonCLI) else { return }
         service.descriptorStore.upsert(AccountDescriptor(
             account: ProtonAccountService.accountID,
             serverDisplay: "Proton Pass",
@@ -240,6 +343,10 @@ final class AppModel: ObservableObject {
     /// first, because the descriptor is keyed by the CLI's own account
     /// identifier.
     func addOnePasswordVault(_ account: OnePasswordAccount) {
+        guard enabledProviders.contains(.onePasswordCLI),
+              OnePasswordCLIRunner.isValidOpaqueIdentifier(account.accountUUID) else {
+            return
+        }
         let identity = OnePasswordAccountService.vaultIdentity(for: account.accountUUID)
         service.descriptorStore.upsert(AccountDescriptor(
             account: identity,
@@ -273,6 +380,7 @@ final class AppModel: ObservableObject {
 
     func unlock(_ account: AccountID, password: String) {
         guard !password.isEmpty,
+              password.utf8.count <= AddAccountModel.maximumMasterPasswordBytes,
               let current = session(for: account),
               current.kind == .vaultwarden,
               !current.isOpening else {
@@ -281,10 +389,11 @@ final class AppModel: ObservableObject {
         let generation = current.generation
         mutate(account) { $0.state = .opening }
         unlockError = nil
-        let passwordBytes = Data(password.utf8)
+        let passwordBytes = TransientSecretBytes(Data(password.utf8))
 
-        Task { [service] in
-            var bytes = passwordBytes
+        openTasks[account]?.cancel()
+        openTasks[account] = Task { [service] in
+            var bytes = passwordBytes.take()
             defer { VaultwardenCryptoZeroize.zero(&bytes) }
             do {
                 let vault = try await service.unlock(masterPasswordBytes: bytes)
@@ -300,6 +409,12 @@ final class AppModel: ObservableObject {
                 self.failOpen(
                     account, generation: generation,
                     message: "Couldn't fetch your vault key from the server. Check your connection and try again."
+                )
+            } catch VaultwardenAccountError.reauthenticationRequired {
+                self.revokeBiometricForReauthentication()
+                self.failOpen(
+                    account, generation: generation,
+                    message: "This account requires a complete sign-in before cached vault data can be opened."
                 )
             } catch {
                 self.failOpen(
@@ -317,6 +432,7 @@ final class AppModel: ObservableObject {
         // A lock that landed while the unlock was in flight wins: the user
         // asked for the vault to be closed, so the late result is dropped.
         guard isCurrent(account, generation) else { return }
+        openTasks[account] = nil
         mutate(account) {
             $0.state = .open
             $0.vaultwarden = vault
@@ -350,6 +466,7 @@ final class AppModel: ObservableObject {
 
     private func failOpen(_ account: AccountID, generation: UInt64, message: String) {
         guard isCurrent(account, generation) else { return }
+        openTasks[account] = nil
         mutate(account) { $0.state = .failed(message) }
         unlockError = message
     }
@@ -360,6 +477,7 @@ final class AppModel: ObservableObject {
     /// not be able to put its message on that prompt.
     private func failOpenLocally(_ account: AccountID, generation: UInt64, message: String) {
         guard isCurrent(account, generation) else { return }
+        openTasks[account] = nil
         mutate(account) { $0.state = .failed(message) }
     }
 
@@ -370,9 +488,11 @@ final class AppModel: ObservableObject {
         let generation = current.generation
         mutate(account) { $0.state = .opening }
 
-        Task { [protonService] in
+        openTasks[account]?.cancel()
+        openTasks[account] = Task { [protonService] in
             let result = await protonService.refresh()
             guard self.isCurrent(account, generation) else { return }
+            self.openTasks[account] = nil
             switch result {
             case .success(let refresh):
                 self.mutate(account) {
@@ -401,9 +521,11 @@ final class AppModel: ObservableObject {
 
         // The vault's own identity carries the CLI account it was added for.
         let accountUUID = account.rawValue
-        Task { [onePasswordService] in
+        openTasks[account]?.cancel()
+        openTasks[account] = Task { [onePasswordService] in
             let result = await onePasswordService.refresh(accountUUID: accountUUID)
             guard self.isCurrent(account, generation) else { return }
+            self.openTasks[account] = nil
             switch result {
             case .success(let refresh):
                 self.mutate(account) {
@@ -424,13 +546,23 @@ final class AppModel: ObservableObject {
     /// Closes one vault, dropping only its decrypted state.
     func lock(_ account: AccountID) {
         guard session(for: account) != nil else { return }
+        // Generation invalidation and plaintext release happen before any
+        // cancellation handler can run.
         mutate(account) { $0.close() }
+        openTasks.removeValue(forKey: account)?.cancel()
+        syncTasks.removeValue(forKey: account)?.cancel()
+        if account.provider == .vaultwarden {
+            biometricStore.cancelAuthentication()
+        }
+        if writeTask?.account == account {
+            writeTask?.task.cancel()
+            writeTask = nil
+            isWriting = false
+        }
         dropFetchedContent(for: account)
         unlockError = nil
-        refreshBiometricAvailability()
-        if !isUnlocked {
-            ApplicationCoordinator.shared.dismissQuickSearch()
-        }
+        canEnrollBiometrics = false
+        ApplicationCoordinator.shared.vaultDidLock()
         AppLog.record(.vaultLocked)
     }
 
@@ -439,12 +571,22 @@ final class AppModel: ObservableObject {
         for account in sessions.map(\.account) {
             mutate(account) { $0.close() }
         }
+        for task in openTasks.values { task.cancel() }
+        for task in syncTasks.values { task.cancel() }
+        for task in hydrationTasks.values { task.cancel() }
+        writeTask?.task.cancel()
+        biometricStore.cancelAuthentication()
+        openTasks = [:]
+        syncTasks = [:]
+        hydrationTasks = [:]
+        writeTask = nil
         protonContent = [:]
         onePasswordContent = [:]
         hydratingItems = []
+        isWriting = false
         unlockError = nil
-        refreshBiometricAvailability()
-        ApplicationCoordinator.shared.dismissQuickSearch()
+        canEnrollBiometrics = false
+        ApplicationCoordinator.shared.vaultDidLock()
         AppLog.record(.vaultLocked)
     }
 
@@ -454,6 +596,9 @@ final class AppModel: ObservableObject {
     private func dropFetchedContent(for account: AccountID) {
         protonContent = protonContent.filter { $0.key.account != account }
         onePasswordContent = onePasswordContent.filter { $0.key.account != account }
+        let tasks = hydrationTasks.filter { $0.key.account == account }
+        for task in tasks.values { task.cancel() }
+        hydrationTasks = hydrationTasks.filter { $0.key.account != account }
         hydratingItems = hydratingItems.filter { $0.account != account }
     }
 
@@ -473,11 +618,12 @@ final class AppModel: ObservableObject {
         mutate(account) { $0.state = .opening }
         unlockError = nil
 
-        Task { [service, biometricStore] in
-            guard let wrapped = service.currentWrappedUserKey() else {
+        openTasks[account]?.cancel()
+        openTasks[account] = Task { [service, biometricStore] in
+            guard let wrapped = await service.currentWrappedUserKey() else {
                 self.failOpen(
                     account, generation: generation,
-                    message: "No stored vault was found. Add the account again to sync it."
+                    message: "No usable stored vault was found. Complete sign-in again before using Touch ID."
                 )
                 return
             }
@@ -488,20 +634,23 @@ final class AppModel: ObservableObject {
                     reason: "Unlock your VaultSquire vault"
                 )
                 defer { VaultwardenCryptoZeroize.zero(&keyData) }
-                let vault = try service.unlock(userKeyData: keyData)
+                let vault = try await service.unlock(userKeyData: keyData)
                 self.finishOpen(account, generation: generation, vault: vault)
             } catch BiometricUnlockError.cancelled {
                 // The user dismissed the prompt; the password field is right
                 // there, so say nothing.
                 guard self.isCurrent(account, generation) else { return }
+                self.openTasks[account] = nil
                 self.mutate(account) { $0.state = .locked }
             } catch BiometricUnlockError.invalidated {
+                self.biometricEnrollmentSuppressed = true
                 self.canUnlockWithBiometrics = false
                 self.failOpen(
                     account, generation: generation,
                     message: "Touch ID unlock was turned off because this Mac's fingerprints or your vault key changed. Unlock with your master password to set it up again."
                 )
             } catch BiometricUnlockError.notEnrolled {
+                self.biometricEnrollmentSuppressed = true
                 self.canUnlockWithBiometrics = false
                 self.failOpen(
                     account, generation: generation,
@@ -531,13 +680,15 @@ final class AppModel: ObservableObject {
             biometricError = "Unlock your vault first, then turn on Touch ID."
             return
         }
-        let keyData = vault.keyring.userKey.encryptionKey + vault.keyring.userKey.macKey
+        var keyData = vault.keyring.userKey.encryptionKey + vault.keyring.userKey.macKey
+        defer { VaultwardenCryptoZeroize.zero(&keyData) }
         do {
             try biometricStore.store(
                 userKey: keyData,
                 boundTo: vault.snapshot.wrappedUserKey,
                 for: .vaultwardenPrimary
             )
+            biometricEnrollmentSuppressed = false
             biometricError = nil
         } catch let error as BiometricUnlockError {
             biometricError = Self.message(for: error)
@@ -573,8 +724,14 @@ final class AppModel: ObservableObject {
 
     /// Forgets the enrolled key, so the next unlock needs the master password.
     func disableBiometricUnlock() {
-        try? biometricStore.remove(for: .vaultwardenPrimary)
-        biometricError = nil
+        do {
+            try biometricStore.remove(for: .vaultwardenPrimary)
+            biometricEnrollmentSuppressed = false
+            biometricError = nil
+        } catch {
+            biometricEnrollmentSuppressed = true
+            biometricError = "Touch ID could not be disabled safely. The stored key will not be used in this process."
+        }
         refreshBiometricAvailability()
     }
 
@@ -584,7 +741,11 @@ final class AppModel: ObservableObject {
     /// Returns nil when that vault is closed, so a locked vault's items can
     /// never be read out of a stale list.
     func detail(for itemID: VaultItemID) -> VaultItemDetail? {
-        guard let owner = session(for: itemID.account), owner.isOpen else { return nil }
+        guard let owner = session(for: itemID.account), owner.isOpen,
+              owner.items.first(where: { $0.id == itemID })?
+                .capabilities.contains(.viewItems) == true else {
+            return nil
+        }
         switch owner.kind {
         case .proton:
             guard let snapshot = owner.proton else { return nil }
@@ -610,6 +771,8 @@ final class AppModel: ObservableObject {
     /// in-flight item.
     func hydrateIfNeeded(_ itemID: VaultItemID) {
         guard let owner = session(for: itemID.account), owner.isOpen,
+              let projection = owner.items.first(where: { $0.id == itemID }),
+              projection.capabilities.contains(.revealSecret),
               !hydratingItems.contains(itemID) else {
             return
         }
@@ -624,11 +787,15 @@ final class AppModel: ObservableObject {
                 return
             }
             hydratingItems.insert(itemID)
-            Task { [protonService] in
+            hydrationTasks[itemID]?.cancel()
+            hydrationTasks[itemID] = Task { [protonService] in
                 let content = await protonService.content(shareID: shareID, itemID: itemID.rawValue)
+                // Never mutate the new session's bookkeeping or publish a
+                // secret when this task belongs to an older generation.
+                guard self.isCurrent(itemID.account, generation) else { return }
                 self.hydratingItems.remove(itemID)
-                // Never publish a secret into a vault the user locked meanwhile.
-                guard self.isCurrent(itemID.account, generation), let content else { return }
+                self.hydrationTasks[itemID] = nil
+                guard !Task.isCancelled, let content else { return }
                 self.protonContent[itemID] = content
             }
         case .onePassword:
@@ -640,14 +807,17 @@ final class AppModel: ObservableObject {
             // second signed-in account cannot answer this read.
             let accountUUID = itemID.account.rawValue
             hydratingItems.insert(itemID)
-            Task { [onePasswordService] in
+            hydrationTasks[itemID]?.cancel()
+            hydrationTasks[itemID] = Task { [onePasswordService] in
                 let content = await onePasswordService.content(
                     itemID: itemID.rawValue,
                     vaultID: vaultID,
                     accountUUID: accountUUID
                 )
+                guard self.isCurrent(itemID.account, generation) else { return }
                 self.hydratingItems.remove(itemID)
-                guard self.isCurrent(itemID.account, generation), let content else { return }
+                self.hydrationTasks[itemID] = nil
+                guard !Task.isCancelled, let content else { return }
                 self.onePasswordContent[itemID] = content
             }
         }
@@ -685,7 +855,8 @@ final class AppModel: ObservableObject {
     /// appearing in a merged list next to a writable one.
     func canArchive(_ itemID: VaultItemID) -> Bool {
         guard let owner = session(for: itemID.account), owner.isOpen else { return false }
-        return owner.capabilities.contains(.archiveItem)
+        return owner.items.first(where: { $0.id == itemID })?
+            .capabilities.contains(.archiveItem) == true
     }
 
     /// An editable draft for an item, or nil when its vault is closed, the
@@ -693,7 +864,8 @@ final class AppModel: ObservableObject {
     func draft(for itemID: VaultItemID) -> VaultItemDraft? {
         guard let owner = session(for: itemID.account),
               owner.isOpen,
-              owner.capabilities.contains(.updateItem),
+              owner.items.first(where: { $0.id == itemID })?
+                .capabilities.contains(.updateItem) == true,
               let vault = owner.vaultwarden else {
             return nil
         }
@@ -709,7 +881,7 @@ final class AppModel: ObservableObject {
     /// which `destination` can never override; a create goes to the vault the
     /// user picked, or to the unambiguous writable target when they did not.
     func save(_ draft: VaultItemDraft, to destination: AccountID? = nil) {
-        guard !isWriting else { return }
+        guard !isWriting, draft.canSubmit else { return }
         let account = draft.itemID?.account ?? destination ?? createTarget?.account
         guard let account,
               let owner = session(for: account),
@@ -717,13 +889,26 @@ final class AppModel: ObservableObject {
               let vault = owner.vaultwarden else {
             return
         }
+        if let itemID = draft.itemID {
+            guard itemID.account == account,
+                  owner.items.first(where: { $0.id == itemID })?
+                    .capabilities.contains(.updateItem) == true else {
+                return
+            }
+        } else {
+            guard owner.capabilities.contains(.createItem) else { return }
+        }
+
+        let generation = owner.generation
         isWriting = true
         writeError = nil
-        Task { [service] in
+        let task = Task { [service] in
             let result = draft.isEditing
                 ? await service.update(draft: draft, keyring: vault.keyring)
                 : await service.create(draft: draft, keyring: vault.keyring)
+            guard self.isCurrent(account, generation) else { return }
             self.isWriting = false
+            self.writeTask = nil
             switch result {
             case .success:
                 self.syncNow(account)
@@ -731,16 +916,21 @@ final class AppModel: ObservableObject {
                 self.writeError = Self.message(for: error)
             }
         }
+        writeTask = (account, task)
     }
 
     func archive(_ itemID: VaultItemID) {
-        guard !isWriting, canArchive(itemID) else { return }
+        guard !isWriting, canArchive(itemID),
+              let owner = session(for: itemID.account) else { return }
         let account = itemID.account
+        let generation = owner.generation
         isWriting = true
         writeError = nil
-        Task { [service] in
+        let task = Task { [service] in
             let result = await service.archive(itemID: itemID)
+            guard self.isCurrent(account, generation) else { return }
             self.isWriting = false
+            self.writeTask = nil
             switch result {
             case .success:
                 self.syncNow(account)
@@ -748,6 +938,7 @@ final class AppModel: ObservableObject {
                 self.writeError = Self.message(for: error)
             }
         }
+        writeTask = (account, task)
     }
 
     // MARK: - Sync
@@ -770,11 +961,36 @@ final class AppModel: ObservableObject {
             $0.syncError = nil
         }
 
+        syncTasks[account]?.cancel()
         switch current.kind {
         case .vaultwarden:
-            Task { [service] in
+            syncTasks[account] = Task { [service] in
                 let result = await service.sync()
                 guard self.isCurrent(account, generation) else { return }
+                if case .failure(.reauthenticationRequired) = result {
+                    self.lock(account)
+                    self.revokeBiometricForReauthentication()
+                    self.mutate(account) {
+                        $0.state = .failed("Account security changed — sign in again.")
+                    }
+                    return
+                }
+                if case .failure(.sessionExpired) = result {
+                    self.lock(account)
+                    self.revokeBiometricForReauthentication()
+                    self.mutate(account) {
+                        $0.state = .failed("The server session ended — sign in again.")
+                    }
+                    return
+                }
+                self.syncTasks[account] = nil
+                if case .success = result {
+                    // Invalidate on-demand secret reads before cancelling them;
+                    // a result fetched for the prior snapshot cannot publish
+                    // into the replacement snapshot.
+                    self.mutate(account) { $0.generation &+= 1 }
+                    self.dropFetchedContent(for: account)
+                }
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
@@ -798,9 +1014,14 @@ final class AppModel: ObservableObject {
                 }
             }
         case .proton:
-            Task { [protonService] in
+            syncTasks[account] = Task { [protonService] in
                 let result = await protonService.refresh()
                 guard self.isCurrent(account, generation) else { return }
+                self.syncTasks[account] = nil
+                if case .success = result {
+                    self.mutate(account) { $0.generation &+= 1 }
+                    self.dropFetchedContent(for: account)
+                }
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
@@ -816,9 +1037,14 @@ final class AppModel: ObservableObject {
             }
         case .onePassword:
             let accountUUID = account.rawValue
-            Task { [onePasswordService] in
+            syncTasks[account] = Task { [onePasswordService] in
                 let result = await onePasswordService.refresh(accountUUID: accountUUID)
                 guard self.isCurrent(account, generation) else { return }
+                self.syncTasks[account] = nil
+                if case .success = result {
+                    self.mutate(account) { $0.generation &+= 1 }
+                    self.dropFetchedContent(for: account)
+                }
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
@@ -865,6 +1091,8 @@ final class AppModel: ObservableObject {
             return "The Proton Pass CLI returned output VaultSquire couldn't read."
         case .executionFailed:
             return "VaultSquire couldn't run the Proton Pass CLI."
+        case .localStorageFailed:
+            return "The Proton Pass snapshot couldn't be sealed in this Mac's app container."
         }
     }
 
@@ -887,6 +1115,8 @@ final class AppModel: ObservableObject {
             return "The 1Password CLI returned output VaultSquire couldn't read."
         case .executionFailed:
             return "VaultSquire couldn't run the 1Password CLI."
+        case .localStorageFailed:
+            return "The 1Password snapshot couldn't be sealed in this Mac's app container."
         }
     }
 
@@ -928,6 +1158,8 @@ final class AppModel: ObservableObject {
             return "The sync response exceeded VaultSquire's size limit."
         case .malformedResponse:
             return "The server's sync response was unreadable."
+        case .reauthenticationRequired:
+            return "The account's security keys changed. Sign in again before opening the vault."
         case .localStorageFailed:
             return "The stored account data on this Mac couldn't be read."
         }
@@ -952,10 +1184,13 @@ final class AppModel: ObservableObject {
 extension AppModel: QuickSearchDataSource {
     /// Quick Search always spans every open vault, whatever the browser is
     /// scoped to; a locked vault contributes nothing.
-    var quickSearchItems: [VaultItemProjection] { allOpenItems }
+    var quickSearchItems: [VaultItemProjection] {
+        allOpenItems.filter { $0.capabilities.contains(.searchItems) }
+    }
     var quickSearchIsUnlocked: Bool { isUnlocked }
 
     func openFromQuickSearch(_ id: VaultItemID) {
+        guard quickSearchItems.contains(where: { $0.id == id }) else { return }
         quickSearchSelection = id
     }
 

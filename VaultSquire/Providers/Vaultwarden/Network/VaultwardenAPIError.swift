@@ -2,8 +2,8 @@ import Foundation
 
 /// The eight authentication error categories the client must distinguish
 /// without exposing server internals or secrets. The category drives retry
-/// and UI decisions; the human-facing message is derived separately and
-/// carries no secret material.
+/// and UI decisions; the human-facing message is fixed local wording and
+/// carries no provider-controlled prose or secret material.
 enum VaultwardenErrorCategory: String, Hashable, Sendable {
     case badCredentials
     case twoFactorChallenge
@@ -30,15 +30,14 @@ enum VaultwardenRetryDisposition: Hashable, Sendable {
 
 /// A typed transport/auth error. `category`, `httpStatus`, `machineCode`, and
 /// `retry` are the machine-readable facts; `safeDisplayMessage` is the only
-/// field intended for humans. It is sourced only from a server-provided
-/// description/message field or a fixed fallback string (never from a token,
-/// URL, or submitted credential), but it is not actively redacted, so callers
-/// must not assume it is safe to log alongside secrets.
+/// field intended for humans. It is always fixed local wording; server
+/// descriptions and validation text never cross into it because they may echo
+/// submitted values or contain deceptive controls.
 struct VaultwardenAPIError: Error, Hashable, Sendable {
     let category: VaultwardenErrorCategory
     let httpStatus: Int?
-    /// Stable machine code such as an identity `error` value (e.g.
-    /// "invalid_grant"); never interpolated into logs with user data.
+    /// Stable, bounded machine code such as `invalid_grant`; arbitrary server
+    /// text is never retained here or interpolated into UI/logs.
     let machineCode: String?
     let retry: VaultwardenRetryDisposition
     let safeDisplayMessage: String
@@ -58,12 +57,18 @@ struct VaultwardenAPIError: Error, Hashable, Sendable {
     }
 }
 
-/// Vaultwarden duplicates a request's error message into several compatibility
-/// shapes. This resolves a single safe display message in the fixed decode
-/// precedence: identity `error_description`, then `message`, then
-/// `errorModel.message`, then flattened `validationErrors`, then a generic
-/// status message.
+/// Classifies Vaultwarden failures while keeping arbitrary provider prose on
+/// the untrusted side of the boundary. Only a bounded machine code and fixed
+/// local display wording survive.
 enum VaultwardenErrorDecoder {
+    private static func machineCode(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty, raw.utf8.count <= 128 else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(
+            CharacterSet(charactersIn: "._-")
+        )
+        return raw.unicodeScalars.allSatisfy { allowed.contains($0) } ? raw : nil
+    }
+
     /// Which grant produced a response, so `invalid_grant` classifies
     /// correctly: rejected login credentials versus an expired session.
     enum Context: Sendable {
@@ -75,21 +80,22 @@ enum VaultwardenErrorDecoder {
         from body: VaultwardenErrorBody?,
         httpStatus: Int
     ) -> String {
-        if let error = body?.error, !error.isEmpty,
-           let description = body?.errorDescription, !description.isEmpty {
-            return description
+        // Provider text is untrusted and may echo submitted values, contain
+        // control characters, or be arbitrarily large. UI receives fixed local
+        // wording only; `body` remains a classification input, never prose.
+        _ = body
+        switch httpStatus {
+        case 400, 401:
+            return "The server rejected the sign-in request."
+        case 423:
+            return "The account is locked."
+        case 429:
+            return "Too many attempts were made. Try again later."
+        case 500, 502, 503, 504:
+            return "The server is temporarily unavailable."
+        default:
+            return "The server returned an error (status \(httpStatus))."
         }
-        if let message = body?.message, !message.isEmpty {
-            return message
-        }
-        if let modelMessage = body?.errorModel?.message, !modelMessage.isEmpty {
-            return modelMessage
-        }
-        if let flattened = body?.flattenedValidationErrors, !flattened.isEmpty {
-            return flattened
-        }
-
-        return "The server returned an error (status \(httpStatus))."
     }
 
     /// Classifies a completed HTTP response into a typed error. 2FA challenge
@@ -108,12 +114,13 @@ enum VaultwardenErrorDecoder {
         context: Context = .login
     ) -> VaultwardenAPIError {
         let message = safeMessage(from: body, httpStatus: httpStatus)
+        let code = machineCode(body?.error)
         switch httpStatus {
         case 429:
             return VaultwardenAPIError(
                 category: .rateLimit,
                 httpStatus: httpStatus,
-                machineCode: body?.error,
+                machineCode: code,
                 retry: .backoffThenRetry(retryAfter: retryAfter),
                 safeDisplayMessage: message
             )
@@ -129,7 +136,7 @@ enum VaultwardenErrorDecoder {
             return VaultwardenAPIError(
                 category: .badCredentials,
                 httpStatus: httpStatus,
-                machineCode: body?.error,
+                machineCode: code,
                 retry: .noRetry,
                 safeDisplayMessage: message
             )
@@ -137,7 +144,7 @@ enum VaultwardenErrorDecoder {
             return VaultwardenAPIError(
                 category: .accountLocked,
                 httpStatus: httpStatus,
-                machineCode: body?.error,
+                machineCode: code,
                 retry: .noRetry,
                 safeDisplayMessage: message
             )
@@ -145,7 +152,7 @@ enum VaultwardenErrorDecoder {
             return VaultwardenAPIError(
                 category: .network,
                 httpStatus: httpStatus,
-                machineCode: body?.error,
+                machineCode: code,
                 retry: .backoffThenRetry(retryAfter: retryAfter),
                 safeDisplayMessage: message
             )
@@ -153,7 +160,7 @@ enum VaultwardenErrorDecoder {
             return VaultwardenAPIError(
                 category: .unexpected,
                 httpStatus: httpStatus,
-                machineCode: body?.error,
+                machineCode: code,
                 retry: .noRetry,
                 safeDisplayMessage: message
             )

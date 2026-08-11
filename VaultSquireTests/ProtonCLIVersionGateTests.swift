@@ -21,14 +21,13 @@ final class ProtonCLIVersionGateTests: XCTestCase {
         }
     }
 
-    func testProductionGateAdmitsADeclaredVersion() throws {
-        // The shipped gate admits the researched releases and nothing outside
-        // them, so a real install on a supported version is not gated off. The
-        // current releases (2.2.5/2.2.6) are declared after confirming the
-        // published command reference matches the runner's surface.
-        XCTAssertNoThrow(try ProtonCLIVersionGate.production.admit(ProtonCLIVersion(raw: "2.2.4")))
-        XCTAssertNoThrow(try ProtonCLIVersionGate.production.admit(ProtonCLIVersion(raw: "2.2.6")))
-        XCTAssertThrowsError(try ProtonCLIVersionGate.production.admit(ProtonCLIVersion(raw: "9.9.9")))
+    func testProductionGateAdmitsNoDocumentationOnlyCandidate() {
+        XCTAssertTrue(ProtonCLIVersionGate.production.supportedVersions.isEmpty)
+        for candidate in ProtonCLIVersionGate.documentedCandidateVersions {
+            XCTAssertThrowsError(
+                try ProtonCLIVersionGate.production.admit(ProtonCLIVersion(raw: candidate))
+            )
+        }
     }
 
     func testParsesADottedVersionFromNoisyOutput() {
@@ -41,6 +40,21 @@ final class ProtonCLIVersionGateTests: XCTestCase {
             ProtonCLIVersionGate.parseVersion(from: "2.2.3"),
             ProtonCLIVersion(raw: "2.2.3")
         )
+    }
+
+    func testPrereleaseAndOversizedComponentsCannotMasqueradeAsStable() {
+        XCTAssertNil(ProtonCLIVersionGate.parseVersion(from: "2.2.4-beta.1"))
+        XCTAssertNil(ProtonCLIVersionGate.parseVersion(from: "1234567890.2.4"))
+        XCTAssertThrowsError(
+            try ProtonCLIVersionGate(supportedVersions: []).admit(
+                ProtonCLIVersion(raw: String(repeating: "9", count: 10_000))
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? ProtonCLIVersionGateError,
+                .unsupportedVersion("<invalid>")
+            )
+        }
     }
 
     func testReturnsNilWhenNoVersionTokenIsPresent() {

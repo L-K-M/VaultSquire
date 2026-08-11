@@ -38,7 +38,7 @@ struct VaultItemEditView: View {
                         .accessibilityIdentifier("edit-username")
                     SecureField("Password", text: $draft.password)
                         .accessibilityIdentifier("edit-password")
-                    TextField("One-time code (otpauth:// or Base32)", text: $draft.totp)
+                    SecureField("One-time code (otpauth:// or Base32)", text: $draft.totp)
                         .accessibilityIdentifier("edit-totp")
                 }
                 Section("Websites") {
@@ -99,6 +99,18 @@ struct VaultItemEditView: View {
                 destination = appModel.createTarget?.account
                     ?? appModel.writableVaults.first?.account
             }
+        }
+        .onDisappear {
+            // Best-effort shortening of every plaintext field's lifetime. Swift
+            // and SwiftUI may have made copies, but this view keeps none by
+            // choice once the editor closes or a lifecycle lock dismisses it.
+            draft.title.removeAll(keepingCapacity: false)
+            draft.username.removeAll(keepingCapacity: false)
+            draft.password.removeAll(keepingCapacity: false)
+            draft.totp.removeAll(keepingCapacity: false)
+            draft.notes.removeAll(keepingCapacity: false)
+            draft.websites.removeAll(keepingCapacity: false)
+            websitesText.removeAll(keepingCapacity: false)
         }
     }
 

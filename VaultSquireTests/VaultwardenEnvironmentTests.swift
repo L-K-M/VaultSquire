@@ -68,6 +68,18 @@ final class VaultwardenEnvironmentTests: XCTestCase {
         ) { XCTAssertEqual($0 as? VaultwardenEnvironmentError, .fragmentNotAllowed) }
     }
 
+    func testOversizedOrControlBearingURLIsRejected() {
+        XCTAssertThrowsError(try VaultwardenEnvironment(
+            configuredURL: "https://vault.example.com/\nspoof"
+        ))
+        XCTAssertThrowsError(try VaultwardenEnvironment(
+            configuredURL: "https://vault.example.com/" + String(repeating: "a", count: 2_048)
+        ))
+        XCTAssertThrowsError(try VaultwardenEnvironment(
+            configuredURL: "https://vault.example.com/p/%2e%2e/other"
+        ))
+    }
+
     func testUnsupportedSchemeRejected() {
         XCTAssertThrowsError(
             try VaultwardenEnvironment(configuredURL: "ftp://vault.example.com")
@@ -107,6 +119,26 @@ final class VaultwardenEnvironmentTests: XCTestCase {
         XCTAssertFalse(origin.permitsRedirect(
             to: URL(string: "https://vault.example.com/other/api")!, withinBasePath: base
         ))
+    }
+
+    func testRedirectPolicyRejectsEncodedTraversalAndUserInfo() throws {
+        let environment = try VaultwardenEnvironment(
+            configuredURL: "https://vault.example.com/p"
+        )
+        let base = environment.redirectBasePath
+
+        for raw in [
+            "https://vault.example.com/p/%2e%2e/other",
+            "https://vault.example.com/p/%252e%252e/other",
+            "https://vault.example.com/p/%2Fother",
+            "https://vault.example.com/p/%5c..%5cother",
+            "https://user:pw@vault.example.com/p/api",
+        ] {
+            XCTAssertFalse(environment.origin.permitsRedirect(
+                to: try XCTUnwrap(URL(string: raw)),
+                withinBasePath: base
+            ), raw)
+        }
     }
 
     func testRedirectHostComparisonIsCaseInsensitive() throws {

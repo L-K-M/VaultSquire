@@ -23,7 +23,10 @@ and per-command secret-safe write gates are defined in
 [`PROTON_PASS_RESEARCH.md`](PROTON_PASS_RESEARCH.md).
 
 The Vaultwarden-specific delivery sequence is deliberately narrower than the
-full server:
+full server. In the current source tree, every Vaultwarden mutation capability
+is disabled: the dormant mutation service is research scaffolding, not shipped
+support, until the official-client interoperability, conflict, ambiguity,
+cancellation, permission, and unknown-field matrix below passes.
 
 | Decision | Recommendation |
 |---|---|

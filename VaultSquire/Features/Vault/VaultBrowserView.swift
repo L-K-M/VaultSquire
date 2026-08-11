@@ -30,6 +30,10 @@ struct VaultBrowserView: View {
         let draft: VaultItemDraft
     }
 
+    private var openAccounts: Set<AccountID> {
+        Set(appModel.sessions.filter(\.isOpen).map(\.account))
+    }
+
     private var filteredItems: [VaultItemProjection] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return appModel.items }
@@ -60,8 +64,41 @@ struct VaultBrowserView: View {
             selection = newValue
             appModel.clearQuickSearchSelection()
         }
+        .onChange(of: query) { _, value in
+            if value.utf8.count > QuickSearchPanelModel.maximumQueryBytes {
+                query = QuickSearchPanelModel.boundedQuery(value)
+            }
+        }
         .onChange(of: appModel.scope) { _, _ in
             selection = nil
+            query = ""
+            passwords.removeAll(keepingCapacity: false)
+        }
+        .onChange(of: openAccounts) { previous, current in
+            let closed = previous.subtracting(current)
+            guard !closed.isEmpty else { return }
+            for account in closed {
+                passwords.removeValue(forKey: account)
+            }
+            if let selected = selection, closed.contains(selected.account) {
+                selection = nil
+                editSession = nil
+            }
+        }
+        .onChange(of: appModel.isUnlocked) { _, isUnlocked in
+            guard !isUnlocked else { return }
+            selection = nil
+            query = ""
+            editSession = nil
+            passwords.removeAll(keepingCapacity: false)
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: ApplicationCoordinator.securityLockNotification
+        )) { _ in
+            selection = nil
+            query = ""
+            editSession = nil
+            passwords.removeAll(keepingCapacity: false)
         }
         .task {
             // Offer Touch ID as soon as the browser appears when it is set up,
@@ -172,6 +209,9 @@ struct VaultBrowserView: View {
             } else if session.isOpen {
                 Button {
                     appModel.lock(session.account)
+                    query = ""
+                    selection = nil
+                    passwords.removeAll(keepingCapacity: false)
                 } label: {
                     Image(systemName: "lock")
                 }
@@ -530,9 +570,6 @@ struct VaultBrowserView: View {
 
             Button {
                 appModel.lock()
-                // The icons on screen name the sites in the vault, so locking
-                // everything takes them down with the items.
-                siteIcons.clear()
             } label: {
                 Label("Lock All", systemImage: "lock")
             }

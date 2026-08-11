@@ -6,38 +6,42 @@ final class VaultwardenErrorTests: XCTestCase {
         try JSONDecoder().decode(VaultwardenErrorBody.self, from: Data(json.utf8))
     }
 
-    // ERR-01: default, compact, identity, and validation error shapes decode
-    // to a stable message in the fixed precedence order.
-    func testDecodePrecedenceIdentityErrorDescriptionWins() throws {
-        let decoded = try body(#"{"error":"invalid_grant","error_description":"desc","Message":"msg"}"#)
-        XCTAssertEqual(
-            VaultwardenErrorDecoder.safeMessage(from: decoded, httpStatus: 400),
-            "desc"
+    // ERR-01: server prose can echo submitted secrets or inject controls. It
+    // remains a classification input only; user-facing messages are local.
+    func testServerProvidedDescriptionsNeverReachDisplay() throws {
+        let decoded = try body(
+            #"{"error":"invalid_grant","error_description":"VSQ-password","Message":"spoof"}"#
         )
+        let message = VaultwardenErrorDecoder.safeMessage(from: decoded, httpStatus: 400)
+        XCTAssertEqual(message, "The server rejected the sign-in request.")
+        XCTAssertFalse(message.contains("VSQ-password"))
+        XCTAssertFalse(message.contains("spoof"))
     }
 
-    func testDecodePrecedenceFallsThroughToMessageThenModelThenValidation() throws {
+    func testFixedMessageIgnoresEveryProviderErrorShape() throws {
         XCTAssertEqual(
             VaultwardenErrorDecoder.safeMessage(from: try body(#"{"Message":"top"}"#), httpStatus: 400),
-            "top"
+            "The server rejected the sign-in request."
         )
         XCTAssertEqual(
             VaultwardenErrorDecoder.safeMessage(
                 from: try body(#"{"ErrorModel":{"Message":"model"}}"#), httpStatus: 400
             ),
-            "model"
+            "The server rejected the sign-in request."
         )
         XCTAssertEqual(
             VaultwardenErrorDecoder.safeMessage(
                 from: try body(#"{"validationErrors":{"":["v1","v2"]}}"#), httpStatus: 400
             ),
-            "v1 v2"
+            "The server rejected the sign-in request."
         )
     }
 
-    func testDecodePrecedenceGenericStatusWhenEmpty() throws {
-        let message = VaultwardenErrorDecoder.safeMessage(from: try body("{}"), httpStatus: 503)
-        XCTAssertTrue(message.contains("503"))
+    func testUnknownStatusMessageContainsOnlyTheNumericStatus() {
+        XCTAssertEqual(
+            VaultwardenErrorDecoder.safeMessage(from: nil, httpStatus: 418),
+            "The server returned an error (status 418)."
+        )
     }
 
     func testClassify429IsRateLimitWithBackoff() throws {
@@ -46,6 +50,17 @@ final class VaultwardenErrorTests: XCTestCase {
         )
         XCTAssertEqual(error.category, .rateLimit)
         XCTAssertEqual(error.retry, .backoffThenRetry(retryAfter: 30))
+    }
+
+    func testUntrustedMachineCodeIsDroppedInsteadOfRetained() throws {
+        let error = VaultwardenErrorDecoder.classify(
+            httpStatus: 429,
+            body: try body(#"{"error":"VSQ-secret\\ninjected"}"#),
+            retryAfter: nil
+        )
+
+        XCTAssertNil(error.machineCode)
+        XCTAssertFalse(error.safeDisplayMessage.contains("VSQ-secret"))
     }
 
     func testClassifyInvalidGrantIsContextSensitive() throws {
@@ -90,8 +105,12 @@ final class VaultwardenErrorTests: XCTestCase {
         XCTAssertFalse(notChallenge.signalsTwoFactorChallenge)
     }
 
-    func testValidationErrorsAreOrderedDeterministically() throws {
-        let decoded = try body(#"{"validationErrors":{"b":["second"],"a":["first"]}}"#)
-        XCTAssertEqual(decoded.flattenedValidationErrors, "first second")
+    func testProviderValidationProseIsNotRetained() throws {
+        let decoded = try body(
+            #"{"validationErrors":{"password":["VSQ-password"]},"Message":"spoof"}"#
+        )
+        XCTAssertNil(decoded.validationErrors)
+        XCTAssertNil(decoded.message)
+        XCTAssertNil(decoded.flattenedValidationErrors)
     }
 }

@@ -9,7 +9,8 @@ final class BiometricUnlockTests: XCTestCase {
     private let wrappedUserKey = "2.wrapped|iv|mac"
 
     private func makeService(
-        alsoConfiguring extra: [AccountDescriptor] = []
+        alsoConfiguring extra: [AccountDescriptor] = [],
+        reauthenticationRequired: Bool = false
     ) throws -> (VaultwardenAccountService, VaultwardenVaultCache) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VSQ-bio-\(UUID().uuidString)", isDirectory: true)
@@ -31,7 +32,9 @@ final class BiometricUnlockTests: XCTestCase {
             vaultCache: cache,
             descriptorStore: descriptors
         )
-        try cache.save(makeSnapshot(), for: account)
+        var snapshot = makeSnapshot()
+        snapshot.reauthenticationRequired = reauthenticationRequired
+        try cache.save(snapshot, for: account)
         return (service, cache)
     }
 
@@ -54,43 +57,74 @@ final class BiometricUnlockTests: XCTestCase {
 
     // MARK: - Key-only unlock
 
-    func testUnlockWithAUserKeyOpensTheVaultWithoutAPassword() throws {
+    @MainActor
+    func testUnlockWithAUserKeyOpensTheVaultWithoutAPassword() async throws {
         let (service, _) = try makeService()
-        let vault = try service.unlock(userKeyData: userKeyData)
+        let vault = try await service.unlock(userKeyData: userKeyData)
         XCTAssertEqual(vault.keyring.userKey.encryptionKey, Data(userKeyData.prefix(32)))
         XCTAssertEqual(vault.keyring.userKey.macKey, Data(userKeyData.suffix(32)))
         XCTAssertEqual(vault.snapshot.wrappedUserKey, wrappedUserKey)
     }
 
-    func testUnlockRejectsMalformedKeyMaterial() throws {
+    @MainActor
+    func testUnlockRejectsMalformedKeyMaterial() async throws {
         let (service, _) = try makeService()
-        XCTAssertThrowsError(try service.unlock(userKeyData: Data([1, 2, 3]))) { error in
+        do {
+            _ = try await service.unlock(userKeyData: Data([1, 2, 3]))
+            XCTFail("malformed key material must fail")
+        } catch {
             XCTAssertEqual(error as? VaultwardenAccountError, .missingKeyMaterial)
         }
     }
 
-    func testCurrentWrappedUserKeyIsTheBindingValue() throws {
+    @MainActor
+    func testCurrentWrappedUserKeyIsTheBindingValue() async throws {
         let (service, _) = try makeService()
-        XCTAssertEqual(service.currentWrappedUserKey(), wrappedUserKey)
+        let current = await service.currentWrappedUserKey()
+        XCTAssertEqual(current, wrappedUserKey)
     }
 
     // MARK: - AppModel flows
 
     @MainActor
+    func testPersistedSecurityChangeRevokesBiometricEnrollmentOnStartup() throws {
+        let store = FakeBiometricVaultKeyStore()
+        try store.store(
+            userKey: userKeyData,
+            boundTo: wrappedUserKey,
+            for: account
+        )
+        XCTAssertTrue(store.hasKey(for: account))
+
+        let model = try makeModel(
+            store: store,
+            reauthenticationRequired: true
+        )
+        model.refreshAccountPresence()
+
+        XCTAssertFalse(store.hasKey(for: account))
+        XCTAssertFalse(model.canUnlockWithBiometrics)
+    }
+
+    @MainActor
     private func makeModel(
         store: FakeBiometricVaultKeyStore,
-        protonExecutor: FakeCLIExecutor? = nil
+        protonExecutor: FakeCLIExecutor? = nil,
+        reauthenticationRequired: Bool = false
     ) throws -> AppModel {
         // Proton is configured only when a test drives its CLI, so the vaults
         // the other tests see stay exactly what they were.
         let (service, _) = try makeService(
-            alsoConfiguring: protonExecutor == nil ? [] : [Self.protonDescriptor]
+            alsoConfiguring: protonExecutor == nil ? [] : [Self.protonDescriptor],
+            reauthenticationRequired: reauthenticationRequired
         )
         return AppModel(
             queryAccountPresence: { .present },
             service: service,
             protonService: makeProtonService(executor: protonExecutor ?? FakeCLIExecutor()),
-            biometricStore: store
+            biometricStore: store,
+            enabledProviders: protonExecutor == nil
+                ? [.vaultwarden] : [.vaultwarden, .protonCLI]
         )
     }
 
@@ -233,6 +267,23 @@ final class BiometricUnlockTests: XCTestCase {
         XCTAssertEqual(stored, userKeyData)
     }
 
+    @MainActor
+    func testFailedRevocationSuppressesTheStaleEnrollment() async throws {
+        let store = FakeBiometricVaultKeyStore()
+        try store.store(userKey: userKeyData, boundTo: wrappedUserKey, for: account)
+        let model = try makeModel(store: store)
+        model.refreshAccountPresence()
+        XCTAssertTrue(model.canUnlockWithBiometrics)
+        store.removeFails = true
+
+        model.disableBiometricUnlock()
+        model.refreshAccountPresence()
+
+        XCTAssertNotNil(model.biometricError)
+        XCTAssertFalse(model.canUnlockWithBiometrics)
+        XCTAssertTrue(store.hasKey(for: account), "the fake preserves the failed record")
+    }
+
     /// The silent-failure regression: pressing the Settings button did nothing
     /// visible when the Keychain refused the write. Enrollment that fails must
     /// leave a message and must not claim to be enrolled.
@@ -362,6 +413,7 @@ final class BiometricUnlockTests: XCTestCase {
 
         model.lock()
         XCTAssertTrue(model.isLocked)
+        XCTAssertGreaterThan(store.cancelCallCount, 0)
         XCTAssertFalse(model.canEnrollBiometrics)
         // The enrolled key survives a lock: that is the point of enrolling.
         XCTAssertTrue(model.canUnlockWithBiometrics)

@@ -14,7 +14,10 @@ final class VaultwardenVaultUnlockTests: XCTestCase {
     private func makeSealedSnapshot(
         loginName: String = "GitHub",
         username: String = "octocat",
-        secret: String = "VSQ-Canary-hunter2"
+        secret: String = "VSQ-Canary-hunter2",
+        useIndividualCipherKey: Bool = false,
+        malformedCipherKey: Bool = false,
+        viewPassword: Bool = true
     ) async throws -> VaultwardenVaultSnapshot {
         let masterKey = try await VaultwardenKeyDerivation.deriveMasterKey(
             passwordBytes: Data(password.utf8),
@@ -28,14 +31,27 @@ final class VaultwardenVaultUnlockTests: XCTestCase {
         let userKey = try VaultwardenSymmetricKey(keyData: userKeyBytes)
         let wrappedUserKey = try VaultwardenCipher.encryptToType2(userKeyBytes, key: stretchedKey)
 
+        let contentKey: VaultwardenSymmetricKey
+        let wrappedCipherKey: String?
+        if useIndividualCipherKey {
+            let bytes = Data((64..<128).map { UInt8($0) })
+            contentKey = try VaultwardenSymmetricKey(keyData: bytes)
+            wrappedCipherKey = try VaultwardenCipher.encryptToType2(bytes, key: userKey)
+        } else {
+            contentKey = userKey
+            wrappedCipherKey = malformedCipherKey ? "2.not-valid" : nil
+        }
+
         func enc(_ text: String) throws -> String {
-            try VaultwardenCipher.encryptToType2(Data(text.utf8), key: userKey)
+            try VaultwardenCipher.encryptToType2(Data(text.utf8), key: contentKey)
         }
 
         let cipher = VaultwardenCipherModel(
             id: "cipher-1",
             type: .login,
             revisionDate: Date(timeIntervalSince1970: 1_700_000_000),
+            key: wrappedCipherKey,
+            viewPassword: viewPassword,
             name: try enc(loginName),
             login: .init(
                 username: try enc(username),
@@ -83,6 +99,68 @@ final class VaultwardenVaultUnlockTests: XCTestCase {
         let passwordField = try XCTUnwrap(detail.fields.first { $0.label == "Password" })
         XCTAssertEqual(passwordField.value, "VSQ-Canary-hunter2")
         XCTAssertTrue(passwordField.isConcealable)
+    }
+
+    func testIndividualCipherKeyIsResolvedBeforeDecryptingFields() async throws {
+        let snapshot = try await makeSealedSnapshot(useIndividualCipherKey: true)
+        let keyring = try await VaultwardenVaultUnlock.unlock(
+            snapshot: snapshot, masterPasswordBytes: Data(password.utf8)
+        )
+
+        let projection = VaultwardenItemDecryptor.projection(
+            for: snapshot.ciphers[0],
+            keyring: keyring,
+            account: account,
+            folderNames: [:],
+            generation: snapshot.generation
+        )
+
+        XCTAssertEqual(projection.displayTitle, "GitHub")
+        XCTAssertEqual(projection.username, "octocat")
+    }
+
+    func testDeniedPasswordPermissionConcealsSecretFieldsAndCapabilities() async throws {
+        let snapshot = try await makeSealedSnapshot(viewPassword: false)
+        let keyring = try await VaultwardenVaultUnlock.unlock(
+            snapshot: snapshot, masterPasswordBytes: Data(password.utf8)
+        )
+        let cipher = snapshot.ciphers[0]
+
+        let projection = VaultwardenItemDecryptor.projection(
+            for: cipher,
+            keyring: keyring,
+            account: account,
+            folderNames: [:],
+            generation: snapshot.generation
+        )
+        let detail = VaultwardenItemDecryptor.detail(
+            for: cipher,
+            keyring: keyring,
+            account: account,
+            generation: snapshot.generation
+        )
+
+        XCTAssertFalse(projection.capabilities.contains(.revealSecret))
+        XCTAssertFalse(projection.capabilities.contains(.copySecret))
+        XCTAssertNil(detail.fields.first { $0.label == "Password" })
+    }
+
+    func testMalformedPresentCipherKeyNeverFallsBackToOwnerKey() async throws {
+        let snapshot = try await makeSealedSnapshot(malformedCipherKey: true)
+        let keyring = try await VaultwardenVaultUnlock.unlock(
+            snapshot: snapshot, masterPasswordBytes: Data(password.utf8)
+        )
+
+        let projection = VaultwardenItemDecryptor.projection(
+            for: snapshot.ciphers[0],
+            keyring: keyring,
+            account: account,
+            folderNames: [:],
+            generation: snapshot.generation
+        )
+
+        XCTAssertEqual(projection.displayTitle, "Unreadable item")
+        XCTAssertNil(projection.username)
     }
 
     func testWrongPasswordFailsClosed() async throws {

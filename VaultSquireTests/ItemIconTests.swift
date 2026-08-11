@@ -26,6 +26,22 @@ final class ItemIconTests: XCTestCase {
 
     /// A subdomain is its own site: `mail.example.com` and `example.com` may be
     /// wholly unrelated services, so they are not folded together.
+    func testLocalAndLiteralHostsNeverProduceNetworkIconURLs() {
+        for website in [
+            "https://127.0.0.1/login",
+            "https://127.1/login",
+            "https://0x7f.0x1/login",
+            "https://192.168.1.10/login",
+            "https://vault.local/login",
+            "https://service.internal/login",
+            "https://host.localdomain/login",
+        ] {
+            XCTAssertNil(ItemIconIdentity.host(from: website), website)
+        }
+        XCTAssertNil(ItemIconIdentity.iconURL(forHost: "127.0.0.1"))
+        XCTAssertNil(ItemIconIdentity.iconURL(forHost: "user@127.0.0.1"))
+    }
+
     func testSubdomainsAreDistinct() {
         XCTAssertEqual(ItemIconIdentity.host(from: "https://mail.example.com"), "mail.example.com")
     }
@@ -220,6 +236,46 @@ final class SiteIconStoreTests: XCTestCase {
         XCTAssertNil(store.image(for: "example.com"))
     }
 
+    func testImageWithOversizedDecodedDimensionsIsRefused() async throws {
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: SiteIconStore.maximumIconDimension + 1,
+            pixelsHigh: 1,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        XCTAssertLessThan(data.count, SiteIconStore.maximumIconBytes)
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in data })
+        store.isEnabled = true
+
+        await store.load("example.com")
+
+        XCTAssertNil(store.image(for: "example.com"))
+    }
+
+    func testClearPreventsASuspendedFetchFromRepublishing() async {
+        let gate = DeferredIconFetch()
+        let png = pngData
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
+            await gate.value()
+        })
+        store.isEnabled = true
+        let task = Task { await store.load("example.com") }
+        while !(await gate.didStart) { await Task.yield() }
+
+        store.clear()
+        await gate.resolve(png)
+        await task.value
+
+        XCTAssertNil(store.image(for: "example.com"))
+    }
+
     /// Turning the switch off has to take effect on screen, not at the next
     /// launch: what was already fetched is dropped.
     func testTurningItOffDropsWhatWasFetched() async {
@@ -272,4 +328,19 @@ final class SiteIconStoreTests: XCTestCase {
 private actor Counter {
     private(set) var value = 0
     func increment() { value += 1 }
+}
+
+private actor DeferredIconFetch {
+    private var continuation: CheckedContinuation<Data?, Never>?
+    private(set) var didStart = false
+
+    func value() async -> Data? {
+        didStart = true
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func resolve(_ data: Data?) {
+        continuation?.resume(returning: data)
+        continuation = nil
+    }
 }

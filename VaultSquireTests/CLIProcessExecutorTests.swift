@@ -17,19 +17,34 @@ final class CLIProcessExecutorTests: XCTestCase {
         )
     }
 
-    /// A provider may pin a fixed non-secret mode switch, but the overlay can
-    /// only add or pin an entry — never remove one the boundary depends on.
-    func testAnOverlayAddsToTheAllowlistWithoutRemovingFromIt() async {
+    /// Provider switches come from a closed enum, so no caller can smuggle a
+    /// token or user-authored value into an arbitrary environment overlay.
+    func testTheOnePasswordModeAddsOnlyItsReviewedConstant() async {
         let base = await CLIProcessExecutor().childEnvironment()
-        let overlaid = await CLIProcessExecutor(
-            environmentOverlay: ["EXAMPLE_MODE": "true", "LANG": "en_US.UTF-8"]
+        let configured = await CLIProcessExecutor(
+            mode: .onePasswordDesktopAuthorization
         ).childEnvironment()
 
-        XCTAssertEqual(overlaid["EXAMPLE_MODE"], "true")
-        XCTAssertEqual(overlaid["LANG"], "en_US.UTF-8", "an overlay entry wins over the base")
-        for key in base.keys where key != "LANG" {
-            XCTAssertEqual(overlaid[key], base[key], "\(key) was lost from the base environment")
+        XCTAssertEqual(configured["OP_BIOMETRIC_UNLOCK_ENABLED"], "true")
+        XCTAssertEqual(
+            Set(configured.keys).subtracting(base.keys),
+            Set(["OP_BIOMETRIC_UNLOCK_ENABLED"])
+        )
+        for key in base.keys {
+            XCTAssertEqual(configured[key], base[key], "\(key) changed from the base environment")
         }
+    }
+
+    func testExecutionOutputCanBeExplicitlyDiscarded() {
+        var execution = CLIExecution(
+            exitCode: 0,
+            standardOutput: Data("synthetic-secret".utf8),
+            standardErrorByteCount: 0
+        )
+
+        execution.discardStandardOutput()
+
+        XCTAssertTrue(execution.standardOutput.isEmpty)
     }
 
     func testRejectsANonAbsoluteExecutable() async {
@@ -41,6 +56,38 @@ final class CLIProcessExecutorTests: XCTestCase {
             )
         ) { error in
             XCTAssertEqual(error as? CLIExecutionError, .executableNotAbsolute)
+        }
+    }
+
+    func testRejectsNULArgumentsBeforeLaunch() async throws {
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/true")
+        await XCTAssertThrowsErrorAsync(
+            try await CLIProcessExecutor().execute(
+                CLIInvocation(arguments: ["safe\0suffix"]),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .invalidArguments)
+        }
+    }
+
+    func testRejectsInvalidTimeoutAndExcessiveOutputLimit() async throws {
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/true")
+        await XCTAssertThrowsErrorAsync(
+            try await CLIProcessExecutor().execute(
+                CLIInvocation(arguments: [], timeout: .zero),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .invalidTimeout)
+        }
+        await XCTAssertThrowsErrorAsync(
+            try await CLIProcessExecutor().execute(
+                CLIInvocation(arguments: [], outputLimit: 64 * 1024 * 1024 + 1),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .invalidOutputLimit)
         }
     }
 
@@ -86,6 +133,23 @@ final class CLIProcessExecutorTests: XCTestCase {
         await XCTAssertThrowsErrorAsync(
             try await executor.execute(
                 CLIInvocation(arguments: [], timeout: .seconds(30), outputLimit: 8),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .outputLimitExceeded)
+        }
+    }
+
+    func testFailsClosedWhenStandardErrorExceedsTheSameBound() async throws {
+        let executor = CLIProcessExecutor()
+        let executableURL = try macOSExecutableURL(at: "/bin/sh")
+        await XCTAssertThrowsErrorAsync(
+            try await executor.execute(
+                CLIInvocation(
+                    arguments: ["-c", "while :; do printf 1234567890 1>&2; done"],
+                    timeout: .seconds(30),
+                    outputLimit: 8
+                ),
                 executableURL: executableURL
             )
         ) { error in

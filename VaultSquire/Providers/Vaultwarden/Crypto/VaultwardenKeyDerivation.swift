@@ -80,22 +80,31 @@ enum VaultwardenKeyDerivation {
         configuration: VaultwardenKDFConfiguration
     ) async throws -> Data {
         try configuration.validate()
-        guard !passwordBytes.isEmpty else {
+        let normalizedEmail = normalizedEmail(email)
+        guard !passwordBytes.isEmpty,
+              passwordBytes.count <= 16 * 1024,
+              !normalizedEmail.isEmpty,
+              normalizedEmail.utf8.count <= 320 else {
             throw VaultwardenCryptoError.invalidKeyMaterial
         }
 
         switch configuration {
         case .pbkdf2SHA256(let iterations):
             try Task.checkCancellation()
-            let salt = Data(normalizedEmail(email).utf8)
-            let derived = try pbkdf2SHA256(
+            let salt = Data(normalizedEmail.utf8)
+            var derived = try pbkdf2SHA256(
                 password: passwordBytes,
                 salt: salt,
                 iterations: iterations,
                 outputLength: 32
             )
-            try Task.checkCancellation()
-            return derived
+            do {
+                try Task.checkCancellation()
+                return derived
+            } catch {
+                VaultwardenCryptoZeroize.zero(&derived)
+                throw error
+            }
         case .argon2id:
             throw VaultwardenCryptoError.argon2idUnavailable
         }
@@ -109,7 +118,9 @@ enum VaultwardenKeyDerivation {
         masterKey: Data,
         passwordBytes: Data
     ) throws -> String {
-        guard masterKey.count == 32, !passwordBytes.isEmpty else {
+        guard masterKey.count == 32,
+              !passwordBytes.isEmpty,
+              passwordBytes.count <= 16 * 1024 else {
             throw VaultwardenCryptoError.invalidKeyMaterial
         }
 
@@ -181,6 +192,7 @@ enum VaultwardenKeyDerivation {
         }
         // CCKeyDerivationPBKDF returns Int32; kCCSuccess imports as Int.
         guard status == Int32(kCCSuccess) else {
+            VaultwardenCryptoZeroize.zero(&derived)
             throw VaultwardenCryptoError.invalidKeyMaterial
         }
 

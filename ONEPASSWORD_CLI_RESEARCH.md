@@ -1,7 +1,7 @@
 # 1Password CLI Provider Research
 
-- Status: accepted third-provider evidence; read-only provider implemented,
-  release still gated (see the implementation note below)
+- Status: accepted third-provider evidence; dormant read-only adapter exists,
+  production availability and release remain gated (see below)
 - Research date: 2026-08-11
 - Candidate integration: official user-installed 1Password CLI (`op`, CLI 2)
   executed as an external process
@@ -17,29 +17,18 @@ Proton Pass through `pass-cli`? It records the documented integration surface,
 the safety boundaries such a provider would require, and the gates that are not
 yet passed.
 
-> Implementation status (added at build time): the scope gate of §1 was
-> accepted by the project owner and recorded in
-> [ADR 0007](docs/adr/0007-onepassword-third-provider.md); `PLAN.md` now scopes
-> three providers. The read-only provider is implemented in
-> `VaultSquire/Providers/OnePassword/` — an allowlisted absolute-path locator
-> with symlink resolution, a fail-closed version gate, a runner that emits only
-> fixed subcommands and validated opaque identifiers, tolerant decoding of the
-> documented `vault`/`item`/`whoami` JSON into the shared read projection, and a
-> device-sealed snapshot that carries no secret at all. The no-shell bounded
-> process executor is now the shared `CLIProcessExecutor` both CLI providers
-> run through. Every write stays disabled.
+> Current implementation status: ADR 0007 accepted the scope, and a dormant
+> read-only adapter in `VaultSquire/Providers/OnePassword/` is exercised through
+> synthetic fake-executor tests. It includes path/identifier checks, the shared
+> no-shell bounded executor's closed desktop-authorization mode, account-scoped
+> summary mapping, on-demand content, and a device-sealed snapshot that carries
+> no secret. Every write is disabled.
 >
-> The two remaining gates of §1 are NOT discharged. The terms question (§14) is
-> open and blocks any release presenting 1Password support. The TTY-less
-> authorization and sandbox spike (§12) has not been run: the command and JSON
-> contract follows the documented surface in §5 and §8 and is gated to the
-> stable releases in §1, but it has not been exercised against a live CLI in
-> this environment. On a real machine the version allowlist
-> (`OnePasswordCLIVersionGate.declaredSupportedVersions`), the JSON key
-> spellings in `OnePasswordReadModel`, and the `whoami` payload are the points
-> to confirm against an installed build. Mismatched output fails closed with an
-> honest error, never a false success. All boundary logic is unit-tested over a
-> fake executor.
+> The terms and TTY-less authorization/sandbox gates remain open. No live
+> executable identity, command/schema, authorization, cancellation, or
+> sandbox/direct matrix has passed. Therefore
+> `OnePasswordCLIVersionGate.production` is empty, documented stable releases
+> are candidates only, and the Add Account UI does not expose 1Password.
 
 Unlike the Proton research, no source-derived evidence tier exists here: the
 `op` binary is proprietary and its terms prohibit reverse engineering (§14).

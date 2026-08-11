@@ -191,22 +191,44 @@ struct VaultwardenErrorBody: Hashable, Sendable, Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        error = try container.decodeIfPresent(String.self, forKey: .error)
-        errorDescription = try container.decodeIfPresent(String.self, forKey: .errorDescription)
-        message = try container.decodeIfPresent(String.self, forKey: .message)
-            ?? container.decodeIfPresent(String.self, forKey: .messageLower)
-        errorModel = try container.decodeIfPresent(ErrorModel.self, forKey: .errorModel)
-        validationErrors = try container.decodeIfPresent(
-            [String: [String]].self, forKey: .validationErrors
-        ) ?? container.decodeIfPresent(
-            [String: [String]].self, forKey: .validationErrorsPascal
-        )
-        twoFactorProviders = try container.decodeIfPresent(
+        let decodedError = try container.decodeIfPresent(String.self, forKey: .error)
+        error = decodedError.flatMap { value in
+            guard !value.isEmpty, value.utf8.count <= 128,
+                  value.unicodeScalars.allSatisfy({ scalar in
+                      CharacterSet.alphanumerics.contains(scalar)
+                          || scalar.value == 46 || scalar.value == 95 || scalar.value == 45
+                  }) else {
+                return nil
+            }
+            return value
+        }
+        // Deliberately do not decode provider prose. It may echo a submitted
+        // secret or carry deceptive controls, and no product decision needs it.
+        errorDescription = nil
+        message = nil
+        errorModel = nil
+        validationErrors = nil
+
+        let providers = try container.decodeIfPresent(
             [String].self, forKey: .twoFactorProviders
         )
-        twoFactorProviders2 = try container.decodeIfPresent(
+        twoFactorProviders = providers.flatMap { values in
+            guard values.count <= 32,
+                  values.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 16 }) else {
+                return nil
+            }
+            return values
+        }
+        let providerMap = try container.decodeIfPresent(
             [String: TwoFactorProviderDetail].self, forKey: .twoFactorProviders2
         )
+        twoFactorProviders2 = providerMap.flatMap { values in
+            guard values.count <= 32,
+                  values.keys.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 16 }) else {
+                return nil
+            }
+            return values
+        }
     }
 
     var flattenedValidationErrors: String? {

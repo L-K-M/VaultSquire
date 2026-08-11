@@ -16,14 +16,32 @@ enum VaultwardenDeviceIdentityStore {
         deviceName: String = defaultDeviceName()
     ) -> VaultwardenDeviceIdentity {
         let identifier: String
-        if let existing = defaults.string(forKey: identifierKey), !existing.isEmpty {
+        if let existing = defaults.string(forKey: identifierKey),
+           UUID(uuidString: existing) != nil {
             identifier = existing
         } else {
             identifier = UUID().uuidString
             defaults.set(identifier, forKey: identifierKey)
         }
 
-        return VaultwardenDeviceIdentity(identifier: identifier, name: deviceName)
+        var safeName = ""
+        var bytes = 0
+        for character in deviceName {
+            guard safeName.count < 128 else { break }
+            guard character.unicodeScalars.allSatisfy({
+                !CharacterSet.controlCharacters.contains($0)
+            }) else {
+                continue
+            }
+            let characterBytes = String(character).utf8.count
+            guard characterBytes <= 512 - bytes else { break }
+            safeName.append(character)
+            bytes += characterBytes
+        }
+        return VaultwardenDeviceIdentity(
+            identifier: identifier,
+            name: safeName.isEmpty ? "Mac" : safeName
+        )
     }
 
     static func defaultDeviceName() -> String {

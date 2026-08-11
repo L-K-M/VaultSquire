@@ -81,6 +81,22 @@ final class VaultwardenVaultCacheTests: XCTestCase {
         }
     }
 
+    func testOversizedCacheFileIsRejectedBeforeOpening() throws {
+        let (cache, directory) = makeCache(key: SymmetricKey(size: .bits256))
+        try cache.save(makeSnapshot(), for: account)
+        let file = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "vaultcache" }
+        )
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.truncate(atOffset: UInt64(128 * 1024 * 1024 + 1))
+        try handle.close()
+
+        XCTAssertThrowsError(try cache.load(for: account)) { error in
+            XCTAssertEqual(error as? VaultwardenVaultCacheError, .corrupt)
+        }
+    }
+
     func testWrongKeyFailsClosed() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VaultSquireTests-\(UUID().uuidString)", isDirectory: true)

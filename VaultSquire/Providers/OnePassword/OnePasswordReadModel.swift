@@ -97,6 +97,22 @@ struct OnePasswordItem: Equatable, Sendable, Codable {
     let additionalInformation: String?
     /// Non-secret website labels.
     let urls: [String]
+
+    /// The persisted summary keeps only fields whose list contract is
+    /// explicitly non-secret. An older cache's undocumented display hint is
+    /// dropped on both read and write rather than trusted retroactively.
+    var withoutPotentialSecrets: OnePasswordItem {
+        OnePasswordItem(
+            itemID: itemID,
+            vaultID: vaultID,
+            vaultName: vaultName,
+            category: category,
+            title: title,
+            username: username,
+            additionalInformation: nil,
+            urls: urls
+        )
+    }
 }
 
 /// One field from an opened item, beyond the built-in ones the detail already
@@ -147,7 +163,11 @@ enum OnePasswordReadModel {
     private static let notesPurpose = "NOTES"
     /// Field `type` values that carry a secret. A field of one of these types
     /// never enters a persisted summary.
-    private static let concealedTypes: Set<String> = ["CONCEALED", "OTP", "SSHKEY"]
+    /// Unknown field types fail closed as concealed. These are the only types
+    /// this build may render without an explicit reveal action.
+    private static let reviewedPlainTypes: Set<String> = [
+        "STRING", "URL", "EMAIL", "PHONE", "DATE", "MONTH_YEAR", "MENU"
+    ]
 
     // MARK: - Decoding
 
@@ -185,9 +205,10 @@ enum OnePasswordReadModel {
                 category: OnePasswordItemCategory.from(raw: rawCategory),
                 title: string(object, ["title", "overview.title", "name"]) ?? "Untitled",
                 username: nonSecretUsername(in: fields),
-                additionalInformation: string(
-                    object, ["additional_information", "additionalInformation", "ainfo"]
-                ),
+                // The list schema and meaning of this display hint are not a
+                // stable contract. Never persist an arbitrary value that may be
+                // a concealed field in a future or compromised CLI build.
+                additionalInformation: nil,
                 urls: decodeURLs(object)
             )
         }
@@ -233,7 +254,9 @@ enum OnePasswordReadModel {
             category: item.category.category,
             username: item.username,
             websites: item.urls,
-            groupingLabels: item.vaultName.isEmpty ? [] : [item.vaultName],
+            groupings: item.vaultName.isEmpty ? [] : [
+                VaultItemGrouping(id: item.vaultID, name: item.vaultName)
+            ],
             capabilities: capabilities,
             cacheReference: ProviderCacheReference(
                 scope: .wholeAccount(account),
@@ -310,8 +333,13 @@ enum OnePasswordReadModel {
             }
             return OnePasswordAccount(
                 accountUUID: accountUUID,
-                url: string(object, ["url", "sign_in_address", "shorthand"]) ?? "1Password",
-                email: string(object, ["email", "user_email"]) ?? ""
+                url: safeDisplay(
+                    string(object, ["url", "sign_in_address", "shorthand"]),
+                    maximumBytes: 2_048
+                ) ?? "1Password",
+                email: safeDisplay(
+                    string(object, ["email", "user_email"]), maximumBytes: 320
+                ) ?? ""
             )
         }
     }
@@ -329,15 +357,24 @@ enum OnePasswordReadModel {
 
     private static func decodeFields(_ object: [String: Any]) -> [RawField] {
         guard let raw = object["fields"] as? [[String: Any]] else { return [] }
-        return raw.compactMap { field in
-            guard let value = firstString(field, ["value"]) else { return nil }
-            let section = (field["section"] as? [String: Any])
-                .flatMap { firstString($0, ["label", "name"]) }
+        return raw.prefix(512).compactMap { field in
+            guard let value = bounded(
+                firstString(field, ["value"]), maximumBytes: 1 * 1024 * 1024
+            ) else { return nil }
+            let section = (field["section"] as? [String: Any]).flatMap {
+                bounded(firstString($0, ["label", "name"]), maximumBytes: 16 * 1024)
+            }
             return RawField(
-                label: firstString(field, ["label", "id", "t"]) ?? "Field",
+                label: bounded(
+                    firstString(field, ["label", "id", "t"]), maximumBytes: 16 * 1024
+                ) ?? "Field",
                 value: value,
-                type: (firstString(field, ["type", "k"]) ?? "STRING").uppercased(),
-                purpose: (firstString(field, ["purpose", "n"]) ?? "").uppercased(),
+                type: (bounded(
+                    firstString(field, ["type", "k"]), maximumBytes: 128
+                ) ?? "STRING").uppercased(),
+                purpose: (bounded(
+                    firstString(field, ["purpose", "n"]), maximumBytes: 128
+                ) ?? "").uppercased(),
                 sectionLabel: section
             )
         }
@@ -347,7 +384,9 @@ enum OnePasswordReadModel {
     /// the username field concealed would yield nil rather than seal a secret
     /// into the snapshot.
     private static func nonSecretUsername(in fields: [RawField]) -> String? {
-        fields.first { $0.purpose == usernamePurpose && !concealedTypes.contains($0.type) }?.value
+        fields.first {
+            $0.purpose == usernamePurpose && $0.type == "STRING"
+        }?.value
     }
 
     /// Every field that is not already surfaced as a built-in one, qualified by
@@ -364,25 +403,36 @@ enum OnePasswordReadModel {
             }
             if field.type == "OTP" { return nil }
             let label = field.sectionLabel.map { "\($0) · \(field.label)" } ?? field.label
+            let looksLikeTOTP = field.value.lowercased().hasPrefix("otpauth://")
             return OnePasswordContentField(
                 label: label,
                 value: field.value,
-                isConcealed: concealedTypes.contains(field.type)
+                isConcealed: looksLikeTOTP || !reviewedPlainTypes.contains(field.type)
             )
         }
     }
 
     private static func decodeURLs(_ object: [String: Any]) -> [String] {
         guard let raw = object["urls"] else {
-            return firstString(object, ["url", "href"]).map { [$0] } ?? []
+            return bounded(
+                firstString(object, ["url", "href"]), maximumBytes: 2_048
+            ).map { [$0] } ?? []
         }
         if let array = raw as? [[String: Any]] {
-            return array.compactMap { firstString($0, ["href", "url", "value"]) }
+            return array.prefix(100).compactMap {
+                bounded(
+                    firstString($0, ["href", "url", "value"]),
+                    maximumBytes: 2_048
+                )
+            }
         }
         if let array = raw as? [String] {
-            return array.filter { !$0.isEmpty }
+            return Array(array.prefix(100)).filter {
+                !$0.isEmpty && $0.utf8.count <= 2_048
+            }
         }
-        if let single = raw as? String, !single.isEmpty {
+        if let single = bounded(raw as? String, maximumBytes: 2_048),
+           !single.isEmpty {
             return [single]
         }
         return []
@@ -436,5 +486,20 @@ enum OnePasswordReadModel {
             }
         }
         return nil
+    }
+
+    private static func bounded(_ value: String?, maximumBytes: Int) -> String? {
+        guard let value, value.utf8.count <= maximumBytes else { return nil }
+        return value
+    }
+
+    private static func safeDisplay(_ value: String?, maximumBytes: Int) -> String? {
+        guard let value = bounded(value, maximumBytes: maximumBytes),
+              value.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }) else {
+            return nil
+        }
+        return value
     }
 }

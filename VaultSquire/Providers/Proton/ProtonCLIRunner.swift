@@ -5,14 +5,16 @@ import Foundation
 /// are shown to the user during connection so a redirected or unexpected target
 /// is visible rather than hidden behind the friendly path.
 struct ProtonCLIBinary: Equatable, Sendable {
-    /// The allowlisted absolute path selected for invocation. Always the value
-    /// actually passed to the process, so approval and execution cannot diverge.
+    /// The allowlisted discovery path shown to the user.
     let approvedPath: String
     /// The fully symlink-resolved real path, for display and signature review.
     let resolvedRealPath: String
 
+    /// Execute the path whose symlink resolution was displayed and reviewed,
+    /// not the mutable friendly symlink. A future live identity gate still
+    /// revalidates the target immediately before every launch.
     var executableURL: URL {
-        URL(fileURLWithPath: approvedPath)
+        URL(fileURLWithPath: resolvedRealPath)
     }
 }
 
@@ -111,7 +113,10 @@ struct ProtonCLIRunner: Sendable {
     /// runner error on an unparseable or unsupported version so the caller can
     /// present the exact state without any partial trust.
     func probeVersion() async throws -> ProtonCLIVersion {
-        let execution = try await run(["--version"], timeout: .seconds(10), outputLimit: 64 * 1024)
+        var execution = try await run(
+            ["--version"], timeout: .seconds(10), outputLimit: 64 * 1024
+        )
+        defer { execution.discardStandardOutput() }
         let text = String(decoding: execution.standardOutput, as: UTF8.self)
         guard let version = ProtonCLIVersionGate.parseVersion(from: text) else {
             throw ProtonCLIRunnerError.unparseableVersion
@@ -165,14 +170,16 @@ struct ProtonCLIRunner: Sendable {
             timeout: timeout,
             outputLimit: outputLimit
         )
-        let execution: CLIExecution
+        var execution: CLIExecution
         do {
             execution = try await executor.execute(invocation, executableURL: binary.executableURL)
         } catch let error as CLIExecutionError {
             throw ProtonCLIRunnerError.execution(error)
         }
         guard execution.exitCode == 0 else {
-            throw ProtonCLIRunnerError.commandFailed(execution.exitCode)
+            let exitCode = execution.exitCode
+            execution.discardStandardOutput()
+            throw ProtonCLIRunnerError.commandFailed(exitCode)
         }
         return execution
     }

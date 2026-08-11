@@ -38,6 +38,34 @@ final class VaultwardenTOTPTests: XCTestCase {
         XCTAssertEqual(generated?.code, "287082")
     }
 
+    func testAmbiguousOrOutOfRangeURIParametersFailClosed() {
+        XCTAssertNil(VaultwardenTOTP.parse(
+            seed: "otpauth://totp/x?secret=MY&secret=MY"
+        ))
+        XCTAssertNil(VaultwardenTOTP.parse(
+            seed: "otpauth://totp/x?secret=MY&period=301"
+        ))
+        XCTAssertNil(VaultwardenTOTP.parse(
+            seed: "otpauth://totp/x?secret=MY&algorithm=MD5"
+        ))
+    }
+
+    func testNonFiniteAndUInt64OverflowDatesReturnNilRatherThanTrapping() {
+        XCTAssertNil(VaultwardenTOTP.generate(
+            seed: rfcSecretBase32,
+            at: Date(timeIntervalSince1970: .infinity)
+        ))
+        XCTAssertNil(VaultwardenTOTP.generate(
+            seed: rfcSecretBase32,
+            at: Date(timeIntervalSince1970: Double(UInt64.max) * 30)
+        ))
+    }
+
+    func testOversizedAndNonCanonicalBase32FailClosed() {
+        XCTAssertNil(VaultwardenTOTP.parse(seed: String(repeating: "A", count: 8_193)))
+        XCTAssertNil(VaultwardenTOTP.parse(seed: "MZ"), "unused trailing bits must be zero")
+    }
+
     func testUnparseableSeedReturnsNil() {
         XCTAssertNil(VaultwardenTOTP.generate(seed: "not a secret!!", at: Date()))
         XCTAssertNil(VaultwardenTOTP.generate(seed: "", at: Date()))

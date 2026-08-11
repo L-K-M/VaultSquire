@@ -30,9 +30,21 @@ struct VaultwardenVaultSnapshot: Sendable, Codable, Hashable {
     /// The user's RSA private key, wrapped under the user key (a type-2
     /// EncString). Absent for accounts with no asymmetric key.
     var wrappedPrivateKey: String?
+    /// Provider bootstrap revision used to detect hierarchy invalidation before
+    /// a newly synced candidate can replace the last known-good snapshot.
+    var securityStamp: String? = nil
     var organizations: [Organization]
     var folders: [Folder]
     var ciphers: [VaultwardenCipherModel]
+    /// Exact bounded sync bytes retain fields and unknown cipher forms this
+    /// build cannot model yet. They are provider ciphertext, never a write
+    /// source, and remain sealed with the snapshot.
+    var rawSyncResponse: Data? = nil
+    /// Durable lockout marker set when bootstrap material changes or the
+    /// provider rejects the refresh session. Both master-password and biometric
+    /// offline unlock fail until a complete login transaction replaces this
+    /// snapshot.
+    var reauthenticationRequired: Bool? = nil
     /// When the sync that produced this snapshot completed.
     var syncedAt: Date
     /// Monotonic capture generation, advanced on every successful sync. It backs
@@ -90,5 +102,79 @@ struct VaultwardenVaultSnapshot: Sendable, Codable, Hashable {
         var id: String
         /// Folder name EncString.
         var name: String
+    }
+
+    var isStructurallyValid: Bool {
+        guard version == Self.currentVersion,
+              generation > 0,
+              syncedAt.timeIntervalSince1970.isFinite,
+              email == VaultwardenKeyDerivation.normalizedEmail(email),
+              !email.isEmpty, email.utf8.count <= 320,
+              serverBaseURL.utf8.count <= 2_048,
+              wrappedUserKey.utf8.count <= VaultwardenEncString.maximumSerializedBytes,
+              wrappedPrivateKey.map({
+                  $0.utf8.count <= VaultwardenEncString.maximumSerializedBytes
+              }) != false,
+              securityStamp.map({ $0.utf8.count <= 4_096 }) != false,
+              rawSyncResponse.map({ $0.count <= 50 * 1024 * 1024 }) != false,
+              organizations.count <= 256,
+              folders.count <= 10_000,
+              ciphers.count <= 50_000,
+              (try? kdf.configuration().validate()) != nil,
+              (try? VaultwardenEnvironment(configuredURL: serverBaseURL)) != nil,
+              Self.isValidServiceURL(identityBaseURL),
+              apiBaseURL.map(Self.isValidServiceURL) != false else {
+            return false
+        }
+
+        let organizationIDs = organizations.map(\.id)
+        let folderIDs = folders.map(\.id)
+        let cipherIDs = ciphers.map(\.id)
+        guard Set(organizationIDs).count == organizationIDs.count,
+              Set(folderIDs).count == folderIDs.count,
+              Set(cipherIDs).count == cipherIDs.count else {
+            return false
+        }
+        return organizations.allSatisfy {
+            !$0.id.isEmpty && $0.id.utf8.count <= 512
+                && $0.name.map({ $0.utf8.count <= 4_096 }) != false
+                && $0.wrappedKey.utf8.count <= VaultwardenEncString.maximumSerializedBytes
+        } && folders.allSatisfy {
+            !$0.id.isEmpty && $0.id.utf8.count <= 512
+                && $0.name.utf8.count <= VaultwardenEncString.maximumSerializedBytes
+        } && ciphers.allSatisfy(\.isStructurallyValid)
+    }
+
+    private static func isValidServiceURL(_ raw: String) -> Bool {
+        let lowered = raw.lowercased()
+        guard raw.utf8.count <= 2_048,
+              raw.unicodeScalars.allSatisfy({
+                  !CharacterSet.controlCharacters.contains($0)
+              }),
+              !lowered.contains("%25"),
+              !lowered.contains("%2e"),
+              !lowered.contains("%2f"),
+              !lowered.contains("%5c"),
+              !raw.contains("\\"),
+              let components = URLComponents(string: raw),
+              components.scheme?.lowercased() == "https",
+              components.host != nil,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil else {
+            return false
+        }
+        let encodedPath = components.percentEncodedPath.lowercased()
+        guard !encodedPath.contains("%25"),
+              !encodedPath.contains("%2e"),
+              !encodedPath.contains("%2f"),
+              !encodedPath.contains("%5c"),
+              !encodedPath.contains("\\") else {
+            return false
+        }
+        return !components.path
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .contains(where: { $0 == "." || $0 == ".." })
     }
 }
