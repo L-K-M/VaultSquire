@@ -109,13 +109,13 @@ struct VaultItemDetailView: View {
     private func totpRow(_ field: VaultItemDetail.DetailField) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             if let generated = VaultwardenTOTP.generate(seed: field.value, at: context.date) {
-                HStack(spacing: 12) {
+                let interval = max(0, generated.periodEnd.timeIntervalSince(context.date))
+                let remaining = max(0, Int(interval.rounded(.up)))
+                let progress = max(0, min(1, interval / Double(generated.period)))
+                HStack(spacing: 14) {
                     Text(spacedCode(generated.code))
                         .font(.title3.monospaced())
-                    let remaining = max(0, Int(generated.periodEnd.timeIntervalSince(context.date).rounded(.up)))
-                    Text("\(remaining)s")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    totpRing(remaining: remaining, progress: progress)
                     Spacer()
                     copyButton(generated.code)
                 }
@@ -125,6 +125,29 @@ struct VaultItemDetailView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// A shrinking arc over the code's validity window with the seconds
+    /// remaining at its centre. It turns amber inside the final five seconds,
+    /// the authenticator-app convention that a code is about to roll.
+    private func totpRing(remaining: Int, progress: Double) -> some View {
+        let isLow = remaining <= 5
+        let color = isLow ? Color.orange : Color.accentColor
+        return ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.snappy(duration: 0.2), value: progress)
+            Text("\(remaining)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(isLow ? color : .secondary)
+        }
+        .frame(width: 34, height: 34)
+        .accessibilityElement()
+        .accessibilityLabel("\(remaining) seconds remaining")
     }
 
     private func copyButton(_ value: String) -> some View {
@@ -157,8 +180,18 @@ struct VaultItemDetailView: View {
     }
 
     private func spacedCode(_ code: String) -> String {
-        guard code.count == 6 else { return code }
-        let middle = code.index(code.startIndex, offsetBy: 3)
+        // Group digits for legibility: 6 -> 3+3, 7 -> 3+4, 8 -> 4+4. The TOTP
+        // parser allows 6-8 digits, so the old "count == 6" guard left longer
+        // codes unspaced.
+        let count = code.count
+        guard count >= 6 else { return code }
+        let split: Int
+        switch count {
+        case 6, 7: split = 3
+        case 8: split = 4
+        default: split = count / 2
+        }
+        let middle = code.index(code.startIndex, offsetBy: split)
         return "\(code[code.startIndex..<middle]) \(code[middle...])"
     }
 
