@@ -46,6 +46,7 @@
 		C00000000000000000000060 /* VaultItemDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000063 /* VaultItemDraft.swift */; };
 		C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000064 /* VaultwardenWriteService.swift */; };
 		C00000000000000000000062 /* VaultItemEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* VaultItemEditView.swift */; };
+		C00000000000000000000091 /* PasswordGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000094 /* PasswordGenerator.swift */; };
 		C00000000000000000000063 /* VaultwardenWriteServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */; };
 		C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000060 /* VaultwardenAccountService.swift */; };
 		C0000000000000000000005F /* VaultItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000062 /* VaultItemDetailView.swift */; };
@@ -58,6 +59,7 @@
 		C0000000000000000000005A /* VaultwardenVaultUnlockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005D /* VaultwardenVaultUnlockTests.swift */; };
 		C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005E /* VaultwardenTOTPTests.swift */; };
 		C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005F /* VaultwardenSyncServiceTests.swift */; };
+		C00000000000000000000092 /* PasswordGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000095 /* PasswordGeneratorTests.swift */; };
 		C0000000000000000000004D /* DeviceDataKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000050 /* DeviceDataKeyStore.swift */; };
 		C0000000000000000000004E /* AccountDescriptorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000051 /* AccountDescriptorStore.swift */; };
 		C0000000000000000000004F /* VaultwardenVaultSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000052 /* VaultwardenVaultSnapshot.swift */; };
@@ -206,6 +208,7 @@
 		B00000000000000000000063 /* VaultItemDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDraft.swift; path = VaultSquire/Domain/VaultItemDraft.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000064 /* VaultwardenWriteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteService.swift; path = VaultSquire/Providers/Vaultwarden/Network/VaultwardenWriteService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000065 /* VaultItemEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemEditView.swift; path = VaultSquire/Features/Vault/VaultItemEditView.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000094 /* PasswordGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PasswordGenerator.swift; path = VaultSquire/Features/Vault/PasswordGenerator.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteServiceTests.swift; path = VaultSquireTests/VaultwardenWriteServiceTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000060 /* VaultwardenAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenAccountService.swift; path = VaultSquire/Providers/Vaultwarden/VaultwardenAccountService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000062 /* VaultItemDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDetailView.swift; path = VaultSquire/Features/Vault/VaultItemDetailView.swift; sourceTree = SOURCE_ROOT; };
@@ -218,6 +221,7 @@
 		B0000000000000000000005D /* VaultwardenVaultUnlockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenVaultUnlockTests.swift; path = VaultSquireTests/VaultwardenVaultUnlockTests.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000005E /* VaultwardenTOTPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenTOTPTests.swift; path = VaultSquireTests/VaultwardenTOTPTests.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000005F /* VaultwardenSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenSyncServiceTests.swift; path = VaultSquireTests/VaultwardenSyncServiceTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000095 /* PasswordGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PasswordGeneratorTests.swift; path = VaultSquireTests/PasswordGeneratorTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000050 /* DeviceDataKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeviceDataKeyStore.swift; path = VaultSquire/Persistence/DeviceDataKeyStore.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000051 /* AccountDescriptorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AccountDescriptorStore.swift; path = VaultSquire/Persistence/AccountDescriptorStore.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000052 /* VaultwardenVaultSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenVaultSnapshot.swift; path = VaultSquire/Providers/Vaultwarden/Storage/VaultwardenVaultSnapshot.swift; sourceTree = SOURCE_ROOT; };
@@ -348,6 +352,7 @@
 				B00000000000000000000065 /* VaultItemEditView.swift */,
 				B00000000000000000000062 /* VaultItemDetailView.swift */,
 				B0000000000000000000008D /* URIOpeningPolicy.swift */,
+				B00000000000000000000094 /* PasswordGenerator.swift */,
 			);
 			path = Vault;
 			sourceTree = "<group>";
@@ -483,6 +488,7 @@
 				B0000000000000000000005D /* VaultwardenVaultUnlockTests.swift */,
 				B0000000000000000000005E /* VaultwardenTOTPTests.swift */,
 				B0000000000000000000005F /* VaultwardenSyncServiceTests.swift */,
+				B00000000000000000000095 /* PasswordGeneratorTests.swift */,
 				B00000000000000000000056 /* VaultwardenVaultCacheTests.swift */,
 				B00000000000000000000018 /* VaultSquire.app */,
 				B00000000000000000000019 /* VaultSquireTests.xctest */,
@@ -849,6 +855,7 @@
 				C00000000000000000000060 /* VaultItemDraft.swift in Sources */,
 				C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */,
 				C00000000000000000000062 /* VaultItemEditView.swift in Sources */,
+				C00000000000000000000091 /* PasswordGenerator.swift in Sources */,
 				C00000000000000000000001 /* VaultSquireApp.swift in Sources */,
 				C00000000000000000000002 /* AppDelegate.swift in Sources */,
 				C00000000000000000000003 /* AppModel.swift in Sources */,
@@ -964,6 +971,7 @@
 				C0000000000000000000005A /* VaultwardenVaultUnlockTests.swift in Sources */,
 				C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */,
 				C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */,
+				C00000000000000000000092 /* PasswordGeneratorTests.swift in Sources */,
 				C00000000000000000000053 /* VaultwardenVaultCacheTests.swift in Sources */,
 				C0000000000000000000008C /* ClipboardServiceTests.swift in Sources */,
 				C0000000000000000000008D /* URIOpeningPolicyTests.swift in Sources */,

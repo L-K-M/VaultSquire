@@ -11,6 +11,14 @@ struct VaultItemEditView: View {
     /// defaulted to the browser's target. An edit never uses it: the item
     /// belongs to the vault it came from.
     @State private var destination: AccountID?
+    /// Whether the password field shows its plaintext instead of bullets, so a
+    /// generated or typed password can be verified before saving.
+    @State private var passwordRevealed = false
+    /// Whether the generator options popover is presented.
+    @State private var showPasswordOptions = false
+    /// The generator options, remembered for the life of the sheet so a second
+    /// "Generate" keeps the user's choices.
+    @State private var passwordOptions = PasswordGenerator.Options()
     let onClose: () -> Void
 
     init(draft: VaultItemDraft, onClose: @escaping () -> Void) {
@@ -36,8 +44,38 @@ struct VaultItemEditView: View {
                 Section("Login") {
                     TextField("Username", text: $draft.username)
                         .accessibilityIdentifier("edit-username")
-                    SecureField("Password", text: $draft.password)
+                    HStack(spacing: 8) {
+                        Group {
+                            if passwordRevealed {
+                                TextField("Password", text: $draft.password)
+                            } else {
+                                SecureField("Password", text: $draft.password)
+                            }
+                        }
+                        .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("edit-password")
+
+                        Button {
+                            passwordRevealed.toggle()
+                        } label: {
+                            Image(systemName: passwordRevealed ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(passwordRevealed ? "Hide password" : "Show password")
+                        .accessibilityLabel(passwordRevealed ? "Hide password" : "Show password")
+
+                        Button {
+                            regeneratePassword()
+                        } label: {
+                            Image(systemName: "dice")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Generate a password")
+                        .accessibilityIdentifier("edit-generate-password")
+                        .popover(isPresented: $showPasswordOptions) {
+                            passwordOptionsPopover
+                        }
+                    }
                     TextField("One-time code (otpauth:// or Base32)", text: $draft.totp)
                         .accessibilityIdentifier("edit-totp")
                 }
@@ -130,5 +168,58 @@ struct VaultItemEditView: View {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         appModel.save(draft, to: destination)
+    }
+
+    // MARK: - Password generation
+
+    /// Replaces the draft password with a freshly generated one. Called from
+    /// the dice button and from every option change, so the field always shows
+    /// a password that matches the current options.
+    private func regeneratePassword() {
+        let generated = PasswordGenerator.generate(options: passwordOptions)
+        if !generated.isEmpty {
+            draft.password = generated
+        }
+    }
+
+    /// The options popover. Every change regenerates immediately, so the field
+    /// behind the popover always matches what the controls say. The last
+    /// enabled character set cannot be switched off, so the password never
+    /// silently falls back to a policy the controls do not describe.
+    private var passwordOptionsPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Password Options")
+                .font(.headline)
+            Stepper(
+                "Length: \(passwordOptions.length)",
+                value: $passwordOptions.length,
+                in: PasswordGenerator.Options.lengthRange
+            )
+            Toggle("Uppercase (A–Z)", isOn: setBinding(\.includeUppercase))
+            Toggle("Lowercase (a–z)", isOn: setBinding(\.includeLowercase))
+            Toggle("Digits (0–9)", isOn: setBinding(\.includeDigits))
+            Toggle("Symbols (!@#$…)", isOn: setBinding(\.includeSymbols))
+            Toggle("Avoid ambiguous (0 O 1 l I)", isOn: $passwordOptions.excludeAmbiguous)
+            Text("The password field updates as you change these.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(width: 300)
+        .onAppear { regeneratePassword() }
+        .onChange(of: passwordOptions) { _, _ in regeneratePassword() }
+    }
+
+    /// A character-set toggle that refuses to turn off the last enabled set.
+    private func setBinding(_ keyPath: WritableKeyPath<PasswordGenerator.Options, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { passwordOptions[keyPath: keyPath] },
+            set: { newValue in
+                var updated = passwordOptions
+                updated[keyPath: keyPath] = newValue
+                guard updated.hasAnyCharacterSetEnabled else { return }
+                passwordOptions = updated
+            }
+        )
     }
 }
