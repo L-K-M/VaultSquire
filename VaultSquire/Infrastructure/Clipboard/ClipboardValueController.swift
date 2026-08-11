@@ -20,6 +20,11 @@ struct SystemPasteboard: PasteboardWriting {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(value, forType: .string)
+        // Clipboard managers can honor the transient/concealed hints; they may
+        // ignore them, which is a documented residual (SECURITY_AND_TESTING.md
+        // §"Clipboard"). The value string itself is never read back.
+        pasteboard.setString("1", forType: Self.transientType)
+        pasteboard.setString("1", forType: Self.concealedType)
         return pasteboard.changeCount
     }
 
@@ -30,6 +35,13 @@ struct SystemPasteboard: PasteboardWriting {
     func clearContents() {
         NSPasteboard.general.clearContents()
     }
+
+    /// `org.nspasteboard.TransientType`: the value should not be stored by a
+    /// clipboard manager.
+    private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+    /// `org.nspasteboard.ConcealedType`: the value should not be displayed by
+    /// a clipboard manager.
+    private static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
 }
 
 /// Owns VaultSquire's clipboard writes so a copied secret can be cleared
