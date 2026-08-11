@@ -30,5 +30,9 @@ struct VaultItemDetail: Sendable, Hashable, Identifiable {
         var isConcealable: Bool {
             kind == .secret || kind == .totpSeed
         }
+
+        var allowsTextSelection: Bool {
+            kind == .plain || kind == .uri
+        }
     }
 }

@@ -54,4 +54,15 @@ final class URIOpeningPolicyTests: XCTestCase {
         let decision = URIOpeningPolicy.decision(for: "  https://example.com  ")
         XCTAssertEqual(decision?.display, "https://example.com")
     }
+
+    func testConfirmationMessageNamesFullAddressAndEffectiveDestination() {
+        let decision = try XCTUnwrap(
+            URIOpeningPolicy.decision(for: "https://example.com:8443/login?next=%2Fvault#section")
+        )
+
+        XCTAssertEqual(
+            decision.confirmationMessage,
+            "VaultSquire will hand the complete saved address to your default browser: https://example.com:8443/login?next=%2Fvault#section. The destination resolves to https://example.com:8443."
+        )
+    }
 }

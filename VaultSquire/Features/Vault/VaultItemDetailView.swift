@@ -40,7 +40,7 @@ struct VaultItemDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if let decision = pendingOpen {
-                Text("VaultSquire will hand \(decision.display) to your default browser. Nothing from this vault is sent with it.")
+                Text(decision.confirmationMessage)
             }
         }
     }
@@ -93,7 +93,7 @@ struct VaultItemDetailView: View {
     private func plainRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
             Text(field.value)
-                .textSelection(.enabled)
+                .textSelection(field.allowsTextSelection ? .enabled : .disabled)
             Spacer()
             copyButton(field.value, isSecret: false)
         }
@@ -101,7 +101,8 @@ struct VaultItemDetailView: View {
 
     private func uriRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
-            Text(field.value).textSelection(.enabled)
+            Text(field.value)
+                .textSelection(field.allowsTextSelection ? .enabled : .disabled)
             if let decision = URIOpeningPolicy.decision(for: field.value) {
                 Button {
                     pendingOpen = decision
@@ -122,7 +123,7 @@ struct VaultItemDetailView: View {
         HStack {
             Text(revealed.contains(field.id) ? field.value : "••••••••••")
                 .font(.body.monospaced())
-                .textSelection(.enabled)
+                .textSelection(field.allowsTextSelection ? .enabled : .disabled)
             Spacer()
             Button {
                 toggleReveal(field.id)
