@@ -735,7 +735,7 @@ final class AppModelTests: XCTestCase {
             versionGate: ProtonCLIVersionGate(supportedVersions: ["2.2.4"]),
             cache: cache
         )
-        let (model, store) = makeModel(
+        let (model, _) = makeModel(
             descriptors: [AccountDescriptor(
                 account: ProtonAccountService.accountID,
                 serverDisplay: "Proton Pass",
@@ -790,7 +790,10 @@ private actor BlockingCLIExecutor: CLIExecuting {
         }
         // Every other command blocks until the calling task is cancelled.
         while !Task.isCancelled {
-            try await Task.sleep(for: .milliseconds(20))
+            // `try?` so a cancellation thrown by sleep keeps the loop iterating
+            // to the `Task.isCancelled` check instead of propagating past the
+            // observation below.
+            try? await Task.sleep(for: .milliseconds(20))
         }
         await observeCancellation()
         throw CLIExecutionError.cancelled
