@@ -24,6 +24,30 @@ final class VaultwardenWriteServiceTests: XCTestCase {
         return String(decoding: data, as: UTF8.self)
     }
 
+    private func makePreservedCipher(
+        folderID: String? = nil,
+        fields: [VaultwardenCipherModel.CustomField] = [],
+        passwordHistory: [VaultwardenCipherModel.PasswordHistoryEntry] = [],
+        reprompt: Int? = nil,
+        key: String? = nil,
+        organizationID: String? = nil,
+        collectionIds: [String] = []
+    ) -> VaultwardenCipherModel {
+        VaultwardenCipherModel(
+            id: "cipher-1",
+            type: .login,
+            organizationID: organizationID,
+            collectionIds: collectionIds,
+            folderID: folderID,
+            revisionDate: Date(timeIntervalSince1970: 1_700_000_000),
+            key: key,
+            reprompt: reprompt,
+            passwordHistory: passwordHistory,
+            name: "2.n|n|n",
+            fields: fields
+        )
+    }
+
     func testEncodeBodyEncryptsEveryUserField() throws {
         let draft = VaultItemDraft(
             title: "GitHub",
@@ -34,7 +58,7 @@ final class VaultwardenWriteServiceTests: XCTestCase {
             notes: "a note",
             favorite: true
         )
-        let body = try makeService().encodeBody(draft: draft, userKey: userKey)
+        let body = try makeService().encodeBody(draft: draft, writeKey: userKey)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
 
         XCTAssertEqual(json["Type"] as? Int, 1)
@@ -59,14 +83,14 @@ final class VaultwardenWriteServiceTests: XCTestCase {
     }
 
     func testUpdatePreservesFolderAndCustomFieldsVerbatim() throws {
-        let preserved = [
-            VaultwardenCipherModel.CustomField(type: 1, name: "2.n|n|n", value: "2.v|v|v")
-        ]
+        let preserved = makePreservedCipher(
+            folderID: "folder-1",
+            fields: [VaultwardenCipherModel.CustomField(type: 1, name: "2.n|n|n", value: "2.v|v|v")]
+        )
         let body = try makeService().encodeBody(
             draft: VaultItemDraft(title: "Renamed"),
-            userKey: userKey,
-            folderID: "folder-1",
-            preservedFields: preserved
+            writeKey: userKey,
+            preserved: preserved
         )
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertEqual(json["FolderId"] as? String, "folder-1")
@@ -78,16 +102,64 @@ final class VaultwardenWriteServiceTests: XCTestCase {
         XCTAssertEqual(fields[0]["Value"] as? String, "2.v|v|v")
     }
 
-    func testCreateOmitsFolderAndFieldsWhenAbsent() throws {
-        let body = try makeService().encodeBody(draft: VaultItemDraft(title: "Bare"), userKey: userKey)
+    /// The regression this guards: a replacing PUT that omitted these fields
+    /// silently reset them server-side — a wiped password history, a cleared
+    /// reprompt requirement, a dropped per-item key.
+    func testUpdatePreservesHistoryRepromptKeyAndMembershipVerbatim() throws {
+        let preserved = makePreservedCipher(
+            passwordHistory: [
+                VaultwardenCipherModel.PasswordHistoryEntry(
+                    password: "2.old|old|old",
+                    lastUsedDate: Date(timeIntervalSince1970: 1_600_000_000)
+                )
+            ],
+            reprompt: 1,
+            key: "2.itemkey|itemkey|itemkey",
+            organizationID: "org-1",
+            collectionIds: ["col-1", "col-2"]
+        )
+        let body = try makeService().encodeBody(
+            draft: VaultItemDraft(title: "Renamed"),
+            writeKey: userKey,
+            preserved: preserved
+        )
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        XCTAssertEqual(json["Key"] as? String, "2.itemkey|itemkey|itemkey")
+        XCTAssertEqual(json["Reprompt"] as? Int, 1)
+        XCTAssertEqual(json["OrganizationId"] as? String, "org-1")
+        XCTAssertEqual(json["CollectionIds"] as? [String], ["col-1", "col-2"])
+
+        let history = try XCTUnwrap(json["PasswordHistory"] as? [[String: Any]])
+        XCTAssertEqual(history.count, 1)
+        XCTAssertEqual(history[0]["Password"] as? String, "2.old|old|old")
+        XCTAssertNotNil(history[0]["LastUsedDate"])
+
+        // The concurrency precondition is the revision the edit is based on.
+        XCTAssertEqual(
+            json["lastKnownRevisionDate"] as? String,
+            VaultwardenCipherModel.wireDateString(Date(timeIntervalSince1970: 1_700_000_000))
+        )
+    }
+
+    /// A create carries no preservation fields at all, so the server's
+    /// defaults apply rather than stale client state.
+    func testCreateOmitsPreservationFields() throws {
+        let body = try makeService().encodeBody(draft: VaultItemDraft(title: "Bare"), writeKey: userKey)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertNil(json["FolderId"])
         XCTAssertNil(json["Fields"])
+        XCTAssertNil(json["PasswordHistory"])
+        XCTAssertNil(json["Reprompt"])
+        XCTAssertNil(json["Key"])
+        XCTAssertNil(json["OrganizationId"])
+        XCTAssertNil(json["CollectionIds"])
+        XCTAssertNil(json["lastKnownRevisionDate"])
     }
 
     func testEmptyFieldsAreOmitted() throws {
         let draft = VaultItemDraft(title: "Bare", username: "", password: "", totp: "", websites: [], notes: "")
-        let body = try makeService().encodeBody(draft: draft, userKey: userKey)
+        let body = try makeService().encodeBody(draft: draft, writeKey: userKey)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertNil(json["Notes"], "an empty note is omitted, not an empty EncString")
         let login = try XCTUnwrap(json["Login"] as? [String: Any])
@@ -115,7 +187,11 @@ final class VaultwardenWriteServiceTests: XCTestCase {
         let draft = VaultItemDraft(title: "Renamed")
 
         let result = await (try makeService()).updateLogin(
-            cipherID: "cipher-1", draft: draft, userKey: userKey, accessToken: "t"
+            cipherID: "cipher-1",
+            draft: draft,
+            writeKey: userKey,
+            accessToken: "t",
+            preserved: makePreservedCipher()
         )
 
         guard case .success = result else { return XCTFail("expected success") }
@@ -140,5 +216,20 @@ final class VaultwardenWriteServiceTests: XCTestCase {
         )
         guard case .failure(let error) = result else { return XCTFail("expected failure") }
         XCTAssertEqual(error, .rejected)
+    }
+
+    /// A revision precondition failure is its own outcome: never a generic
+    /// rejection the caller might blindly retry over a concurrent edit.
+    func testRevisionConflictIsReportedDistinctly() async throws {
+        StubServer.shared.on("/api/ciphers/cipher-1", respond: .json(409, "{}"))
+        let result = await (try makeService()).updateLogin(
+            cipherID: "cipher-1",
+            draft: VaultItemDraft(title: "x"),
+            writeKey: userKey,
+            accessToken: "t",
+            preserved: makePreservedCipher()
+        )
+        guard case .failure(let error) = result else { return XCTFail("expected failure") }
+        XCTAssertEqual(error, .conflict)
     }
 }

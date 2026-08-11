@@ -133,9 +133,23 @@ private enum SiteIconFetcher {
     static let fetch: @Sendable (URL) async -> Data? = { url in
         var request = URLRequest(url: url)
         request.httpShouldHandleCookies = false
-        guard let (data, response) = try? await session.data(for: request),
+        // The byte cap is enforced mid-transfer, not after: the host being
+        // asked is one a vault item names, so an untrusted endpoint cannot
+        // answer with an unbounded body and cost the app its memory.
+        guard let (bytes, response) = try? await session.bytes(for: request),
               let http = response as? HTTPURLResponse,
               http.statusCode == 200 else {
+            return nil
+        }
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count > SiteIconStore.maximumIconBytes {
+                    return nil
+                }
+            }
+        } catch {
             return nil
         }
         return data

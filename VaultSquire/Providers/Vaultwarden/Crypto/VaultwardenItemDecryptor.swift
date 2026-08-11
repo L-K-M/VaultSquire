@@ -2,8 +2,15 @@ import Foundation
 
 /// Decrypts a synced cipher into the shared projection (for lists and search)
 /// and the transient detail (for the item view). It reads every field through
-/// the keyring, tolerating individual field failures, and never persists a
-/// decrypted value.
+/// the key the cipher actually uses — the per-item cipher key when the cipher
+/// carries one, otherwise the account key for its scope — tolerating
+/// individual field failures, and never persists a decrypted value.
+///
+/// Server-computed restrictions are enforced here, at the use-case boundary
+/// rather than only in disabled controls: a cipher the server marks
+/// `viewPassword: false` yields no concealed field (reveal and copy have
+/// nothing to act on), and trashed or archived ciphers produce no projection,
+/// detail, or draft at all.
 enum VaultwardenItemDecryptor {
     /// Read-side capabilities every decrypted item supports. Write capabilities
     /// are added by the write path per account, so absence here never implies a
@@ -41,21 +48,67 @@ enum VaultwardenItemDecryptor {
         case .secureNote: return .secureNote
         case .card: return .card
         case .identity: return .identity
+        default: return .unsupported
         }
     }
 
+    /// The key this cipher's user-authored fields are encrypted under.
+    ///
+    /// When the cipher carries a wrapped per-item key (the form current
+    /// official clients emit for every new cipher), that key — unwrapped under
+    /// the account key for the cipher's scope — decrypts its fields.
+    /// Otherwise the scope's account key is used directly. Returns nil when
+    /// the needed account key is unavailable or the wrapped item key is
+    /// undecryptable, in which case the cipher yields no plaintext rather than
+    /// garbage decrypted under the wrong key.
+    static func decryptionKey(
+        for cipher: VaultwardenCipherModel,
+        keyring: VaultwardenKeyring
+    ) -> VaultwardenSymmetricKey? {
+        guard let accountKey = keyring.key(forOrganization: cipher.organizationID) else {
+            return nil
+        }
+        guard let wrappedItemKey = cipher.key, !wrappedItemKey.isEmpty else {
+            return accountKey
+        }
+        return try? VaultwardenKeyUnwrap.unwrapCipherKey(
+            wrapped: wrappedItemKey,
+            accountKey: accountKey
+        )
+    }
+
+    /// Decrypts one EncString field under the cipher's resolved key. Returns
+    /// nil for a nil or undecryptable field, so a single bad field never
+    /// aborts a whole item.
+    private static func decrypt(
+        _ encString: String?,
+        with key: VaultwardenSymmetricKey?
+    ) -> String? {
+        guard let encString, let key,
+              let parsed = try? VaultwardenEncString.parse(encString),
+              let data = try? VaultwardenCipher.decrypt(parsed, key: key) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// The list projection for a live cipher, or nil for a trashed or
+    /// archived one: both stay out of default lists and search (trash state
+    /// and per-user archived state alike), exactly as the reference clients
+    /// present them.
     static func projection(
         for cipher: VaultwardenCipherModel,
         keyring: VaultwardenKeyring,
         account: AccountID,
         folderNames: [String: String],
         generation: UInt64
-    ) -> VaultItemProjection {
-        let org = cipher.organizationID
-        let title = keyring.decrypt(cipher.name, organizationID: org) ?? "Unnamed item"
-        let username = keyring.decrypt(cipher.login?.username, organizationID: org)
+    ) -> VaultItemProjection? {
+        guard !cipher.isTrashed, !cipher.isArchived else { return nil }
+        let key = decryptionKey(for: cipher, keyring: keyring)
+        let title = decrypt(cipher.name, with: key) ?? "Unnamed item"
+        let username = decrypt(cipher.login?.username, with: key)
         let websites = (cipher.login?.uris ?? []).compactMap {
-            keyring.decrypt($0.uri, organizationID: org)
+            decrypt($0.uri, with: key)
         }
         let groupingLabels = cipher.folderID
             .flatMap { folderNames[$0] }
@@ -74,18 +127,31 @@ enum VaultwardenItemDecryptor {
         )
     }
 
+    /// The decrypted detail for a live cipher, or nil for a trashed or
+    /// archived one, which has no business on the detail surface either.
     static func detail(
         for cipher: VaultwardenCipherModel,
         keyring: VaultwardenKeyring,
         account: AccountID,
         generation: UInt64
-    ) -> VaultItemDetail {
-        let org = cipher.organizationID
-        func decrypt(_ value: String?) -> String? { keyring.decrypt(value, organizationID: org) }
+    ) -> VaultItemDetail? {
+        guard !cipher.isTrashed, !cipher.isArchived else { return nil }
+        let key = decryptionKey(for: cipher, keyring: keyring)
+        func decrypt(_ value: String?) -> String? { decrypt(value, with: key) }
+
+        // A cipher the server marks viewPassword: false (a hide-passwords
+        // collection, for example) must not reveal or copy its concealed
+        // fields even though the ciphertext is locally decryptable. The
+        // fields are simply not emitted, so the detail view has no secret to
+        // render, reveal, or copy.
+        let mayRevealSecrets = cipher.viewPassword ?? true
 
         var fields: [VaultItemDetail.DetailField] = []
         func add(_ label: String, _ value: String?, _ kind: VaultItemDetail.DetailField.Kind) {
             guard let value, !value.isEmpty else { return }
+            if kind == .secret || kind == .totpSeed {
+                guard mayRevealSecrets else { return }
+            }
             fields.append(.init(id: "\(label)#\(fields.count)", label: label, value: value, kind: kind))
         }
 
@@ -111,7 +177,9 @@ enum VaultwardenItemDecryptor {
             add("Name", name.isEmpty ? nil : name, .plain)
             add("Email", decrypt(cipher.identity?.email), .plain)
             add("Phone", decrypt(cipher.identity?.phone), .plain)
-        case .secureNote:
+        default:
+            // Secure notes carry their content in Notes below; SSH keys and
+            // unrecognized types present their notes and custom fields only.
             break
         }
         add("Notes", decrypt(cipher.notes), .plain)

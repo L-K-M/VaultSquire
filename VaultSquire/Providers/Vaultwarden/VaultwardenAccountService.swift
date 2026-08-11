@@ -39,6 +39,16 @@ struct VaultwardenAccountService: Sendable {
     let descriptorStore: AccountDescriptorStore
     let makeTransport: @Sendable (VaultwardenEnvironment) -> VaultwardenTransport
     let now: @Sendable () -> Date
+    /// Serializes operations that refresh and persist the rotating refresh
+    /// token. A sync and a write must never refresh concurrently from the same
+    /// stored token; the credential store's contract requires the caller to
+    /// provide this serialization. The default is shared so every service
+    /// instance in the process coordinates on the one Vaultwarden account.
+    let operationGate: SerialOperationGate
+
+    /// The process-wide gate for the single Vaultwarden account this release
+    /// supports. Tests inject isolated gates.
+    static let sharedOperationGate = SerialOperationGate()
 
     init(
         account: AccountID = .vaultwardenPrimary,
@@ -48,7 +58,8 @@ struct VaultwardenAccountService: Sendable {
         makeTransport: @escaping @Sendable (VaultwardenEnvironment) -> VaultwardenTransport = {
             VaultwardenTransport(environment: $0)
         },
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        operationGate: SerialOperationGate = VaultwardenAccountService.sharedOperationGate
     ) {
         self.account = account
         self.credentialStore = credentialStore
@@ -56,6 +67,7 @@ struct VaultwardenAccountService: Sendable {
         self.descriptorStore = descriptorStore
         self.makeTransport = makeTransport
         self.now = now
+        self.operationGate = operationGate
     }
 
     // MARK: - Configuration
@@ -167,7 +179,7 @@ struct VaultwardenAccountService: Sendable {
     ) -> [VaultItemProjection] {
         let folderNames = decryptFolderNames(keyring: keyring, snapshot: snapshot)
         return snapshot.ciphers
-            .map {
+            .compactMap {
                 VaultwardenItemDecryptor.projection(
                     for: $0,
                     keyring: keyring,
@@ -181,6 +193,9 @@ struct VaultwardenAccountService: Sendable {
             }
     }
 
+    /// The decrypted detail for a live item. Trashed and archived items yield
+    /// nil: neither appears in default lists or search, so neither has a
+    /// detail to reveal.
     func detail(
         for itemID: VaultItemID,
         keyring: VaultwardenKeyring,
@@ -195,26 +210,38 @@ struct VaultwardenAccountService: Sendable {
     }
 
     /// Reconstructs an editable plaintext draft from a stored login cipher.
-    /// Returns nil for a missing item or a non-login type (only logins are
-    /// editable in this slice).
+    /// Returns nil for a missing item, a non-login type (only logins are
+    /// editable in this slice), a trashed or archived item, or an item the
+    /// server forbids this user to edit — the restriction is enforced here in
+    /// the use case, not only by a disabled Edit button.
     func draft(
         for itemID: VaultItemID,
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot
     ) -> VaultItemDraft? {
         guard let cipher = snapshot.ciphers.first(where: { $0.id == itemID.rawValue }),
-              cipher.type == .login else {
+              cipher.type == .login,
+              cipher.edit ?? true,
+              !cipher.isTrashed,
+              !cipher.isArchived else {
             return nil
         }
-        let org = cipher.organizationID
-        func decrypt(_ value: String?) -> String { keyring.decrypt(value, organizationID: org) ?? "" }
+        let key = VaultwardenItemDecryptor.decryptionKey(for: cipher, keyring: keyring)
+        func decrypt(_ value: String?) -> String {
+            guard let value, let key,
+                  let parsed = try? VaultwardenEncString.parse(value),
+                  let data = try? VaultwardenCipher.decrypt(parsed, key: key) else {
+                return ""
+            }
+            return String(data: data, encoding: .utf8) ?? ""
+        }
         return VaultItemDraft(
             itemID: itemID,
             title: decrypt(cipher.name),
             username: decrypt(cipher.login?.username),
             password: decrypt(cipher.login?.password),
             totp: decrypt(cipher.login?.totp),
-            websites: (cipher.login?.uris ?? []).compactMap { keyring.decrypt($0.uri, organizationID: org) },
+            websites: (cipher.login?.uris ?? []).compactMap { decrypt($0.uri) },
             notes: decrypt(cipher.notes),
             favorite: cipher.favorite
         )
@@ -262,6 +289,15 @@ struct VaultwardenAccountService: Sendable {
     }
 
     /// Updates an existing login item.
+    ///
+    /// The replacing PUT is built from the stored cipher so everything the
+    /// edit does not touch survives verbatim: the per-item cipher key, the
+    /// password history, the reprompt flag, custom fields, folder and
+    /// collection membership, and organization ownership. The edited fields
+    /// are encrypted under the key the cipher already uses — its item key when
+    /// it has one, else the organization or user key for its scope — never
+    /// blindly under the personal user key, which would corrupt an
+    /// organization item for every other member.
     func update(
         draft: VaultItemDraft,
         keyring: VaultwardenKeyring
@@ -271,17 +307,26 @@ struct VaultwardenAccountService: Sendable {
             return .failure(.rejected)
         }
         return await performWrite { token, transport, apiBase, snapshot in
-            // Pass the existing folder membership and custom fields through so
-            // the replacing PUT does not wipe them.
-            let existing = snapshot.ciphers.first { $0.id == itemID.rawValue }
+            guard let existing = snapshot.ciphers.first(where: { $0.id == itemID.rawValue }) else {
+                return .failure(.rejected)
+            }
+            // Enforce the server's own restrictions in the use case: no edit
+            // on a read-only, trashed, or archived cipher.
+            guard existing.edit ?? true, !existing.isTrashed, !existing.isArchived else {
+                return .failure(.rejected)
+            }
+            guard let writeKey = VaultwardenItemDecryptor.decryptionKey(
+                for: existing, keyring: keyring
+            ) else {
+                return .failure(.encryptionFailed)
+            }
             return await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
                 .updateLogin(
                     cipherID: itemID.rawValue,
                     draft: draft,
-                    userKey: keyring.userKey,
+                    writeKey: writeKey,
                     accessToken: token,
-                    folderID: existing?.folderID,
-                    preservedFields: existing?.fields ?? []
+                    preserved: existing
                 )
         }
     }
@@ -313,44 +358,46 @@ struct VaultwardenAccountService: Sendable {
             String, VaultwardenTransport, URL?, VaultwardenVaultSnapshot
         ) async -> Result<Void, VaultwardenWriteError>
     ) async -> Result<Void, VaultwardenWriteError> {
-        let snapshot: VaultwardenVaultSnapshot
-        let refreshToken: String
-        do {
-            guard let loaded = try vaultCache.load(for: account),
-                  let stored = try credentialStore.load(for: .primary) else {
-                return .failure(.sessionExpired)
+        await operationGate.run { () -> Result<Void, VaultwardenWriteError> in
+            let snapshot: VaultwardenVaultSnapshot
+            let refreshToken: String
+            do {
+                guard let loaded = try self.vaultCache.load(for: self.account),
+                      let stored = try self.credentialStore.load(for: .primary) else {
+                    return .failure(.sessionExpired)
+                }
+                snapshot = loaded
+                refreshToken = stored.refreshToken
+            } catch {
+                return .failure(.transient)
             }
-            snapshot = loaded
-            refreshToken = stored.refreshToken
-        } catch {
-            return .failure(.transient)
-        }
 
-        let environment: VaultwardenEnvironment
-        do {
-            environment = try VaultwardenEnvironment(configuredURL: snapshot.serverBaseURL)
-        } catch {
-            return .failure(.transient)
-        }
-        let transport = makeTransport(environment)
-        let refresher = VaultwardenTokenRefresher(
-            transport: transport,
-            refreshToken: refreshToken,
-            identityBaseURL: URL(string: snapshot.identityBaseURL)
-        )
-        let token: String
-        switch await refresher.refresh() {
-        case .refreshed(let accessToken, _, _):
-            token = accessToken
-        case .sessionExpired:
-            return .failure(.sessionExpired)
-        case .transientFailure:
-            return .failure(.transient)
-        }
-        let rotatedRefreshToken = await refresher.currentRefreshToken
-        try? credentialStore.replaceRefreshToken(rotatedRefreshToken, for: .primary)
+            let environment: VaultwardenEnvironment
+            do {
+                environment = try VaultwardenEnvironment(configuredURL: snapshot.serverBaseURL)
+            } catch {
+                return .failure(.transient)
+            }
+            let transport = self.makeTransport(environment)
+            let refresher = VaultwardenTokenRefresher(
+                transport: transport,
+                refreshToken: refreshToken,
+                identityBaseURL: URL(string: snapshot.identityBaseURL)
+            )
+            let token: String
+            switch await refresher.refresh() {
+            case .refreshed(let accessToken, _, _):
+                token = accessToken
+            case .sessionExpired:
+                return .failure(.sessionExpired)
+            case .transientFailure:
+                return .failure(.transient)
+            }
+            let rotatedRefreshToken = await refresher.currentRefreshToken
+            try? self.credentialStore.replaceRefreshToken(rotatedRefreshToken, for: .primary)
 
-        return await body(token, transport, Self.approvedAPIBase(of: snapshot), snapshot)
+            return await body(token, transport, Self.approvedAPIBase(of: snapshot), snapshot)
+        }
     }
 
     // MARK: - Sync
@@ -359,6 +406,12 @@ struct VaultwardenAccountService: Sendable {
     /// rotated refresh token on success. Returns the new snapshot, or a sync
     /// error that never disturbs the last good cache.
     func sync() async -> Result<VaultwardenVaultSnapshot, VaultwardenSyncError> {
+        await operationGate.run { () -> Result<VaultwardenVaultSnapshot, VaultwardenSyncError> in
+            await self.syncGated()
+        }
+    }
+
+    private func syncGated() async -> Result<VaultwardenVaultSnapshot, VaultwardenSyncError> {
         let snapshot: VaultwardenVaultSnapshot
         do {
             guard let loaded = try vaultCache.load(for: account) else {

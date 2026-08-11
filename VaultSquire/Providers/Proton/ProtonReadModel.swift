@@ -53,6 +53,14 @@ enum ProtonItemType: String, Sendable, Codable {
 /// always eligible; secret fields (password, totp, note) are present only after
 /// an explicit read and are the fields never written to argv. A whole item is a
 /// lossy projection of the CLI's output, not provider-native ciphertext.
+///
+/// The summary decoded from `item list` carries no secret at all — the
+/// documented list payload is summaries, but it is not guaranteed, so the
+/// list decoder drops every password, one-time-password, and note value
+/// rather than letting one reach the sealed snapshot (the same posture the
+/// 1Password decoder takes). Secrets enter an item only by merging the
+/// `ProtonItemContent` of an explicit `item view` read, and that content is
+/// never sealed.
 struct ProtonItem: Equatable, Sendable, Codable {
     let itemID: String
     let shareID: String
@@ -144,10 +152,13 @@ enum ProtonReadModel {
                 type: type,
                 title: title,
                 username: content.username,
-                password: content.password,
-                totp: content.totp,
+                // No secret from a list payload is ever retained: passwords,
+                // one-time-password seeds, and notes are nil here by policy,
+                // whatever the build's `item list` happens to print.
+                password: nil,
+                totp: nil,
                 urls: content.urls,
-                note: content.note
+                note: nil
             )
         }
     }

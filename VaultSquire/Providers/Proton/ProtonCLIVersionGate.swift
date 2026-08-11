@@ -57,9 +57,15 @@ struct ProtonCLIVersionGate: Sendable {
     /// Extracts the first dotted numeric version token (`MAJOR.MINOR.PATCH`)
     /// from arbitrary `version` output. Returns nil when none is present, which
     /// the caller maps to `unparseableVersion` and fails closed on.
+    ///
+    /// Any pre-release suffix is captured as part of the token rather than
+    /// stripped, so `2.2.4-beta.1` is compared — and rejected — as itself
+    /// instead of collapsing onto an allowlisted stable. Shedding the suffix
+    /// would let an untested build inherit a tested release's admission, which
+    /// is exactly what this gate exists to prevent.
     static func parseVersion(from output: String) -> ProtonCLIVersion? {
         guard let range = output.range(
-            of: #"[0-9]+\.[0-9]+\.[0-9]+"#,
+            of: #"[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.]*)?"#,
             options: .regularExpression
         ) else {
             return nil
