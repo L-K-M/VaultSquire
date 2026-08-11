@@ -20,6 +20,13 @@ struct VaultSquireApp: App {
                 .background(WindowRestorationDisabler())
                 .onAppear {
                     PerformanceTrace.recordLaunchCompleted()
+                    // The lock triggers the explicit menu command cannot cover:
+                    // screen lock, screensaver, sleep, session resignation, and
+                    // inactivity all run the same lock-everything action.
+                    AutoLockController.shared.start(onLock: {
+                        appModel.lock()
+                        siteIcons.clear()
+                    })
                 }
         }
         .defaultSize(width: 820, height: 560)

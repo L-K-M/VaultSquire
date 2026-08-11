@@ -138,6 +138,15 @@
 		C00000000000000000000049 /* EncryptedStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004C /* EncryptedStoreTests.swift */; };
 		C0000000000000000000004A /* MigrationRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004D /* MigrationRegistryTests.swift */; };
 		C0000000000000000000004B /* CacheEnvelopeCipherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004E /* CacheEnvelopeCipherTests.swift */; };
+		C00000000000000000000088 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008B /* ClipboardService.swift */; };
+		C00000000000000000000089 /* SerialOperationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008C /* SerialOperationGate.swift */; };
+		C0000000000000000000008A /* URIOpeningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008D /* URIOpeningPolicy.swift */; };
+		C0000000000000000000008B /* AutoLockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008E /* AutoLockController.swift */; };
+		C0000000000000000000008C /* ClipboardServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008F /* ClipboardServiceTests.swift */; };
+		C0000000000000000000008D /* URIOpeningPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000090 /* URIOpeningPolicyTests.swift */; };
+		C0000000000000000000008E /* AutoLockControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000091 /* AutoLockControllerTests.swift */; };
+		C0000000000000000000008F /* SerialOperationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000092 /* SerialOperationGateTests.swift */; };
+		C00000000000000000000090 /* VaultwardenCipherFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000093 /* VaultwardenCipherFidelityTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -294,6 +303,15 @@
 		B0000000000000000000004C /* EncryptedStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedStoreTests.swift; sourceTree = "<group>"; };
 		B0000000000000000000004D /* MigrationRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationRegistryTests.swift; sourceTree = "<group>"; };
 		B0000000000000000000004E /* CacheEnvelopeCipherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheEnvelopeCipherTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000008B /* ClipboardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardService.swift; sourceTree = "<group>"; };
+		B0000000000000000000008C /* SerialOperationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerialOperationGate.swift; sourceTree = "<group>"; };
+		B0000000000000000000008D /* URIOpeningPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URIOpeningPolicy.swift; sourceTree = "<group>"; };
+		B0000000000000000000008E /* AutoLockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoLockController.swift; sourceTree = "<group>"; };
+		B0000000000000000000008F /* ClipboardServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardServiceTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000090 /* URIOpeningPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URIOpeningPolicyTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000091 /* AutoLockControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoLockControllerTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000092 /* SerialOperationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerialOperationGateTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000093 /* VaultwardenCipherFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultwardenCipherFidelityTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -329,6 +347,7 @@
 				B0000000000000000000007A /* VaultBrowserView.swift */,
 				B00000000000000000000065 /* VaultItemEditView.swift */,
 				B00000000000000000000062 /* VaultItemDetailView.swift */,
+				B0000000000000000000008D /* URIOpeningPolicy.swift */,
 			);
 			path = Vault;
 			sourceTree = "<group>";
@@ -512,6 +531,7 @@
 				B00000000000000000000003 /* AppModel.swift */,
 				B00000000000000000000004 /* ApplicationCoordinator.swift */,
 				B00000000000000000000005 /* WindowRestorationDisabler.swift */,
+				B0000000000000000000008E /* AutoLockController.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -560,8 +580,26 @@
 			children = (
 				A0000000000000000000000B /* Diagnostics */,
 				A0000000000000000000000C /* Process */,
+				A0000000000000000000001B /* Clipboard */,
+				A0000000000000000000001C /* Concurrency */,
 			);
 			path = Infrastructure;
+			sourceTree = "<group>";
+		};
+		A0000000000000000000001B /* Clipboard */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000008B /* ClipboardService.swift */,
+			);
+			path = Clipboard;
+			sourceTree = "<group>";
+		};
+		A0000000000000000000001C /* Concurrency */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000008C /* SerialOperationGate.swift */,
+			);
+			path = Concurrency;
 			sourceTree = "<group>";
 		};
 		A0000000000000000000000B /* Diagnostics */ = {
@@ -641,6 +679,11 @@
 				B0000000000000000000004C /* EncryptedStoreTests.swift */,
 				B0000000000000000000004D /* MigrationRegistryTests.swift */,
 				B0000000000000000000004E /* CacheEnvelopeCipherTests.swift */,
+				B0000000000000000000008F /* ClipboardServiceTests.swift */,
+				B00000000000000000000090 /* URIOpeningPolicyTests.swift */,
+				B00000000000000000000091 /* AutoLockControllerTests.swift */,
+				B00000000000000000000092 /* SerialOperationGateTests.swift */,
+				B00000000000000000000093 /* VaultwardenCipherFidelityTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -861,6 +904,10 @@
 				C00000000000000000000050 /* VaultwardenVaultCache.swift in Sources */,
 				C00000000000000000000051 /* VaultwardenSyncModels.swift in Sources */,
 				C00000000000000000000052 /* VaultwardenCipherModel.swift in Sources */,
+				C00000000000000000000088 /* ClipboardService.swift in Sources */,
+				C00000000000000000000089 /* SerialOperationGate.swift in Sources */,
+				C0000000000000000000008A /* URIOpeningPolicy.swift in Sources */,
+				C0000000000000000000008B /* AutoLockController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -918,6 +965,11 @@
 				C0000000000000000000005B /* VaultwardenTOTPTests.swift in Sources */,
 				C0000000000000000000005C /* VaultwardenSyncServiceTests.swift in Sources */,
 				C00000000000000000000053 /* VaultwardenVaultCacheTests.swift in Sources */,
+				C0000000000000000000008C /* ClipboardServiceTests.swift in Sources */,
+				C0000000000000000000008D /* URIOpeningPolicyTests.swift in Sources */,
+				C0000000000000000000008E /* AutoLockControllerTests.swift in Sources */,
+				C0000000000000000000008F /* SerialOperationGateTests.swift in Sources */,
+				C00000000000000000000090 /* VaultwardenCipherFidelityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

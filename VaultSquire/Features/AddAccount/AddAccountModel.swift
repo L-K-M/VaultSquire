@@ -41,15 +41,40 @@ struct PromptingOriginApprovalPolicy: VaultwardenOriginApprovalPolicy {
     }
 }
 
-/// Rejects a KDF change. First login has no baseline and is not routed here;
-/// a genuine change on a later re-authentication fails closed until the
-/// interactive confirmation UI exists.
-struct RejectKDFChangePolicy: VaultwardenKDFChangePolicy {
+/// A KDF algorithm/parameter change awaiting the user's decision. The values
+/// are non-secret derivation settings; they are shown so the user can judge
+/// whether the server's new work factors are the ones they set. No ranking of
+/// cross-algorithm or mixed changes is attempted — every difference is
+/// confirmed, per the security plan.
+struct KDFChangeRequest: Equatable {
+    let last: VaultwardenKDFConfiguration
+    let next: VaultwardenKDFConfiguration
+
+    /// One line per configuration, e.g. "PBKDF2-SHA256, 600,000 iterations".
+    static func describe(_ configuration: VaultwardenKDFConfiguration) -> String {
+        switch configuration {
+        case .pbkdf2SHA256(let iterations):
+            return "PBKDF2-SHA256, \(iterations) iterations"
+        case .argon2id(let iterations, let memoryMiB, let parallelism):
+            return "Argon2id, \(iterations) iterations, \(memoryMiB) MiB memory, \(parallelism) lanes"
+        }
+    }
+}
+
+/// Surfaces a KDF change to the add-account UI and suspends derivation until
+/// the user decides. The handler is main-actor isolated; the authenticator
+/// awaits into it before any key is derived, so a rejected change never runs
+/// the KDF at all.
+struct PromptingKDFChangePolicy: VaultwardenKDFChangePolicy {
+    let handler: @MainActor (KDFChangeRequest) async -> Bool
+
     func confirmChange(
         from last: VaultwardenKDFConfiguration?,
         to next: VaultwardenKDFConfiguration
     ) async -> VaultwardenKDFChangeDecision {
-        .reject
+        guard let last else { return .reject }
+        let approved = await handler(KDFChangeRequest(last: last, next: next))
+        return approved ? .approve : .reject
     }
 }
 
@@ -91,6 +116,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// The pending cross-origin approval, published for the sheet to present.
     @Published private(set) var originApproval: OriginApprovalRequest?
     private var originDecision: CheckedContinuation<Bool, Never>?
+    /// The pending KDF-change confirmation, published for the sheet to present.
+    @Published private(set) var kdfConfirmation: KDFChangeRequest?
+    private var kdfDecision: CheckedContinuation<Bool, Never>?
 
     private let makeTransport: @Sendable (VaultwardenEnvironment) -> VaultwardenTransport
     private let credentialStore: any VaultwardenCredentialStore
@@ -154,12 +182,13 @@ final class AddAccountModel: ObservableObject, Identifiable {
         activeTask = nil
     }
 
-    /// Declines any pending origin approval and cancels the tracked task.
-    /// Resolving the approval first guarantees a suspended sign-in resumes
-    /// (as declined) and observes its cancellation, so a continuation can
-    /// never leak past a dismissal or a restarted flow.
+    /// Declines any pending origin approval or KDF confirmation and cancels
+    /// the tracked task. Resolving both first guarantees a suspended sign-in
+    /// resumes (as declined) and observes its cancellation, so a continuation
+    /// can never leak past a dismissal or a restarted flow.
     private func cancelActiveWork() {
         resolveOriginApproval(approved: false)
+        resolveKDFConfirmation(approved: false)
         activeTask?.cancel()
     }
 
@@ -188,6 +217,25 @@ final class AddAccountModel: ObservableObject, Identifiable {
         originDecision = nil
     }
 
+    /// Publishes the KDF-change request and suspends the login transaction
+    /// until the user decides, with the same continuation discipline as the
+    /// origin approval: a restart or dismissal resolves it as declined first.
+    func requestKDFConfirmation(_ request: KDFChangeRequest) async -> Bool {
+        resolveKDFConfirmation(approved: false)
+        guard !Task.isCancelled else { return false }
+        return await withCheckedContinuation { continuation in
+            kdfDecision = continuation
+            kdfConfirmation = request
+        }
+    }
+
+    /// Resolves the pending KDF confirmation; a no-op when none is pending.
+    func resolveKDFConfirmation(approved: Bool) {
+        kdfConfirmation = nil
+        kdfDecision?.resume(returning: approved)
+        kdfDecision = nil
+    }
+
     /// Validates the URL and runs the login transaction. On a 2FA challenge the
     /// phase moves to `.challenged`; on success the credentials are stored.
     func signIn() async {
@@ -203,7 +251,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
 
         let authenticator = VaultwardenAuthenticator(
             transport: makeTransport(environment),
-            kdfChangePolicy: RejectKDFChangePolicy(),
+            kdfChangePolicy: PromptingKDFChangePolicy { [weak self] request in
+                // A deallocated model can approve nothing.
+                await self?.requestKDFConfirmation(request) ?? false
+            },
             originApprovalPolicy: PromptingOriginApprovalPolicy { [weak self] request in
                 // A deallocated model can approve nothing.
                 await self?.requestOriginApproval(request) ?? false
@@ -218,12 +269,22 @@ final class AddAccountModel: ObservableObject, Identifiable {
         masterPassword = ""
         defer { VaultwardenCryptoZeroize.zero(&passwordBytes) }
 
+        // The KDF-change baseline is the last accepted configuration persisted
+        // for this account, per the security plan: an unchanged response
+        // proceeds, and any algorithm or parameter difference suspends the
+        // login on the confirmation panel before anything is derived. A first
+        // login has no stored snapshot and no baseline, which is the
+        // documented residual: there is nothing to compare a hostile server's
+        // cheap parameters against.
+        let storedSnapshot = try? accountService.loadSnapshot()
+        let lastAcceptedKDF = storedSnapshot.flatMap { try? $0.kdf.configuration() }
+
         do {
             let outcome = try await authenticator.login(
                 email: email,
                 masterPasswordBytes: passwordBytes,
                 device: deviceIdentity,
-                lastAcceptedKDF: nil
+                lastAcceptedKDF: lastAcceptedKDF
             )
             // If the sheet was dismissed mid-request, do not persist or advance.
             guard !Task.isCancelled else { return }

@@ -40,11 +40,18 @@ final class AppModel: ObservableObject {
     /// A non-blocking message when enrolling or revoking Touch ID failed.
     @Published private(set) var biometricError: String?
 
+    /// In-flight work started for a vault (opens, syncs, hydrations, writes),
+    /// tracked so a lock can cancel it: a cancelled Proton or 1Password CLI
+    /// process is terminated by the executor instead of running on and
+    /// emitting plaintext into a vault the user just closed.
+    private var runningTasks: [AccountID: Set<Task<Void, Never>>] = [:]
+
     private let queryAccountPresence: () -> AccountPresence
     private let service: VaultwardenAccountService
     private let protonService: ProtonAccountService
     private let onePasswordService: OnePasswordAccountService
     private let biometricStore: any BiometricVaultKeyStoring
+    private let clipboard: ClipboardService
     /// Secret fields fetched on demand for opened Proton items. In memory only
     /// for the life of the session — never sealed into the snapshot — and
     /// dropped when that vault locks.
@@ -58,13 +65,41 @@ final class AppModel: ObservableObject {
         service: VaultwardenAccountService = VaultwardenAccountService(),
         protonService: ProtonAccountService = ProtonAccountService(),
         onePasswordService: OnePasswordAccountService = OnePasswordAccountService(),
-        biometricStore: any BiometricVaultKeyStoring = BiometricVaultKeyStore()
+        biometricStore: any BiometricVaultKeyStoring = BiometricVaultKeyStore(),
+        clipboard: ClipboardService = .shared
     ) {
         self.queryAccountPresence = queryAccountPresence
         self.service = service
         self.protonService = protonService
         self.onePasswordService = onePasswordService
         self.biometricStore = biometricStore
+        self.clipboard = clipboard
+    }
+
+    /// Starts tracked work for a vault. The task unregisters itself when it
+    /// finishes; `lock` cancels whatever is still registered.
+    private func spawnTracked(_ account: AccountID, _ body: @escaping @MainActor () async -> Void) {
+        var task: Task<Void, Never>!
+        task = Task {
+            await body()
+            self.untrack(task, for: account)
+        }
+        runningTasks[account, default: []].insert(task)
+    }
+
+    private func untrack(_ task: Task<Void, Never>, for account: AccountID) {
+        runningTasks[account]?.remove(task)
+    }
+
+    /// Cancels every in-flight task for one vault, so a lock terminates the
+    /// CLI processes and network calls that would otherwise finish into a
+    /// closed vault.
+    private func cancelTrackedTasks(for account: AccountID) {
+        let tasks = runningTasks[account] ?? []
+        runningTasks[account] = nil
+        for task in tasks {
+            task.cancel()
+        }
     }
 
     // MARK: - Aggregate state
@@ -281,13 +316,17 @@ final class AppModel: ObservableObject {
         let generation = current.generation
         mutate(account) { $0.state = .opening }
         unlockError = nil
-        let passwordBytes = Data(password.utf8)
 
-        Task { [service] in
-            var bytes = passwordBytes
+        spawnTracked(account) {
+            // The password bytes are created inside this task so the buffer the
+            // defer zeroizes is the only Data copy: a Data captured into the
+            // task would share storage, and zeroizing a second reference would
+            // detach it and leave the original bytes intact until the task is
+            // released.
+            var bytes = Data(password.utf8)
             defer { VaultwardenCryptoZeroize.zero(&bytes) }
             do {
-                let vault = try await service.unlock(masterPasswordBytes: bytes)
+                let vault = try await self.service.unlock(masterPasswordBytes: bytes)
                 self.finishOpen(account, generation: generation, vault: vault)
             } catch let error as VaultwardenUnlockError {
                 self.failOpen(account, generation: generation, message: Self.message(for: error))
@@ -370,8 +409,8 @@ final class AppModel: ObservableObject {
         let generation = current.generation
         mutate(account) { $0.state = .opening }
 
-        Task { [protonService] in
-            let result = await protonService.refresh()
+        spawnTracked(account) {
+            let result = await self.protonService.refresh()
             guard self.isCurrent(account, generation) else { return }
             switch result {
             case .success(let refresh):
@@ -401,8 +440,8 @@ final class AppModel: ObservableObject {
 
         // The vault's own identity carries the CLI account it was added for.
         let accountUUID = account.rawValue
-        Task { [onePasswordService] in
-            let result = await onePasswordService.refresh(accountUUID: accountUUID)
+        spawnTracked(account) {
+            let result = await self.onePasswordService.refresh(accountUUID: accountUUID)
             guard self.isCurrent(account, generation) else { return }
             switch result {
             case .success(let refresh):
@@ -421,13 +460,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Closes one vault, dropping only its decrypted state.
+    /// Closes one vault, dropping only its decrypted state and cancelling
+    /// its in-flight work.
     func lock(_ account: AccountID) {
         guard session(for: account) != nil else { return }
+        cancelTrackedTasks(for: account)
         mutate(account) { $0.close() }
         dropFetchedContent(for: account)
         unlockError = nil
         refreshBiometricAvailability()
+        clipboard.clearIfOwned()
         if !isUnlocked {
             ApplicationCoordinator.shared.dismissQuickSearch()
         }
@@ -437,6 +479,7 @@ final class AppModel: ObservableObject {
     /// Closes every vault. Idempotent, and the shell's lock-everything action.
     func lock() {
         for account in sessions.map(\.account) {
+            cancelTrackedTasks(for: account)
             mutate(account) { $0.close() }
         }
         protonContent = [:]
@@ -444,6 +487,7 @@ final class AppModel: ObservableObject {
         hydratingItems = []
         unlockError = nil
         refreshBiometricAvailability()
+        clipboard.clearIfOwned()
         ApplicationCoordinator.shared.dismissQuickSearch()
         AppLog.record(.vaultLocked)
     }
@@ -473,8 +517,8 @@ final class AppModel: ObservableObject {
         mutate(account) { $0.state = .opening }
         unlockError = nil
 
-        Task { [service, biometricStore] in
-            guard let wrapped = service.currentWrappedUserKey() else {
+        spawnTracked(account) {
+            guard let wrapped = self.service.currentWrappedUserKey() else {
                 self.failOpen(
                     account, generation: generation,
                     message: "No stored vault was found. Add the account again to sync it."
@@ -482,13 +526,13 @@ final class AppModel: ObservableObject {
                 return
             }
             do {
-                var keyData = try await biometricStore.loadUserKey(
+                var keyData = try await self.biometricStore.loadUserKey(
                     for: account,
                     boundTo: wrapped,
                     reason: "Unlock your VaultSquire vault"
                 )
                 defer { VaultwardenCryptoZeroize.zero(&keyData) }
-                let vault = try service.unlock(userKeyData: keyData)
+                let vault = try self.service.unlock(userKeyData: keyData)
                 self.finishOpen(account, generation: generation, vault: vault)
             } catch BiometricUnlockError.cancelled {
                 // The user dismissed the prompt; the password field is right
@@ -624,8 +668,8 @@ final class AppModel: ObservableObject {
                 return
             }
             hydratingItems.insert(itemID)
-            Task { [protonService] in
-                let content = await protonService.content(shareID: shareID, itemID: itemID.rawValue)
+            spawnTracked(itemID.account) {
+                let content = await self.protonService.content(shareID: shareID, itemID: itemID.rawValue)
                 self.hydratingItems.remove(itemID)
                 // Never publish a secret into a vault the user locked meanwhile.
                 guard self.isCurrent(itemID.account, generation), let content else { return }
@@ -640,8 +684,8 @@ final class AppModel: ObservableObject {
             // second signed-in account cannot answer this read.
             let accountUUID = itemID.account.rawValue
             hydratingItems.insert(itemID)
-            Task { [onePasswordService] in
-                let content = await onePasswordService.content(
+            spawnTracked(itemID.account) {
+                let content = await self.onePasswordService.content(
                     itemID: itemID.rawValue,
                     vaultID: vaultID,
                     accountUUID: accountUUID
@@ -719,10 +763,10 @@ final class AppModel: ObservableObject {
         }
         isWriting = true
         writeError = nil
-        Task { [service] in
+        spawnTracked(account) {
             let result = draft.isEditing
-                ? await service.update(draft: draft, keyring: vault.keyring)
-                : await service.create(draft: draft, keyring: vault.keyring)
+                ? await self.service.update(draft: draft, keyring: vault.keyring)
+                : await self.service.create(draft: draft, keyring: vault.keyring)
             self.isWriting = false
             switch result {
             case .success:
@@ -738,8 +782,8 @@ final class AppModel: ObservableObject {
         let account = itemID.account
         isWriting = true
         writeError = nil
-        Task { [service] in
-            let result = await service.archive(itemID: itemID)
+        spawnTracked(account) {
+            let result = await self.service.archive(itemID: itemID)
             self.isWriting = false
             switch result {
             case .success:
@@ -772,8 +816,8 @@ final class AppModel: ObservableObject {
 
         switch current.kind {
         case .vaultwarden:
-            Task { [service] in
-                let result = await service.sync()
+            spawnTracked(account) {
+                let result = await self.service.sync()
                 guard self.isCurrent(account, generation) else { return }
                 self.mutate(account) { session in
                     session.isSyncing = false
@@ -783,10 +827,10 @@ final class AppModel: ObservableObject {
                         session.syncError = nil
                         if var vault = session.vaultwarden {
                             vault.snapshot = snapshot
-                            vault.items = service.projections(keyring: vault.keyring, snapshot: snapshot)
+                            vault.items = self.service.projections(keyring: vault.keyring, snapshot: snapshot)
                             // A sync can add or rename folders, so the sidebar's
                             // list is refreshed with the items it groups.
-                            vault.folderNames = service.decryptFolderNames(
+                            vault.folderNames = self.service.decryptFolderNames(
                                 keyring: vault.keyring, snapshot: snapshot
                             )
                             session.vaultwarden = vault
@@ -798,8 +842,8 @@ final class AppModel: ObservableObject {
                 }
             }
         case .proton:
-            Task { [protonService] in
-                let result = await protonService.refresh()
+            spawnTracked(account) {
+                let result = await self.protonService.refresh()
                 guard self.isCurrent(account, generation) else { return }
                 self.mutate(account) { session in
                     session.isSyncing = false
@@ -816,8 +860,8 @@ final class AppModel: ObservableObject {
             }
         case .onePassword:
             let accountUUID = account.rawValue
-            Task { [onePasswordService] in
-                let result = await onePasswordService.refresh(accountUUID: accountUUID)
+            spawnTracked(account) {
+                let result = await self.onePasswordService.refresh(accountUUID: accountUUID)
                 guard self.isCurrent(account, generation) else { return }
                 self.mutate(account) { session in
                     session.isSyncing = false
@@ -896,6 +940,8 @@ final class AppModel: ObservableObject {
             return "That master password didn't unlock the vault."
         case .unsupportedKDF:
             return "This account uses a key-derivation method VaultSquire can't run yet (Argon2id)."
+        case .legacyEncryptionUnsupported:
+            return "This vault uses an older encryption VaultSquire won't read. Open it once with the official Bitwarden app to migrate it, sync here, and try again."
         case .malformedVault:
             return "The stored vault is unreadable. Add the account again to rebuild it."
         }
@@ -911,6 +957,8 @@ final class AppModel: ObservableObject {
             return "The item could not be encrypted, so nothing was sent."
         case .rejected:
             return "The server rejected the change."
+        case .conflict:
+            return "This item changed on the server since your last sync, so the change was not saved. Sync, then make it again."
         }
     }
 

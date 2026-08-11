@@ -34,6 +34,10 @@ struct VaultwardenVaultCache: Sendable {
 
     /// The envelope layout version, folded into the seal's authenticated data.
     private static let schemaVersion = 1
+    /// Upper bound on a sealed payload, checked before the file is buffered:
+    /// a corrupted or locally swapped file cannot cost the app its memory.
+    /// Sized well above the transport's sync-response bound.
+    private static let maximumSealedBytes = 128 * 1024 * 1024
 
     init(
         keyStore: DeviceDataKeyStore = DeviceDataKeyStore(label: "vaultwarden-vault-cache"),
@@ -115,6 +119,11 @@ struct VaultwardenVaultCache: Sendable {
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         let key = try sealingKey()
 
+        if let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+           let size = attributes[.size] as? Int,
+           size > Self.maximumSealedBytes {
+            throw VaultwardenVaultCacheError.corrupt
+        }
         let sealed: Data
         do {
             sealed = try Data(contentsOf: url)

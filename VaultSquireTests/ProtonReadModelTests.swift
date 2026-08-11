@@ -53,8 +53,6 @@ final class ProtonReadModelTests: XCTestCase {
         XCTAssertEqual(login.type, .login)
         XCTAssertEqual(login.title, "GitHub")
         XCTAssertEqual(login.username, "octocat")
-        XCTAssertEqual(login.password, "VSQ-secret")
-        XCTAssertEqual(login.totp, "otpauth://x")
         XCTAssertEqual(login.urls, ["https://github.com", "https://gist.github.com"])
         XCTAssertEqual(login.shareID, "S1")
         XCTAssertEqual(login.vaultName, "Personal")
@@ -62,8 +60,29 @@ final class ProtonReadModelTests: XCTestCase {
         let note = items[1]
         XCTAssertEqual(note.type, .note)
         XCTAssertEqual(note.title, "My Note")
-        XCTAssertEqual(note.note, "remember this")
         XCTAssertNil(note.username)
+    }
+
+    /// No secret a build's `item list` happens to print is ever retained in
+    /// the summary: passwords, one-time-password seeds, and notes decode as
+    /// nil by policy, so nothing secret can reach the sealed snapshot. The
+    /// 1Password decoder holds the same line.
+    func testListPayloadSecretsAreNeverCapturedIntoSummaries() throws {
+        let json = Data("""
+        {"items":[
+          {"id":"i1","type":"login","title":"GitHub",
+           "content":{"username":"octocat","password":"VSQ-secret","totp":"otpauth://x",
+                      "note":"VSQ-note","urls":["https://github.com"]}}
+        ]}
+        """.utf8)
+        let items = try ProtonReadModel.decodeItems(json, shareID: "S1", vaultName: "Personal")
+        let login = try XCTUnwrap(items.first)
+        XCTAssertNil(login.password)
+        XCTAssertNil(login.totp)
+        XCTAssertNil(login.note)
+        // Non-secret display fields still decode.
+        XCTAssertEqual(login.username, "octocat")
+        XCTAssertEqual(login.urls, ["https://github.com"])
     }
 
     func testItemMissingAnIdentifierIsSkipped() throws {

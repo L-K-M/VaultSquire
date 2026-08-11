@@ -32,7 +32,9 @@ struct AddAccountView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let request = model.originApproval {
+            if let request = model.kdfConfirmation {
+                kdfConfirmationPanel(request)
+            } else if let request = model.originApproval {
                 originApprovalPanel(request)
             } else if model.phase == .challenged {
                 TwoFactorChallengeView(model: model)
@@ -361,6 +363,56 @@ struct AddAccountView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("add-account-origin-approval")
+    }
+
+    /// Displays the KDF settings the account last used against the ones the
+    /// server just returned and asks for an explicit decision before any key
+    /// is derived. The floor and ceiling still apply either way; this
+    /// confirmation is the control against a server quietly weakening (or
+    /// drastically changing) the work factors between logins. Approving an
+    /// Argon2id change cannot help yet — derivation for it still fails closed
+    /// — so the panel says what is being approved, not that it will work.
+    private func kdfConfirmationPanel(_ request: KDFChangeRequest) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Key-Derivation Settings Changed")
+                .font(.title2.weight(.semibold))
+            Text("The server's key-derivation settings are different from the ones this account last used. Only continue if you made this change yourself, for example in another client's security settings.")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                labeledKDF("Last used", KDFChangeRequest.describe(request.last))
+                labeledKDF("Server now says", KDFChangeRequest.describe(request.next))
+            }
+
+            HStack {
+                Button("Cancel") {
+                    model.resolveKDFConfirmation(approved: false)
+                }
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("add-account-kdf-cancel")
+                Spacer()
+                Button("Approve and Continue") {
+                    model.resolveKDFConfirmation(approved: true)
+                }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("add-account-kdf-approve")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("add-account-kdf-confirmation")
+    }
+
+    private func labeledKDF(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.callout.weight(.medium))
+                .frame(width: 120, alignment: .leading)
+            Text(value)
+                .font(.callout.monospaced())
+                .textSelection(.enabled)
+        }
     }
 
     private func labeledOrigin(_ label: String, _ origin: VaultwardenOrigin) -> some View {

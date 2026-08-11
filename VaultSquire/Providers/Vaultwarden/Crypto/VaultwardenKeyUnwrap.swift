@@ -31,6 +31,24 @@ enum VaultwardenKeyUnwrap {
         return try VaultwardenCipher.decrypt(parsed, key: userKey)
     }
 
+    /// Unwraps a per-item cipher key: a 64-byte symmetric key, type-2 wrapped
+    /// under the account key for the cipher's scope (the user key for a
+    /// personal cipher, the organization key for an organization cipher).
+    /// Current official clients encrypt every new cipher's fields under such
+    /// an item key instead of under the account key directly, so a cipher
+    /// carrying `Key` is unreadable — and unsafe to edit — without this step.
+    static func unwrapCipherKey(
+        wrapped: String,
+        accountKey: VaultwardenSymmetricKey
+    ) throws -> VaultwardenSymmetricKey {
+        let parsed = try VaultwardenEncString.parse(wrapped)
+        let unwrapped = try VaultwardenCipher.decrypt(parsed, key: accountKey)
+        guard unwrapped.count == 64 else {
+            throw VaultwardenCryptoError.invalidKeyMaterial
+        }
+        return try VaultwardenSymmetricKey(keyData: unwrapped)
+    }
+
     /// Unwraps a 64-byte organization key: RSA-2048 OAEP-SHA1 decapsulation
     /// of the wrapped key bytes through the user's private key (PKCS#8 DER).
     /// This is the recorded V1 sharing path.

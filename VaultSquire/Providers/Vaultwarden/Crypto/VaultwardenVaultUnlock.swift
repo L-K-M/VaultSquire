@@ -8,6 +8,11 @@ enum VaultwardenUnlockError: Error, Equatable, Sendable {
     /// The account's KDF is one VaultSquire cannot run yet (Argon2id fails
     /// closed rather than substituting a weaker derivation).
     case unsupportedKDF
+    /// The vault's key material uses the legacy unauthenticated type-0
+    /// encryption VaultSquire refuses to read. The account must be migrated by
+    /// a compatible client; telling the user their password is wrong sends
+    /// them retrying a correct password forever.
+    case legacyEncryptionUnsupported
     /// The stored vault snapshot is structurally unusable.
     case malformedVault
 }
@@ -57,6 +62,8 @@ enum VaultwardenVaultUnlock {
                 wrapped: snapshot.wrappedUserKey,
                 stretchedMasterKey: stretched
             )
+        } catch VaultwardenCryptoError.legacyEncryptionDetected {
+            throw VaultwardenUnlockError.legacyEncryptionUnsupported
         } catch {
             // Any unwrap failure under the derived key means the password was
             // wrong (or the wrapped key is corrupt, which the user cannot

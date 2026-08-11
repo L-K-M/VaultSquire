@@ -82,6 +82,9 @@ struct OnePasswordSnapshotCache: Sendable {
     /// Distinct from the other providers' version spaces; the account's
     /// provider is authenticated too, so they can never be confused.
     private static let schemaVersion = 1
+    /// Upper bound on a sealed payload, checked before the file is buffered:
+    /// a corrupted or locally swapped file cannot cost the app its memory.
+    private static let maximumSealedBytes = 128 * 1024 * 1024
 
     init(
         keyStore: DeviceDataKeyStore = DeviceDataKeyStore(label: "onepassword-snapshot-cache"),
@@ -158,6 +161,11 @@ struct OnePasswordSnapshotCache: Sendable {
         let url = fileURL(for: account)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         let key = try sealingKey()
+        if let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+           let size = attributes[.size] as? Int,
+           size > Self.maximumSealedBytes {
+            throw OnePasswordSnapshotCacheError.corrupt
+        }
         let sealed: Data
         do {
             sealed = try Data(contentsOf: url)

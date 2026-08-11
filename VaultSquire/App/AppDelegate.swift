@@ -8,6 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ApplicationCoordinator.shared.dismissQuickSearch()
+        // The same conditional clear as lock: only a pasteboard write this
+        // process still owns is erased, a later user copy never is.
+        ClipboardService.shared.clearIfOwned()
         AppLog.record(.applicationWillTerminate)
     }
 
