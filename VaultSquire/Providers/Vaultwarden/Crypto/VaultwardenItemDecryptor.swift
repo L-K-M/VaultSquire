@@ -123,7 +123,8 @@ enum VaultwardenItemDecryptor {
             websites: websites,
             groupingLabels: groupingLabels,
             capabilities: readCapabilities,
-            cacheReference: cacheReference(for: cipher, account: account, generation: generation)
+            cacheReference: cacheReference(for: cipher, account: account, generation: generation),
+            favorite: cipher.favorite
         )
     }
 

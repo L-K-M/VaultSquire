@@ -34,4 +34,9 @@ struct VaultItemProjection: Hashable, Sendable, Identifiable {
     let groupingLabels: [String]
     let capabilities: Set<ProviderCapability>
     let cacheReference: ProviderCacheReference
+    /// Whether the item is marked as a favorite. Defaults to false so Proton
+    /// and 1Password — whose CLIs expose no such concept — need no change at
+    /// their construction sites; only Vaultwarden, which already decodes and
+    /// round-trips `favorite` on write, passes a real value.
+    let favorite: Bool = false
 }
