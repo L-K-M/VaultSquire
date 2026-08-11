@@ -710,4 +710,91 @@ final class AppModelTests: XCTestCase {
         }
         XCTFail("condition did not hold within the timeout", file: file, line: line)
     }
+
+    @MainActor
+    func testLockCancelsInFlightProtonRefresh() async throws {
+        // SECURITY_AND_TESTING.md § "Memory And Lifecycle": lock must terminate
+        // every Proton CLI process because its output is plaintext. An in-flight
+        // refresh must be cancelled, not merely have its result discarded.
+        let executor = BlockingCLIExecutor(supportedVersion: "2.2.4")
+        let locator = ProtonCLILocator(
+            candidatePaths: ["/fake/pass-cli"],
+            isExecutable: { _ in true },
+            resolveRealPath: { $0 }
+        )
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VSQ-cancel-test-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let cache = ProtonSnapshotCache(
+            keyProvider: { SymmetricKey(size: .bits256) },
+            directory: cacheDirectory
+        )
+        let proton = ProtonAccountService(
+            locator: locator,
+            executor: executor,
+            versionGate: ProtonCLIVersionGate(supportedVersions: ["2.2.4"]),
+            cache: cache
+        )
+        let (model, store) = makeModel(
+            descriptors: [AccountDescriptor(
+                account: ProtonAccountService.accountID,
+                serverDisplay: "Proton Pass",
+                email: "Official Proton Pass CLI"
+            )],
+            protonService: proton
+        )
+        model.refreshAccountPresence()
+        let account = ProtonAccountService.accountID
+
+        // Opening the Proton vault starts an in-flight CLI refresh and registers
+        // it for cancellation.
+        model.open(account)
+        try await pollUntil { model.cliBackgroundTaskCountForTesting == 1 }
+
+        // Locking must cancel that task so the CLI child terminates and the
+        // task unregisters. The blocking executor proves the cancellation
+        // actually reached the process boundary.
+        model.lock(account)
+        try await pollUntil { model.cliBackgroundTaskCountForTesting == 0 }
+        XCTAssertTrue(
+            await executor.observedCancellation,
+            "Lock must cancel the in-flight Proton CLI task"
+        )
+    }
+}
+
+/// Executor whose every non-`--version` command blocks until the calling task
+/// is cancelled, then records that it observed cancellation. Lets a test prove
+/// AppModel cancels an in-flight CLI refresh on lock without running a real
+/// binary.
+private actor BlockingCLIExecutor: CLIExecuting {
+    private let supportedVersion: String
+    private(set) var observedCancellation = false
+
+    init(supportedVersion: String) {
+        self.supportedVersion = supportedVersion
+    }
+
+    nonisolated func execute(
+        _ invocation: CLIInvocation,
+        executableURL: URL
+    ) async throws -> CLIExecution {
+        if invocation.arguments == ["--version"] {
+            return CLIExecution(
+                exitCode: 0,
+                standardOutput: Data("\(supportedVersion)\n".utf8),
+                standardErrorByteCount: 0
+            )
+        }
+        // Every other command blocks until the calling task is cancelled.
+        while !Task.isCancelled {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        await observeCancellation()
+        throw CLIExecutionError.cancelled
+    }
+
+    private func observeCancellation() {
+        observedCancellation = true
+    }
 }
