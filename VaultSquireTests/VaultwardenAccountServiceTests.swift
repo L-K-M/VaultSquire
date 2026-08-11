@@ -176,4 +176,31 @@ final class VaultwardenAccountServiceTests: XCTestCase {
         XCTAssertEqual(lower.key, "2.k2")
         XCTAssertEqual(lower.privateKey, "2.pk2")
     }
+
+    func testTokenRefresherBoxSharesOneRefresherAcrossConcurrentBorrowers() async throws {
+        // SECURITY_AND_TESTING.md: callers serialize concurrent writes for one
+        // account so the stored refresh token cannot be raced. The fix is that
+        // sync and write share one VaultwardenTokenRefresher, whose existing
+        // one-in-flight coalescing then spans both. Prove the box hands every
+        // caller the same instance, even when they borrow concurrently.
+        let box = TokenRefresherBox()
+        let transport = VaultwardenTransport(
+            environment: try VaultwardenEnvironment(configuredURL: "https://vw.example.com")
+        )
+        let identity = URL(string: "https://vw.example.com/identity")!
+
+        async let first = box.borrow(
+            transport: transport, seedRefreshToken: "seed-A", identityBaseURL: identity
+        )
+        async let second = box.borrow(
+            transport: transport, seedRefreshToken: "seed-B", identityBaseURL: identity
+        )
+        let (a, b) = await (first, second)
+
+        XCTAssertEqual(
+            ObjectIdentifier(a),
+            ObjectIdentifier(b),
+            "concurrent borrowers must receive one shared refresher, not two"
+        )
+    }
 }

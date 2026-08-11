@@ -1,5 +1,39 @@
 import Foundation
 
+/// Holds the single shared `VaultwardenTokenRefresher` for one Vaultwarden
+/// account, so a concurrent sync and write coalesce onto one in-flight refresh
+/// instead of each loading, refreshing, and persisting the refresh token
+/// independently. That independent dance raced the stored token: a lost update,
+/// or — if the server has refresh-token reuse detection — a double-spend of the
+/// prior token that forces re-authentication. The refresher's own one-in-flight
+/// coalescing already prevents that within a single instance; this box makes
+/// sync and write share that one instance.
+///
+/// `borrow` has no internal suspension, so the get-or-create is atomic on the
+/// actor: two concurrent callers never each create their own refresher.
+actor TokenRefresherBox {
+    private var refresher: VaultwardenTokenRefresher?
+
+    /// Returns the shared refresher, creating it from the seed values on first
+    /// use. Later calls reuse the existing instance and ignore the seed
+    /// arguments, so the refresher's one-in-flight coalescing spans every
+    /// caller and the in-memory token stays authoritative across calls.
+    func borrow(
+        transport: VaultwardenTransport,
+        seedRefreshToken refreshToken: String,
+        identityBaseURL: URL
+    ) -> VaultwardenTokenRefresher {
+        if let refresher { return refresher }
+        let created = VaultwardenTokenRefresher(
+            transport: transport,
+            refreshToken: refreshToken,
+            identityBaseURL: identityBaseURL
+        )
+        refresher = created
+        return created
+    }
+}
+
 extension AccountID {
     /// The single configured Vaultwarden account this release supports. The
     /// multi-account workstream replaces this fixed identity with per-account
@@ -39,6 +73,11 @@ struct VaultwardenAccountService: Sendable {
     let descriptorStore: AccountDescriptorStore
     let makeTransport: @Sendable (VaultwardenEnvironment) -> VaultwardenTransport
     let now: @Sendable () -> Date
+    /// The one shared token refresher for this account, so a concurrent sync
+    /// and write coalesce their refreshes instead of racing the stored refresh
+    /// token. (SECURITY_AND_TESTING.md: replace the locally stored refresh token
+    /// atomically; callers serialize concurrent writes for one account.)
+    private let refresherBox = TokenRefresherBox()
 
     init(
         account: AccountID = .vaultwardenPrimary,
@@ -333,9 +372,9 @@ struct VaultwardenAccountService: Sendable {
             return .failure(.transient)
         }
         let transport = makeTransport(environment)
-        let refresher = VaultwardenTokenRefresher(
+        let refresher = await refresherBox.borrow(
             transport: transport,
-            refreshToken: refreshToken,
+            seedRefreshToken: refreshToken,
             identityBaseURL: URL(string: snapshot.identityBaseURL)
         )
         let token: String
@@ -386,9 +425,9 @@ struct VaultwardenAccountService: Sendable {
             return .failure(.localStorageFailed)
         }
         let transport = makeTransport(environment)
-        let refresher = VaultwardenTokenRefresher(
+        let refresher = await refresherBox.borrow(
             transport: transport,
-            refreshToken: refreshToken,
+            seedRefreshToken: refreshToken,
             identityBaseURL: URL(string: snapshot.identityBaseURL)
         )
         let service = VaultwardenSyncService(
