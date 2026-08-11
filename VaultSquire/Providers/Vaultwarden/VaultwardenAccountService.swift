@@ -21,7 +21,7 @@ actor TokenRefresherBox {
     func borrow(
         transport: VaultwardenTransport,
         seedRefreshToken refreshToken: String,
-        identityBaseURL: URL
+        identityBaseURL: URL?
     ) -> VaultwardenTokenRefresher {
         if let refresher { return refresher }
         let created = VaultwardenTokenRefresher(
