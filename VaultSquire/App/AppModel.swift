@@ -393,15 +393,6 @@ final class AppModel: ObservableObject {
         unlockError = message
     }
 
-    /// Records a failed open on that vault's row alone. `unlockError` drives the
-    /// master-password prompt, and a Proton CLI that is signed out says nothing
-    /// about the Vaultwarden password — so a vault opened alongside another must
-    /// not be able to put its message on that prompt.
-    private func failOpenLocally(_ account: AccountID, generation: UInt64, message: String) {
-        guard isCurrent(account, generation) else { return }
-        mutate(account) { $0.state = .failed(message) }
-    }
-
     /// Opens the Proton vault read-only: a CLI refresh, its projections, and a
     /// sealed snapshot for offline read. No Proton credential is ever collected.
     private func openProton(_ account: AccountID) {
@@ -422,10 +413,36 @@ final class AppModel: ObservableObject {
                     $0.syncError = nil
                 }
             case .failure(let error):
-                self.failOpenLocally(
-                    account, generation: generation, message: Self.message(for: error)
+                self.failProtonOpenOrShowOfflineSnapshot(
+                    account, generation: generation, error: error
                 )
             }
+        }
+    }
+
+    /// A live Proton refresh failed. `refresh()` seals a snapshot to disk on
+    /// every success, and `cachedSnapshot()`/`projections(from:)` exist
+    /// specifically to read it back — but until now nothing called them, so a
+    /// CLI hiccup (briefly unavailable, one slow vault, a version the gate
+    /// hasn't approved yet) showed a hard error with no data, even with a
+    /// valid encrypted snapshot sitting on disk from the last successful
+    /// refresh. Vaultwarden's own `unlock()` already reads its local cache
+    /// first; this brings Proton's resilience in line with it instead of
+    /// leaving the offline path built but unreachable from the UI.
+    private func failProtonOpenOrShowOfflineSnapshot(
+        _ account: AccountID, generation: UInt64, error: ProtonServiceError
+    ) {
+        guard isCurrent(account, generation) else { return }
+        guard let snapshot = protonService.cachedSnapshot() else {
+            mutate(account) { $0.state = .failed(Self.message(for: error)) }
+            return
+        }
+        mutate(account) {
+            $0.state = .open
+            $0.proton = snapshot
+            $0.items = protonService.projections(from: snapshot)
+            $0.lastSyncedAt = snapshot.capturedAt
+            $0.syncError = "Showing the last synced copy. \(Self.message(for: error))"
         }
     }
 
@@ -453,10 +470,30 @@ final class AppModel: ObservableObject {
                     $0.syncError = nil
                 }
             case .failure(let error):
-                self.failOpenLocally(
-                    account, generation: generation, message: Self.message(for: error)
+                self.failOnePasswordOpenOrShowOfflineSnapshot(
+                    account, generation: generation, accountUUID: accountUUID, error: error
                 )
             }
+        }
+    }
+
+    /// The 1Password counterpart of `failProtonOpenOrShowOfflineSnapshot`: a
+    /// failed live refresh falls back to the last sealed snapshot for this
+    /// specific 1Password account rather than a hard, dataless error.
+    private func failOnePasswordOpenOrShowOfflineSnapshot(
+        _ account: AccountID, generation: UInt64, accountUUID: String, error: OnePasswordServiceError
+    ) {
+        guard isCurrent(account, generation) else { return }
+        guard let snapshot = onePasswordService.cachedSnapshot(accountUUID: accountUUID) else {
+            mutate(account) { $0.state = .failed(Self.message(for: error)) }
+            return
+        }
+        mutate(account) {
+            $0.state = .open
+            $0.onePassword = snapshot
+            $0.items = onePasswordService.projections(from: snapshot, accountUUID: accountUUID)
+            $0.lastSyncedAt = snapshot.capturedAt
+            $0.syncError = "Showing the last synced copy. \(Self.message(for: error))"
         }
     }
 
