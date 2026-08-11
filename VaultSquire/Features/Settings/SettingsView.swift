@@ -7,14 +7,15 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             Form {
-                LabeledContent("App shortcut", value: "Command-Shift-Space")
+                LabeledContent("In-app Quick Search", value: "Command-Shift-Space")
                 LabeledContent("Vault state", value: vaultStateDescription)
+                LabeledContent("Inactivity lock", value: "15 minutes")
 
                 Divider()
 
                 biometricSection
 
-                Text("A configurable global shortcut and lock policy are enabled only after their interaction and security tests pass.")
+                Text("The shortcut works while VaultSquire is active. VaultSquire also locks after 15 minutes without input, and whenever the Mac sleeps, starts its screen saver, locks its screen, or resigns the user session.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
