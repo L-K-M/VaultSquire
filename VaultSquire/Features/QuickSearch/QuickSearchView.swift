@@ -63,17 +63,41 @@ struct QuickSearchView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("quick-search-empty")
         } else {
-            List(model.results) { item in
-                Button {
-                    open(item.id)
-                } label: {
-                    resultRow(item)
+            VStack(spacing: 0) {
+                List(model.results) { item in
+                    Button {
+                        open(item.id)
+                    } label: {
+                        resultRow(item)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .listStyle(.plain)
+                footer
             }
-            .listStyle(.plain)
             .accessibilityIdentifier("quick-search-results")
         }
+    }
+
+    private var footer: some View {
+        HStack {
+            if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(summaryText(showing: model.results.count, total: model.totalMatchCount))
+            } else {
+                Text(summaryText(showing: model.results.count, total: model.totalMatchCount, noun: "matches"))
+            }
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.quaternary.opacity(0.35))
+    }
+
+    private func summaryText(showing: Int, total: Int, noun: String = "items") -> String {
+        guard total > showing else { return "\(total) \(noun)" }
+        return "Showing \(showing) of \(total) \(noun)"
     }
 
     private func resultRow(_ item: VaultItemProjection) -> some View {

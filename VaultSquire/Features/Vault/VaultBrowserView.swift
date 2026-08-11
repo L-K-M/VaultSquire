@@ -15,8 +15,11 @@ struct VaultBrowserView: View {
 
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var siteIcons: SiteIconStore
+    @StateObject private var searchModel = VaultItemSearchModel(
+        resultLimit: 250,
+        emptyQueryLimit: 200
+    )
     @State private var selection: VaultItemID?
-    @State private var query = ""
     @State private var editSession: EditSession?
     /// The password being typed for a locked vault, keyed by vault so switching
     /// between two locked vaults does not carry one field's text to the other.
@@ -28,12 +31,6 @@ struct VaultBrowserView: View {
     private struct EditSession: Identifiable {
         let id = UUID()
         let draft: VaultItemDraft
-    }
-
-    private var filteredItems: [VaultItemProjection] {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return appModel.items }
-        return appModel.items.filter { Self.matches($0, query: trimmed) }
     }
 
     var body: some View {
@@ -63,7 +60,21 @@ struct VaultBrowserView: View {
         .onChange(of: appModel.scope) { _, _ in
             selection = nil
         }
+        .onChange(of: appModel.items) { _, newValue in
+            searchModel.updateItems(newValue)
+        }
+        .onChange(of: appModel.isUnlocked) { _, newValue in
+            if !newValue {
+                searchModel.resetQuery()
+            }
+        }
+        .onChange(of: appModel.selectedSession?.isOpen) { _, newValue in
+            if newValue == false {
+                searchModel.resetQuery()
+            }
+        }
         .task {
+            searchModel.updateItems(appModel.items, isUnlocked: appModel.isUnlocked)
             // Offer Touch ID as soon as the browser appears when it is set up,
             // so the common case is a fingerprint rather than a retyped master
             // password. The prompt is cancellable and the password field stays.
@@ -266,13 +277,37 @@ struct VaultBrowserView: View {
     }
 
     private var itemList: some View {
-        List(filteredItems, selection: $selection) { item in
-            itemRow(item)
-                .tag(item.id)
+        VStack(spacing: 0) {
+            List(searchModel.results, selection: $selection) { item in
+                itemRow(item)
+                    .tag(item.id)
+            }
+            statusBar
         }
-        .searchable(text: $query, prompt: searchPrompt)
+        .searchable(text: $searchModel.query, prompt: searchPrompt)
         .navigationTitle(scopeTitle)
         .accessibilityIdentifier("vault-item-list")
+    }
+
+    private var statusBar: some View {
+        HStack {
+            if searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(summaryText(showing: searchModel.results.count, total: searchModel.totalMatchCount))
+            } else {
+                Text(summaryText(showing: searchModel.results.count, total: searchModel.totalMatchCount, noun: "matches"))
+            }
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func summaryText(showing: Int, total: Int, noun: String = "items") -> String {
+        guard total > showing else { return "\(total) \(noun)" }
+        return "Showing \(showing) of \(total) \(noun)"
     }
 
     private var scopeTitle: String {
@@ -542,9 +577,4 @@ struct VaultBrowserView: View {
         }
     }
 
-    private static func matches(_ item: VaultItemProjection, query: String) -> Bool {
-        let haystacks = [item.displayTitle, item.displaySubtitle ?? item.username ?? ""]
-            + item.websites + item.groupingLabels
-        return haystacks.contains { $0.localizedCaseInsensitiveContains(query) }
-    }
 }
