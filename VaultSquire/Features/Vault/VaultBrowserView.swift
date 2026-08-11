@@ -65,12 +65,12 @@ struct VaultBrowserView: View {
         }
         .onChange(of: appModel.isUnlocked) { _, newValue in
             if !newValue {
-                searchModel.resetQuery()
+                searchModel.clear()
             }
         }
         .onChange(of: appModel.selectedSession?.isOpen) { _, newValue in
             if newValue == false {
-                searchModel.resetQuery()
+                searchModel.clear()
             }
         }
         .task {

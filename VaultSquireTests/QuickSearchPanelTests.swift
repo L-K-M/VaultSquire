@@ -92,6 +92,19 @@ final class QuickSearchPanelTests: XCTestCase {
     }
 
     @MainActor
+    func testSearchUsesInvariantNormalizationInsteadOfTheCurrentLocale() async throws {
+        let model = VaultItemSearchModel(resultLimit: 10, emptyQueryLimit: 10)
+        model.updateItems([
+            projection(id: "istanbul", title: "Istanbul", subtitle: nil, username: nil, websites: [], groups: [])
+        ])
+
+        model.query = "istanbul"
+        try await waitUntil { model.totalMatchCount == 1 }
+
+        XCTAssertEqual(model.results.map(\.id.rawValue), ["istanbul"])
+    }
+
+    @MainActor
     func testQuotedTermsRequireTheQuotedPhrase() async throws {
         let model = VaultItemSearchModel(resultLimit: 10, emptyQueryLimit: 10)
         model.updateItems([
@@ -142,6 +155,33 @@ final class QuickSearchPanelTests: XCTestCase {
         model.query = "entry"
         try await waitUntil { model.totalMatchCount == 5 && model.results.count == 2 }
         XCTAssertEqual(model.results.map(\.id.rawValue), ["1", "2"])
+    }
+
+    @MainActor
+    func testUpdatingItemsClearsVisibleResultsBeforeADelayedReplacementIndexFinishes() async throws {
+        let model = VaultItemSearchModel(
+            resultLimit: 10,
+            emptyQueryLimit: 10,
+            buildDelay: .milliseconds(75)
+        )
+        model.updateItems([
+            projection(id: "old", title: "Alpha", subtitle: nil, username: nil, websites: [], groups: [])
+        ], isUnlocked: true)
+        try await waitUntil { model.totalMatchCount == 1 }
+
+        model.query = "alpha"
+        try await waitUntil { model.totalMatchCount == 1 && model.results.map(\.id.rawValue) == ["old"] }
+
+        model.updateItems([
+            projection(id: "new", title: "Beta", subtitle: nil, username: nil, websites: [], groups: [])
+        ], isUnlocked: true)
+
+        XCTAssertTrue(model.results.isEmpty)
+        XCTAssertEqual(model.totalMatchCount, 0)
+
+        try await waitUntil { model.totalMatchCount == 0 && model.results.isEmpty }
+        model.query = "beta"
+        try await waitUntil { model.totalMatchCount == 1 && model.results.map(\.id.rawValue) == ["new"] }
     }
 
     @MainActor

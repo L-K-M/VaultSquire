@@ -470,9 +470,7 @@ final class AppModel: ObservableObject {
         unlockError = nil
         refreshBiometricAvailability()
         clipboard.clearIfOwned()
-        if !isUnlocked {
-            ApplicationCoordinator.shared.dismissQuickSearch()
-        }
+        ApplicationCoordinator.shared.dismissQuickSearch()
         AppLog.record(.vaultLocked)
     }
 

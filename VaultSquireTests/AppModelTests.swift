@@ -626,6 +626,63 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.allOpenItems.count, 1)
     }
 
+    /// Quick Search snapshots the open rows when the panel is shown, so a
+    /// per-vault lock must dismiss it even if another vault remains open.
+    @MainActor
+    func testLockingOneOfSeveralOpenVaultsDismissesQuickSearch() async throws {
+        let protonExecutor = FakeCLIExecutor()
+        await protonExecutor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await protonExecutor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await protonExecutor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+
+        let onePasswordExecutor = FakeCLIExecutor()
+        await stubOnePassword(onePasswordExecutor)
+
+        let proton = ProtonAccountService.accountID
+        let onePassword = OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: proton, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                ),
+                onePasswordDescriptor(),
+            ],
+            protonService: makeProtonService(executor: protonExecutor),
+            onePasswordService: makeOnePasswordService(executor: onePasswordExecutor)
+        )
+        model.refreshAccountPresence()
+        model.open(proton)
+        model.open(onePassword)
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+        try await pollUntil { model.session(for: onePassword)?.isOpen == true }
+
+        addTeardownBlock {
+            ApplicationCoordinator.shared.dismissQuickSearch()
+            ApplicationCoordinator.shared.quickSearchDataSource = nil
+        }
+        ApplicationCoordinator.shared.quickSearchDataSource = model
+        ApplicationCoordinator.shared.showQuickSearch()
+        XCTAssertEqual(
+            ApplicationCoordinator.shared.quickSearchControllerForTesting?.windowForTesting.isVisible,
+            true
+        )
+
+        model.lock(proton)
+
+        XCTAssertEqual(
+            ApplicationCoordinator.shared.quickSearchControllerForTesting?.windowForTesting.isVisible,
+            false
+        )
+        XCTAssertTrue(model.session(for: onePassword)?.isOpen == true)
+    }
+
     /// The sidebar groups 1Password items by their vault, keyed on the vault
     /// identifier carried in each item's compound id.
     @MainActor

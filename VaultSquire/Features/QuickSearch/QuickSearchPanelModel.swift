@@ -27,6 +27,7 @@ final class VaultItemSearchModel: ObservableObject {
     private let resultLimit: Int
     private let emptyQueryLimit: Int
     private let searchDelay: Duration
+    private let buildDelay: Duration
     private var onOpen: ((VaultItemID) -> Void)?
     private var searchIndex = VaultItemSearchIndex(items: [])
     private var sourceRevision: UInt64 = 0
@@ -38,11 +39,13 @@ final class VaultItemSearchModel: ObservableObject {
     init(
         resultLimit: Int = 200,
         emptyQueryLimit: Int = 50,
-        searchDelay: Duration = .zero
+        searchDelay: Duration = .zero,
+        buildDelay: Duration = .zero
     ) {
         self.resultLimit = resultLimit
         self.emptyQueryLimit = emptyQueryLimit
         self.searchDelay = searchDelay
+        self.buildDelay = buildDelay
     }
 
     func clear() {
@@ -75,16 +78,21 @@ final class VaultItemSearchModel: ObservableObject {
         let sourceRevision = sourceRevision
         self.items = items
         self.isUnlocked = isUnlocked
+        results = []
+        totalMatchCount = 0
+        searchIndex = VaultItemSearchIndex(items: [])
 
         guard isUnlocked, !items.isEmpty else {
-            results = []
-            totalMatchCount = 0
-            searchIndex = VaultItemSearchIndex(items: [])
             return
         }
 
         let capturedItems = items
+        let buildDelay = buildDelay
         buildTask = Task.detached(priority: .userInitiated) {
+            if buildDelay > .zero {
+                try? await Task.sleep(for: buildDelay)
+            }
+            guard !Task.isCancelled else { return }
             let index = VaultItemSearchIndex(items: capturedItems)
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -338,7 +346,10 @@ private struct VaultItemSearchIndex: Sendable {
 
     private static func normalize(_ string: String) -> String {
         string
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .folding(
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
             .replacingOccurrences(
                 of: #"\s+"#,
                 with: " ",
