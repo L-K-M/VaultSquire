@@ -5,6 +5,10 @@ import SwiftUI
 final class QuickSearchPanelController: NSObject, NSWindowDelegate {
     private let model = QuickSearchPanelModel()
     private let panel: NSPanel
+    /// Observes the panel's key events so the arrow keys move the result
+    /// highlight while the search field keeps focus. Only the arrows are
+    /// consumed; everything else, Return included, reaches the field.
+    private var keyMonitor: Any?
 
     override init() {
         panel = NSPanel(
@@ -33,6 +37,26 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
                 self?.dismiss()
             }
         )
+
+        // The search field holds focus, so arrow keys never reach the result
+        // list on their own. Intercept them at the panel instead: up and down
+        // move the model's highlight, and every other key passes through to
+        // the field (Return is handled by the field's onSubmit).
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window == self.panel, event.modifierFlags.isDisjoint(with: [.command, .option, .control]) else {
+                return event
+            }
+            switch event.keyCode {
+            case 125: // down arrow
+                self.model.moveSelection(by: 1)
+                return nil
+            case 126: // up arrow
+                self.model.moveSelection(by: -1)
+                return nil
+            default:
+                return event
+            }
+        }
     }
 
     var windowForTesting: NSPanel {

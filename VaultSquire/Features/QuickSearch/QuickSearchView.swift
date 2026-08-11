@@ -70,6 +70,11 @@ struct QuickSearchView: View {
                     resultRow(item)
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(
+                    model.selection == item.id
+                        ? Color.accentColor.opacity(0.18)
+                        : Color.clear
+                )
             }
             .listStyle(.plain)
             .accessibilityIdentifier("quick-search-results")
@@ -91,8 +96,10 @@ struct QuickSearchView: View {
     }
 
     private func openFirstResult() {
-        guard model.isUnlocked, let first = model.results.first else { return }
-        open(first.id)
+        // The model resolves the highlighted result, falling back to the top
+        // one; arrow keys move that highlight while the field keeps focus.
+        guard model.openSelectionOrFirst() != nil else { return }
+        onDismiss()
     }
 
     private func open(_ id: VaultItemID) {
