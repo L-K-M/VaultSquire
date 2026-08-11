@@ -29,8 +29,9 @@ final class SiteIconStore: ObservableObject {
     static let maximumCachedIcons = 500
 
     /// The largest icon body accepted. Real favicons are a few kilobytes; this
-    /// bounds what a hostile or misconfigured host can hand back.
-    static let maximumIconBytes = 256 * 1024
+    /// bounds what a hostile or misconfigured host can hand back. Nonisolated
+    /// so the off-actor fetcher enforces it mid-transfer.
+    nonisolated static let maximumIconBytes = 256 * 1024
 
     @Published private(set) var images: [String: NSImage] = [:]
 
