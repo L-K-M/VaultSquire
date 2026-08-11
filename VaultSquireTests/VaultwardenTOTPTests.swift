@@ -45,4 +45,56 @@ final class VaultwardenTOTPTests: XCTestCase {
             seed: "otpauth://totp/x?digits=6", at: Date()
         ), "a URI with no secret must not generate")
     }
+
+    // MARK: - Steam Guard
+
+    // Steam's own alphabet has no published RFC test vectors the way RFC 6238
+    // does, so these test the shape and determinism of the algorithm — five
+    // characters, all from Steam's alphabet, stable within one 30-second
+    // window, changing across one — rather than a hand-computed HMAC-SHA1
+    // digest this environment cannot execute to verify.
+    private let steamAlphabet = Set("23456789BCDFGHJKMNPQRTVWXY")
+
+    func testSteamSeedProducesAFiveCharacterCodeFromItsOwnAlphabet() {
+        let generated = VaultwardenTOTP.generate(
+            seed: "steam://\(rfcSecretBase32)", at: Date(timeIntervalSince1970: 59)
+        )
+        XCTAssertEqual(generated?.code.count, 5)
+        XCTAssertEqual(generated?.period, 30)
+        // Same 30s-boundary arithmetic as the standard-TOTP window: T=59 falls
+        // in the window that ends at T=60.
+        XCTAssertEqual(generated?.periodEnd, Date(timeIntervalSince1970: 60))
+        for character in generated?.code ?? "" {
+            XCTAssertTrue(steamAlphabet.contains(character), "\(character) is not in Steam's alphabet")
+        }
+    }
+
+    func testSteamSeedIsStableWithinItsWindowAndChangesAcrossOne() {
+        let secondsIntoWindow = VaultwardenTOTP.generate(
+            seed: "steam://\(rfcSecretBase32)", at: Date(timeIntervalSince1970: 31)
+        )
+        let laterInSameWindow = VaultwardenTOTP.generate(
+            seed: "steam://\(rfcSecretBase32)", at: Date(timeIntervalSince1970: 59)
+        )
+        let nextWindow = VaultwardenTOTP.generate(
+            seed: "steam://\(rfcSecretBase32)", at: Date(timeIntervalSince1970: 61)
+        )
+        XCTAssertEqual(secondsIntoWindow?.code, laterInSameWindow?.code)
+        XCTAssertNotEqual(laterInSameWindow?.code, nextWindow?.code)
+    }
+
+    func testSteamPrefixIsCaseInsensitive() {
+        let lower = VaultwardenTOTP.generate(
+            seed: "steam://\(rfcSecretBase32)", at: Date(timeIntervalSince1970: 59)
+        )
+        let upper = VaultwardenTOTP.generate(
+            seed: "Steam://\(rfcSecretBase32)", at: Date(timeIntervalSince1970: 59)
+        )
+        XCTAssertEqual(lower?.code, upper?.code)
+    }
+
+    func testMalformedSteamSeedReturnsNil() {
+        XCTAssertNil(VaultwardenTOTP.generate(seed: "steam://not-valid-base32!!", at: Date()))
+        XCTAssertNil(VaultwardenTOTP.generate(seed: "steam://", at: Date()), "an empty secret must not generate")
+    }
 }

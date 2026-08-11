@@ -30,6 +30,16 @@ enum VaultwardenTOTP {
     /// Parses a seed and generates the code for `date`. Returns nil for an
     /// unparseable seed or secret.
     static func generate(seed: String, at date: Date) -> Generated? {
+        let trimmed = seed.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Bitwarden's own "steam://<base32 secret>" seed form, used for Steam
+        // Guard codes: a fixed 30-second HMAC-SHA1 counter like standard TOTP,
+        // but the truncated value picks five characters from Steam's own
+        // alphabet instead of formatting six decimal digits. Handled as its
+        // own path rather than through `parse`/`code`, whose output is
+        // decimal-digits-shaped throughout.
+        if trimmed.lowercased().hasPrefix("steam://") {
+            return generateSteam(trimmed, at: date)
+        }
         guard let parameters = parse(seed: seed) else { return nil }
         let counter = UInt64(max(0, date.timeIntervalSince1970) / Double(parameters.period))
         guard let code = code(parameters: parameters, counter: counter) else { return nil }
@@ -39,6 +49,48 @@ enum VaultwardenTOTP {
             code: code,
             periodEnd: Date(timeIntervalSince1970: windowStart + Double(parameters.period)),
             period: parameters.period
+        )
+    }
+
+    /// Steam Guard's alphabet: 26 characters chosen to avoid visually
+    /// ambiguous ones (no 0/O/1/I, no vowels besides those excluded by the
+    /// same reasoning). Codes are always 5 characters, always HMAC-SHA1,
+    /// always a 30-second period — Steam's scheme has no equivalent of
+    /// otpauth's digits/algorithm/period parameters to override.
+    private static let steamAlphabet = Array("23456789BCDFGHJKMNPQRTVWXY")
+    private static let steamPeriod = 30
+
+    private static func generateSteam(_ seed: String, at date: Date) -> Generated? {
+        let secretString = String(seed.dropFirst("steam://".count))
+        guard let secret = base32Decode(secretString), !secret.isEmpty else { return nil }
+
+        let counter = UInt64(max(0, date.timeIntervalSince1970) / Double(steamPeriod))
+        var bigEndianCounter = counter.bigEndian
+        let message = withUnsafeBytes(of: &bigEndianCounter) { Data($0) }
+        let key = SymmetricKey(data: secret)
+        let digest = Data(HMAC<Insecure.SHA1>.authenticationCode(for: message, using: key))
+
+        // The same RFC 4226 dynamic truncation `code(parameters:counter:)`
+        // uses, stopping at the 31-bit integer: Steam maps that integer to
+        // its own alphabet instead of a decimal modulus.
+        let offset = Int(digest[digest.count - 1] & 0x0F)
+        let bytes = [UInt8](digest)
+        var fullCode = (UInt32(bytes[offset] & 0x7F) << 24)
+            | (UInt32(bytes[offset + 1]) << 16)
+            | (UInt32(bytes[offset + 2]) << 8)
+            | UInt32(bytes[offset + 3])
+
+        var characters: [Character] = []
+        for _ in 0..<5 {
+            characters.append(steamAlphabet[Int(fullCode % UInt32(steamAlphabet.count))])
+            fullCode /= UInt32(steamAlphabet.count)
+        }
+
+        let windowStart = Double(counter) * Double(steamPeriod)
+        return Generated(
+            code: String(characters),
+            periodEnd: Date(timeIntervalSince1970: windowStart + Double(steamPeriod)),
+            period: steamPeriod
         )
     }
 
