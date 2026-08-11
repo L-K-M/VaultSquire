@@ -149,9 +149,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Every open vault's items, for Quick Search — it always searches
-    /// everything that is open, regardless of the browser's scope.
+    /// everything that is open, regardless of the browser's scope. Merged the
+    /// same way the All Vaults list is, so a cross-vault search reads as one
+    /// sorted list rather than vault-by-vault blocks.
     var allOpenItems: [VaultItemProjection] {
-        sessions.filter(\.isOpen).flatMap(\.items)
+        sessions.filter(\.isOpen).flatMap(\.items).sorted { lhs, rhs in
+            lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+        }
     }
 
     /// The sync timestamp shown for the current scope: the oldest across the
@@ -1002,6 +1006,12 @@ extension AppModel: QuickSearchDataSource {
     /// scoped to; a locked vault contributes nothing.
     var quickSearchItems: [VaultItemProjection] { allOpenItems }
     var quickSearchIsUnlocked: Bool { isUnlocked }
+
+    /// The non-secret display name of the vault an item came from, for the
+    /// merged search's source badge.
+    func vaultTitle(for account: AccountID) -> String? {
+        session(for: account)?.title
+    }
 
     func openFromQuickSearch(_ id: VaultItemID) {
         quickSearchSelection = id

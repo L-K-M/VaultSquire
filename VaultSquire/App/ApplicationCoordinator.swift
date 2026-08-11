@@ -7,6 +7,9 @@ import AppKit
 protocol QuickSearchDataSource: AnyObject {
     var quickSearchItems: [VaultItemProjection] { get }
     var quickSearchIsUnlocked: Bool { get }
+    /// The non-secret display title of the vault an item came from, for the
+    /// merged search's source badge. Nil when the vault is no longer known.
+    func vaultTitle(for account: AccountID) -> String?
     func openFromQuickSearch(_ id: VaultItemID)
 }
 
@@ -36,9 +39,19 @@ final class ApplicationCoordinator {
             quickSearchController = controller
         }
 
+        let items = quickSearchDataSource?.quickSearchItems ?? []
+        // One title per account, for the merged search's source badge.
+        var vaultTitles: [AccountID: String] = [:]
+        for item in items where vaultTitles[item.id.account] == nil {
+            if let title = quickSearchDataSource?.vaultTitle(for: item.id.account) {
+                vaultTitles[item.id.account] = title
+            }
+        }
+
         controller.show(
-            items: quickSearchDataSource?.quickSearchItems ?? [],
+            items: items,
             isUnlocked: quickSearchDataSource?.quickSearchIsUnlocked ?? false,
+            vaultTitles: vaultTitles,
             onOpen: { [weak self] id in
                 self?.quickSearchDataSource?.openFromQuickSearch(id)
             }

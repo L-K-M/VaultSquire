@@ -432,6 +432,38 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.quickSearchIsUnlocked)
     }
 
+    /// The merged Quick Search list must read as one alphabetized list across
+    /// vaults, not vault-by-vault blocks in listing order.
+    func testQuickSearchMergesAndSortsEveryOpenVaultsItems() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        // Listed in reverse title order on purpose: the merged list must sort.
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"z","type":"login","title":"Zebra"},{"id":"a","type":"login","title":"Apple"}]}"#
+        )
+
+        let proton = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: proton, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                ),
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(proton)
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+
+        XCTAssertEqual(model.allOpenItems.map(\.displayTitle), ["Apple", "Zebra"])
+    }
+
     // MARK: - 1Password, read-only, per vault
 
     /// The default for tests that never open a 1Password vault. Its locator has

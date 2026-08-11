@@ -85,6 +85,18 @@ struct QuickSearchView: View {
                 }
             }
             Spacer()
+            // The search spans every open vault, so name the source: two vaults
+            // can hold items with the same title, and the badge is what tells
+            // them apart before opening.
+            if let vaultTitle = model.vaultTitle(for: item) {
+                Text(vaultTitle)
+                    .font(.caption2)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.15), in: Capsule())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
         .contentShape(Rectangle())
         .padding(.vertical, 2)
