@@ -59,6 +59,11 @@ final class AppModel: ObservableObject {
     /// The same, for opened 1Password items.
     @Published private var onePasswordContent: [VaultItemID: OnePasswordItemContent] = [:]
     private var hydratingItems: Set<VaultItemID> = []
+    /// Copies asked for from a list row before the provider had fetched the
+    /// value. The fetch is started and the copy completes when it lands, so the
+    /// gesture behaves the same whether the provider decrypts locally or shells
+    /// out for every item.
+    private var pendingCopies: [VaultItemID: CopyableSecret] = [:]
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
@@ -485,6 +490,7 @@ final class AppModel: ObservableObject {
         protonContent = [:]
         onePasswordContent = [:]
         hydratingItems = []
+        pendingCopies = [:]
         unlockError = nil
         refreshBiometricAvailability()
         clipboard.clearIfOwned()
@@ -499,6 +505,9 @@ final class AppModel: ObservableObject {
         protonContent = protonContent.filter { $0.key.account != account }
         onePasswordContent = onePasswordContent.filter { $0.key.account != account }
         hydratingItems = hydratingItems.filter { $0.account != account }
+        // A copy still waiting on a fetch must not land after the vault it came
+        // from has been closed.
+        pendingCopies = pendingCopies.filter { $0.key.account != account }
     }
 
     // MARK: - Touch ID
@@ -674,6 +683,7 @@ final class AppModel: ObservableObject {
                 // Never publish a secret into a vault the user locked meanwhile.
                 guard self.isCurrent(itemID.account, generation), let content else { return }
                 self.protonContent[itemID] = content
+                self.completePendingCopy(itemID)
             }
         case .onePassword:
             guard onePasswordContent[itemID] == nil,
@@ -693,6 +703,7 @@ final class AppModel: ObservableObject {
                 self.hydratingItems.remove(itemID)
                 guard self.isCurrent(itemID.account, generation), let content else { return }
                 self.onePasswordContent[itemID] = content
+                self.completePendingCopy(itemID)
             }
         }
     }
@@ -701,6 +712,93 @@ final class AppModel: ObservableObject {
     /// say so instead of looking like the item simply has no password.
     func isHydrating(_ itemID: VaultItemID) -> Bool {
         hydratingItems.contains(itemID)
+    }
+
+    // MARK: - Copying without opening an item
+
+    /// Copies from a list row, so the common gesture — get a password into the
+    /// clipboard — does not require selecting an item, waiting for its detail,
+    /// and aiming at a small button.
+    ///
+    /// Every copy goes through the same `ClipboardService` the detail uses, so
+    /// a secret copied from a row expires and is cleared on lock exactly as one
+    /// copied from the item view is, and every one is gated on the owning
+    /// vault's own capabilities.
+    enum CopyableSecret: Sendable {
+        case password
+        case oneTimeCode
+    }
+
+    /// Whether the vault that owns this item allows a secret to be copied at
+    /// all. A read-only provider still allows it; a vault that is closed does
+    /// not, and neither does one whose server marks the item unreadable.
+    func canCopySecret(_ itemID: VaultItemID) -> Bool {
+        guard let owner = session(for: itemID.account), owner.isOpen,
+              owner.capabilities.contains(.copySecret) else {
+            return false
+        }
+        return true
+    }
+
+    /// Whether this item has a one-time code to copy. Answered from the
+    /// decrypted detail, so it is false for a CLI item whose secrets have not
+    /// been fetched yet rather than offering an action that would do nothing.
+    func hasOneTimeCode(_ itemID: VaultItemID) -> Bool {
+        detail(for: itemID)?.fields.contains { $0.kind == .totpSeed } ?? false
+    }
+
+    /// The username shown on the row, which is never a secret and is always
+    /// present without a fetch.
+    func copyUsername(_ itemID: VaultItemID) {
+        guard let owner = session(for: itemID.account), owner.isOpen,
+              let username = owner.items.first(where: { $0.id == itemID })?.username,
+              !username.isEmpty else {
+            return
+        }
+        clipboard.copyPlain(username)
+    }
+
+    /// Copies a secret from a row. Vaultwarden decrypts locally, so the value
+    /// is already here; both CLI providers fetch on demand, so the fetch is
+    /// started and the copy lands when it answers rather than the gesture
+    /// quietly doing nothing.
+    func copySecret(_ kind: CopyableSecret, of itemID: VaultItemID) {
+        guard canCopySecret(itemID) else { return }
+        if let value = secretValue(kind, of: itemID) {
+            clipboard.copySecret(value)
+            return
+        }
+        guard session(for: itemID.account)?.kind != .vaultwarden else { return }
+        pendingCopies[itemID] = kind
+        hydrateIfNeeded(itemID)
+    }
+
+    /// The value a copy would put on the clipboard, or nil when it is not
+    /// available yet. A one-time code is generated here: the seed itself must
+    /// never reach the clipboard.
+    private func secretValue(_ kind: CopyableSecret, of itemID: VaultItemID) -> String? {
+        guard let detail = detail(for: itemID) else { return nil }
+        switch kind {
+        case .password:
+            return detail.fields.first { $0.kind == .secret }?.value
+        case .oneTimeCode:
+            guard let seed = detail.fields.first(where: { $0.kind == .totpSeed })?.value else {
+                return nil
+            }
+            return VaultwardenTOTP.generate(seed: seed, at: Date())?.code
+        }
+    }
+
+    /// Completes a copy that was waiting on a provider fetch. Nothing is copied
+    /// when the fetch produced no such field, so a request for a password an
+    /// item does not have leaves the clipboard alone.
+    private func completePendingCopy(_ itemID: VaultItemID) {
+        guard let kind = pendingCopies.removeValue(forKey: itemID),
+              canCopySecret(itemID),
+              let value = secretValue(kind, of: itemID) else {
+            return
+        }
+        clipboard.copySecret(value)
     }
 
     // MARK: - Writes

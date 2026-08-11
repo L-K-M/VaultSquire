@@ -62,6 +62,10 @@ struct VaultBrowserView: View {
         }
         .onChange(of: appModel.scope) { _, _ in
             selection = nil
+            // The query belongs to the list it was typed over. Carrying it into
+            // a folder that has no match for it made the folder look empty,
+            // with the only explanation three characters up in the toolbar.
+            query = ""
         }
         .task {
             // Offer Touch ID as soon as the browser appears when it is set up,
@@ -269,10 +273,67 @@ struct VaultBrowserView: View {
         List(filteredItems, selection: $selection) { item in
             itemRow(item)
                 .tag(item.id)
+                .contextMenu { itemActions(item) }
         }
         .searchable(text: $query, prompt: searchPrompt)
         .navigationTitle(scopeTitle)
         .accessibilityIdentifier("vault-item-list")
+        // An overlay rather than a replacement: a search that matches nothing
+        // must not take away the field the user needs to correct it.
+        .overlay {
+            if filteredItems.isEmpty {
+                emptyListState
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var emptyListState: some View {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty {
+            ContentUnavailableView.search(text: trimmed)
+                .accessibilityIdentifier("vault-item-list-no-matches")
+        } else {
+            ContentUnavailableView(
+                "Nothing here yet",
+                systemImage: "tray",
+                description: Text(appModel.scope == .allVaults
+                    ? "The open vaults have no items."
+                    : "This vault has no items in it.")
+            )
+            .accessibilityIdentifier("vault-item-list-empty")
+        }
+    }
+
+    /// The row's own actions. Getting a password into the clipboard is the
+    /// single most common thing anyone does with this app, and it previously
+    /// required selecting the item, waiting for its detail, and aiming at a
+    /// 16-point button. Every copy here goes through the same clipboard service
+    /// the detail uses, so it expires and clears on lock exactly the same way,
+    /// and each action is gated on the owning vault's own capabilities.
+    @ViewBuilder
+    private func itemActions(_ item: VaultItemProjection) -> some View {
+        if let username = item.username, !username.isEmpty {
+            Button("Copy Username") { appModel.copyUsername(item.id) }
+        }
+        if appModel.canCopySecret(item.id) {
+            Button("Copy Password") { appModel.copySecret(.password, of: item.id) }
+            if appModel.hasOneTimeCode(item.id) {
+                Button("Copy One-Time Code") { appModel.copySecret(.oneTimeCode, of: item.id) }
+            }
+        }
+        if appModel.canEdit(item.id) || appModel.canArchive(item.id) {
+            Divider()
+            if appModel.canEdit(item.id) {
+                Button("Edit…") {
+                    guard let draft = appModel.draft(for: item.id) else { return }
+                    editSession = EditSession(draft: draft)
+                }
+            }
+            if appModel.canArchive(item.id) {
+                Button("Archive") { appModel.archive(item.id) }
+            }
+        }
     }
 
     private var scopeTitle: String {
@@ -510,6 +571,7 @@ struct VaultBrowserView: View {
                 Label("Edit", systemImage: "pencil")
             }
             .disabled(selection.map { !appModel.canEdit($0) } ?? true || appModel.isWriting)
+            .keyboardShortcut("e", modifiers: .command)
             .accessibilityIdentifier("vault-edit")
 
             Button {
@@ -526,6 +588,7 @@ struct VaultBrowserView: View {
                 Label("Sync", systemImage: "arrow.clockwise")
             }
             .disabled(appModel.isSyncing || !appModel.isUnlocked)
+            .keyboardShortcut("r", modifiers: .command)
             .accessibilityIdentifier("vault-sync")
 
             Button {
