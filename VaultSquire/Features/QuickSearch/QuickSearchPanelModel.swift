@@ -19,8 +19,6 @@ final class VaultItemSearchModel: ObservableObject {
     /// holds key status.
     @Published private(set) var presentationID = 0
 
-    /// The searchable projections for this presentation, empty while locked.
-    @Published private(set) var items: [VaultItemProjection] = []
     /// Whether the vault is unlocked; drives the locked vs. results content.
     @Published private(set) var isUnlocked = false
 
@@ -53,7 +51,6 @@ final class VaultItemSearchModel: ObservableObject {
         setQueryWithoutSearching("")
         results = []
         totalMatchCount = 0
-        items = []
         isUnlocked = false
         searchIndex = VaultItemSearchIndex(items: [])
         onOpen = nil
@@ -76,7 +73,6 @@ final class VaultItemSearchModel: ObservableObject {
         cancelTasks()
         sourceRevision &+= 1
         let sourceRevision = sourceRevision
-        self.items = items
         self.isUnlocked = isUnlocked
         results = []
         totalMatchCount = 0
@@ -190,15 +186,13 @@ private struct VaultItemSearchIndex: Sendable {
         let title: String
         let subtitle: String
         let username: String
-        let websites: [String]
         let hosts: [String]
-        let groups: [String]
+        let searchableFields: [String]
         let sortKey: SortKey
 
         func rank(for query: Query) -> Rank? {
-            let fields = [title, subtitle, username] + websites + hosts + groups
             guard query.terms.allSatisfy({ term in
-                fields.contains { field in field.contains(term) }
+                searchableFields.contains { field in field.contains(term) }
             }) else {
                 return nil
             }
@@ -240,6 +234,8 @@ private struct VaultItemSearchIndex: Sendable {
     }
 
     private let entries: [Entry]
+    private static let invariantLocale = Locale(identifier: "en_US_POSIX")
+    private static let whitespace = CharacterSet.whitespacesAndNewlines
 
     init(items: [VaultItemProjection]) {
         entries = items
@@ -288,6 +284,7 @@ private struct VaultItemSearchIndex: Sendable {
         let websites = item.websites.map(normalize)
         let hosts = item.websites.compactMap(normalizedHost)
         let groups = item.groupingLabels.map(normalize)
+        let searchableFields = [title, subtitle, username] + websites + hosts + groups
         let sortKey = SortKey(
             title: title,
             subtitle: subtitle,
@@ -301,9 +298,8 @@ private struct VaultItemSearchIndex: Sendable {
             title: title,
             subtitle: subtitle,
             username: username,
-            websites: websites,
             hosts: hosts,
-            groups: groups,
+            searchableFields: searchableFields,
             sortKey: sortKey
         )
     }
@@ -345,17 +341,12 @@ private struct VaultItemSearchIndex: Sendable {
     }
 
     private static func normalize(_ string: String) -> String {
-        string
-            .folding(
+        collapseWhitespace(
+            string.folding(
                 options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                locale: Locale(identifier: "en_US_POSIX")
+                locale: invariantLocale
             )
-            .replacingOccurrences(
-                of: #"\s+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 
     private static func normalizedHost(_ website: String) -> String? {
@@ -371,5 +362,29 @@ private struct VaultItemSearchIndex: Sendable {
         case .providerSpace(let value):
             return value
         }
+    }
+
+    private static func collapseWhitespace(_ string: String) -> String {
+        var result = String()
+        result.reserveCapacity(string.count)
+        var previousWasWhitespace = true
+
+        for scalar in string.unicodeScalars {
+            if whitespace.contains(scalar) {
+                if !previousWasWhitespace {
+                    result.append(" ")
+                    previousWasWhitespace = true
+                }
+                continue
+            }
+
+            result.unicodeScalars.append(scalar)
+            previousWasWhitespace = false
+        }
+
+        if result.last == " " {
+            result.removeLast()
+        }
+        return result
     }
 }
