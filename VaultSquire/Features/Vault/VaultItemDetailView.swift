@@ -13,6 +13,14 @@ struct VaultItemDetailView: View {
     /// effective scheme and host the system browser will actually visit.
     @State private var pendingOpen: URIOpeningDecision?
     @State private var showOpenConfirmation = false
+    /// Which field's copy button is showing its transient "Copied" state.
+    @State private var copiedFieldID: String?
+    /// Cancels the pending "Copied" reset when another copy happens first.
+    @State private var copyResetTask: Task<Void, Never>?
+
+    /// How long a copy confirmation stays visible. Long enough to be noticed
+    /// while typing, short enough not to linger on screen.
+    private static let copyConfirmationDurationMS = 1_600
 
     var body: some View {
         ScrollView {
@@ -95,7 +103,7 @@ struct VaultItemDetailView: View {
             Text(field.value)
                 .textSelection(.enabled)
             Spacer()
-            copyButton(field.value, isSecret: false)
+            copyButton(field.value, isSecret: false, confirmationID: field.id)
         }
     }
 
@@ -114,7 +122,7 @@ struct VaultItemDetailView: View {
                 .accessibilityIdentifier("open-uri-\(field.label)")
             }
             Spacer()
-            copyButton(field.value, isSecret: false)
+            copyButton(field.value, isSecret: false, confirmationID: field.id)
         }
     }
 
@@ -132,7 +140,7 @@ struct VaultItemDetailView: View {
             .buttonStyle(.borderless)
             .help(revealed.contains(field.id) ? "Hide" : "Reveal")
             .accessibilityIdentifier("reveal-\(field.label)")
-            copyButton(field.value, isSecret: true)
+            copyButton(field.value, isSecret: true, confirmationID: field.id)
         }
     }
 
@@ -147,7 +155,7 @@ struct VaultItemDetailView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                     Spacer()
-                    copyButton(generated.code, isSecret: true)
+                    copyButton(generated.code, isSecret: true, confirmationID: field.id)
                 }
             } else {
                 Text("Unreadable one-time code seed")
@@ -157,18 +165,37 @@ struct VaultItemDetailView: View {
         }
     }
 
-    private func copyButton(_ value: String, isSecret: Bool) -> some View {
+    /// Copies a value and confirms it on the button itself: the icon becomes a
+    /// green checkmark with a "Copied" label for a moment. The confirmation
+    /// never echoes the value — a secret and a plain field look identical while
+    /// copying — and the secret's expiry is the clipboard's own 30-second
+    /// countdown, which this visual state only announces.
+    private func copyButton(_ value: String, isSecret: Bool, confirmationID: String) -> some View {
         Button {
             if isSecret {
                 ClipboardService.shared.copySecret(value)
             } else {
                 ClipboardService.shared.copyPlain(value)
             }
+            copiedFieldID = confirmationID
+            copyResetTask?.cancel()
+            copyResetTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(Self.copyConfirmationDurationMS))
+                if !Task.isCancelled {
+                    copiedFieldID = nil
+                }
+            }
         } label: {
-            Image(systemName: "doc.on.doc")
+            if copiedFieldID == confirmationID {
+                Label("Copied", systemImage: "checkmark")
+                    .foregroundStyle(.green)
+            } else {
+                Image(systemName: "doc.on.doc")
+            }
         }
         .buttonStyle(.borderless)
-        .help("Copy")
+        .help(copiedFieldID == confirmationID ? "Copied" : "Copy")
+        .animation(.snappy(duration: 0.15), value: copiedFieldID)
     }
 
     private func toggleReveal(_ id: String) {
