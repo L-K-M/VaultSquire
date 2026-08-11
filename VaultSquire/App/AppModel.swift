@@ -52,6 +52,13 @@ final class AppModel: ObservableObject {
     /// The same, for opened 1Password items.
     @Published private var onePasswordContent: [VaultItemID: OnePasswordItemContent] = [:]
     private var hydratingItems: Set<VaultItemID> = []
+    /// Plaintext-producing CLI work (Proton/1Password refresh and item
+    /// hydration), tracked so a lock terminates the child processes instead
+    /// of merely discarding their late results: their stdout carries
+    /// plaintext vault content, and SECURITY_AND_TESTING.md requires every
+    /// provider CLI process to be terminated on lock. Vaultwarden sync is
+    /// ciphertext-only and is deliberately not registered.
+    private var cliTasks: [UUID: (account: AccountID, task: Task<Void, Never>)] = [:]
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
@@ -65,6 +72,29 @@ final class AppModel: ObservableObject {
         self.protonService = protonService
         self.onePasswordService = onePasswordService
         self.biometricStore = biometricStore
+    }
+
+    /// Cancels and terminates the plaintext CLI work of one account, so a
+    /// lock stops the child process instead of letting it finish after the
+    /// vault is closed. A lock for the account clears its queued and in-flight
+    /// tasks.
+    private func cancelCLIWork(for account: AccountID) {
+        for (token, entry) in cliTasks where entry.account == account {
+            entry.task.cancel()
+            cliTasks[token] = nil
+        }
+    }
+
+    /// Registers a plaintext CLI task for an account so lock can terminate it.
+    /// The entry is removed once the task finishes, whether or not it was
+    /// cancelled.
+    private func trackCLI(_ task: Task<Void, Never>, for account: AccountID) {
+        let token = UUID()
+        cliTasks[token] = (account, task)
+        Task { [weak self] in
+            _ = await task.value
+            self?.cliTasks[token] = nil
+        }
     }
 
     // MARK: - Aggregate state
@@ -370,7 +400,7 @@ final class AppModel: ObservableObject {
         let generation = current.generation
         mutate(account) { $0.state = .opening }
 
-        Task { [protonService] in
+        let task = Task { [protonService] in
             let result = await protonService.refresh()
             guard self.isCurrent(account, generation) else { return }
             switch result {
@@ -388,6 +418,7 @@ final class AppModel: ObservableObject {
                 )
             }
         }
+        trackCLI(task, for: account)
     }
 
     /// Opens the 1Password vault read-only: a CLI refresh, its projections, and
@@ -401,7 +432,7 @@ final class AppModel: ObservableObject {
 
         // The vault's own identity carries the CLI account it was added for.
         let accountUUID = account.rawValue
-        Task { [onePasswordService] in
+        let task = Task { [onePasswordService] in
             let result = await onePasswordService.refresh(accountUUID: accountUUID)
             guard self.isCurrent(account, generation) else { return }
             switch result {
@@ -419,11 +450,15 @@ final class AppModel: ObservableObject {
                 )
             }
         }
+        trackCLI(task, for: account)
     }
 
     /// Closes one vault, dropping only its decrypted state.
     func lock(_ account: AccountID) {
         guard session(for: account) != nil else { return }
+        // Plaintext CLI work for this vault must stop, not merely be ignored:
+        // its child process is still holding decrypted output.
+        cancelCLIWork(for: account)
         mutate(account) { $0.close() }
         dropFetchedContent(for: account)
         unlockError = nil
@@ -440,6 +475,9 @@ final class AppModel: ObservableObject {
     /// Closes every vault. Idempotent, and the shell's lock-everything action.
     func lock() {
         for account in sessions.map(\.account) {
+            // Terminate in-flight plaintext CLI children before dropping the
+            // decrypted state they were producing.
+            cancelCLIWork(for: account)
             mutate(account) { $0.close() }
         }
         protonContent = [:]
@@ -628,13 +666,14 @@ final class AppModel: ObservableObject {
                 return
             }
             hydratingItems.insert(itemID)
-            Task { [protonService] in
+            let task = Task { [protonService] in
                 let content = await protonService.content(shareID: shareID, itemID: itemID.rawValue)
                 self.hydratingItems.remove(itemID)
                 // Never publish a secret into a vault the user locked meanwhile.
                 guard self.isCurrent(itemID.account, generation), let content else { return }
                 self.protonContent[itemID] = content
             }
+            trackCLI(task, for: itemID.account)
         case .onePassword:
             guard onePasswordContent[itemID] == nil,
                   let vaultID = OnePasswordAccountService.vaultIdentifier(of: itemID) else {
@@ -644,7 +683,7 @@ final class AppModel: ObservableObject {
             // second signed-in account cannot answer this read.
             let accountUUID = itemID.account.rawValue
             hydratingItems.insert(itemID)
-            Task { [onePasswordService] in
+            let task = Task { [onePasswordService] in
                 let content = await onePasswordService.content(
                     itemID: itemID.rawValue,
                     vaultID: vaultID,
@@ -654,6 +693,7 @@ final class AppModel: ObservableObject {
                 guard self.isCurrent(itemID.account, generation), let content else { return }
                 self.onePasswordContent[itemID] = content
             }
+            trackCLI(task, for: itemID.account)
         }
     }
 
@@ -728,6 +768,13 @@ final class AppModel: ObservableObject {
             writeError = Self.rotationWriteBlockedMessage
             return
         }
+        // The vault's sync and a write both load-and-replace the stored
+        // refresh token; running them concurrently for one account could lose
+        // a rotation. A write waits for the vault's sync to finish.
+        guard !owner.isSyncing else {
+            writeError = "Wait for this vault to finish syncing, then save again."
+            return
+        }
         isWriting = true
         writeError = nil
         Task { [service] in
@@ -745,7 +792,14 @@ final class AppModel: ObservableObject {
     }
 
     func archive(_ itemID: VaultItemID) {
-        guard !isWriting, canArchive(itemID) else { return }
+        guard !isWriting, canArchive(itemID),
+              let owner = session(for: itemID.account) else { return }
+        // Serialize with the vault's sync, which also replaces the stored
+        // refresh token, so the two cannot race it for one account.
+        guard !owner.isSyncing else {
+            writeError = "Wait for this vault to finish syncing, then archive again."
+            return
+        }
         let account = itemID.account
         isWriting = true
         writeError = nil
@@ -772,9 +826,12 @@ final class AppModel: ObservableObject {
     }
 
     /// Syncs one vault. A failure surfaces on that vault's row without dropping
-    /// the items it is already showing.
+    /// the items it is already showing. A sync is skipped while a write is in
+    /// flight so the two cannot race the stored refresh token for one account;
+    /// the write's own completion sync covers the result.
     func syncNow(_ account: AccountID) {
-        guard let current = session(for: account), current.isOpen, !current.isSyncing else { return }
+        guard let current = session(for: account), current.isOpen, !current.isSyncing,
+              !isWriting else { return }
         let generation = current.generation
         mutate(account) {
             $0.isSyncing = true
@@ -815,7 +872,7 @@ final class AppModel: ObservableObject {
                 }
             }
         case .proton:
-            Task { [protonService] in
+            let task = Task { [protonService] in
                 let result = await protonService.refresh()
                 guard self.isCurrent(account, generation) else { return }
                 self.mutate(account) { session in
@@ -831,9 +888,10 @@ final class AppModel: ObservableObject {
                     }
                 }
             }
+            trackCLI(task, for: account)
         case .onePassword:
             let accountUUID = account.rawValue
-            Task { [onePasswordService] in
+            let task = Task { [onePasswordService] in
                 let result = await onePasswordService.refresh(accountUUID: accountUUID)
                 guard self.isCurrent(account, generation) else { return }
                 self.mutate(account) { session in
@@ -849,6 +907,7 @@ final class AppModel: ObservableObject {
                     }
                 }
             }
+            trackCLI(task, for: account)
         }
     }
 

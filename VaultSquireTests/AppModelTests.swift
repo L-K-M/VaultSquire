@@ -101,7 +101,7 @@ final class AppModelTests: XCTestCase {
     // MARK: - Proton, read-only, per vault
 
     @MainActor
-    private func makeProtonService(executor: FakeCLIExecutor) -> ProtonAccountService {
+    private func makeProtonService(executor: any CLIExecuting) -> ProtonAccountService {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VSQ-appmodel-proton-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -698,6 +698,34 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.sessions.count, 1)
     }
 
+    /// Lock must terminate an in-flight CLI child process, not merely discard
+    /// its late result: the child's stdout carries plaintext vault content, and
+    /// SECURITY_AND_TESTING.md §"Memory And Lifecycle" requires every provider
+    /// CLI process to be terminated on lock.
+    @MainActor
+    func testLockTerminatesInFlightProtonCLIWork() async throws {
+        let executor = BlockingUntilCancelledExecutor()
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+
+        model.open(account)
+        try await pollUntilAsync { await executor.started == true }
+
+        model.lock(account)
+        // The blocked CLI call must return promptly: the child was terminated.
+        try await pollUntilAsync { await executor.finished == true }
+        XCTAssertTrue(model.isLocked)
+    }
+
     @MainActor
     private func pollUntil(
         _ condition: () -> Bool,
@@ -709,5 +737,42 @@ final class AppModelTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(5))
         }
         XCTFail("condition did not hold within the timeout", file: file, line: line)
+    }
+
+    @MainActor
+    private func pollUntilAsync(
+        _ condition: () async -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<400 {
+            if await condition() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("condition did not hold within the timeout", file: file, line: line)
+    }
+}
+
+/// A test executor whose `execute` blocks until its task is cancelled, then
+/// records that it finished — standing in for a CLI child process that a lock
+/// must terminate.
+private actor BlockingUntilCancelledExecutor: CLIExecuting {
+    private(set) var started = false
+    private(set) var finished = false
+
+    func execute(
+        _ invocation: CLIInvocation,
+        executableURL: URL
+    ) async throws -> CLIExecution {
+        started = true
+        await withTaskCancellationHandler {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        } onCancel: {
+            // The loop observes the cancellation; nothing else to do here.
+        }
+        finished = true
+        throw CLIExecutionError.cancelled
     }
 }
