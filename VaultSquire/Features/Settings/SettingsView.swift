@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
+    @EnvironmentObject private var siteIcons: SiteIconStore
 
     var body: some View {
         TabView {
@@ -22,11 +23,18 @@ struct SettingsView: View {
                 Label("General", systemImage: "gearshape")
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                Label("No telemetry", systemImage: "hand.raised")
-                    .font(.headline)
-                Text("VaultSquire records only fixed, allowlisted lifecycle and performance events. Account and item values are never diagnostic metadata.")
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("No telemetry", systemImage: "hand.raised")
+                        .font(.headline)
+                    Text("VaultSquire records only fixed, allowlisted lifecycle and performance events. Account and item values are never diagnostic metadata.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Divider()
+
+                siteIconSection
                 Spacer()
             }
             .padding(28)
@@ -52,6 +60,26 @@ struct SettingsView: View {
         let open = appModel.sessions.filter(\.isOpen).count
         guard open > 0 else { return "Locked" }
         return open == 1 ? "1 vault open" : "\(open) vaults open"
+    }
+
+    /// Site-icon opt-in. Off by default, and the wording says plainly what
+    /// turning it on costs rather than describing it as a display preference:
+    /// it is the one setting that sends anything derived from vault content to
+    /// a host that is not the user's own server.
+    @ViewBuilder
+    private var siteIconSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Show site icons", isOn: $siteIcons.isEnabled)
+                .accessibilityIdentifier("settings-site-icons")
+            Text("Fetches each login's icon from that site itself. The site learns that this Mac holds an entry for it, so this is off until you ask for it. VaultSquire never uses an icon service, which would receive your whole list of sites instead, and no icon is written to disk.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("With this off, each login still gets a letter on a colour derived from its address — no network, and the same colour every time.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Touch ID opt-in. Enrolling needs the vault open, because the key it

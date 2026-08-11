@@ -92,6 +92,16 @@ security boundaries:
   stored, and what is stored decrypts vault content only: it cannot authenticate
   to the server. Changing the enrolled fingerprints or rotating the vault key
   invalidates it, and every failure falls back to the password prompt.
+- **Item icons, without telling anyone what's in your vault.** Every row carries
+  a badge: a letter on a colour derived from the site's address, deterministic,
+  so a given login looks the same on every launch and two logins at the same
+  site match. Real site icons are a separate switch under Settings → Privacy,
+  off by default, because fetching one is the only thing VaultSquire does that
+  sends anything derived from vault content to a host that is not your own
+  server — asking `example.com` for its icon tells it that this Mac holds an
+  entry for it. When it is on, each icon comes from that site's own origin and
+  never from an icon service, which would instead receive your entire list of
+  sites; nothing is cached to disk, so the set of sites leaves no trace.
 - **One unlock opens the app.** Unlocking — by master password or by Touch ID —
   also opens every configured vault that has no credential of its own to
   collect, which is both CLI providers: their sessions live in the official CLI
