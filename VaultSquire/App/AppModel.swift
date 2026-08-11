@@ -497,6 +497,16 @@ final class AppModel: ObservableObject {
     internal var cliBackgroundTaskCountForTesting: Int {
         cliBackgroundTasks.values.flatMap { $0.values }.count
     }
+
+    /// Registers a CLI-producing task exactly as openProton/openOnePassword/
+    /// hydrate/sync do, so a test can exercise the lock-cancels-CLI-tasks path
+    /// deterministically without driving the full provider service chain.
+    internal func registerCLIBackgroundTaskForTesting(
+        account: AccountID,
+        operation: @escaping @MainActor () async -> Void
+    ) {
+        cliTask(for: account, operation: operation)
+    }
     #endif
 
     /// Drops every on-demand secret fetched for one vault. Both CLI providers
