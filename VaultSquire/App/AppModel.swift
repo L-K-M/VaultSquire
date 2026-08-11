@@ -912,6 +912,8 @@ final class AppModel: ObservableObject {
             return "VaultSquire couldn't read the Proton Pass CLI's version."
         case .notAuthenticated:
             return "The Proton Pass CLI isn't signed in. Sign in with the official CLI in your terminal, then try again."
+        case .incompleteVaultRead:
+            return "VaultSquire couldn't read every Proton Pass vault, so it kept the previous offline snapshot."
         case .unreadableOutput:
             return "The Proton Pass CLI returned output VaultSquire couldn't read."
         case .executionFailed:
@@ -934,6 +936,8 @@ final class AppModel: ObservableObject {
             return "1Password didn't authorize the read. Make sure the 1Password app is running and unlocked with \"Integrate with 1Password CLI\" turned on in Settings › Developer, then try again and approve its prompt."
         case .unusableAccount:
             return "This vault's 1Password account is no longer one the CLI will accept. Remove the vault and add it again."
+        case .incompleteVaultRead:
+            return "VaultSquire couldn't read every 1Password vault, so it kept the previous offline snapshot."
         case .unreadableOutput:
             return "The 1Password CLI returned output VaultSquire couldn't read."
         case .executionFailed:

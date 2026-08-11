@@ -45,6 +45,9 @@ enum OnePasswordServiceError: Error, Equatable, Sendable {
     /// The account identifier this vault was configured with is no longer one
     /// the CLI will accept, so no command can be safely addressed to it.
     case unusableAccount
+    /// The account was readable, but at least one vault could not be listed
+    /// completely, so no authoritative complete snapshot was produced.
+    case incompleteVaultRead
     case unreadableOutput
     case executionFailed
 }
@@ -233,14 +236,7 @@ struct OnePasswordAccountService: Sendable {
                 ))
             } catch OnePasswordCLIRunnerError.commandFailed,
                     OnePasswordCLIRunnerError.invalidIdentifier {
-                // A single unreadable vault is skipped, not fatal to the
-                // refresh: a vault the account cannot list, one whose
-                // identifier the build will not accept for `--vault`, or one
-                // whose identifier failed validation before any command ran,
-                // should not cost the user every other vault. A malformed
-                // payload is different and still fails the refresh below,
-                // because that means the decoder itself may be wrong.
-                continue
+                return .failure(.incompleteVaultRead)
             } catch is OnePasswordReadModelError {
                 return .failure(.unreadableOutput)
             } catch {

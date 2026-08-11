@@ -150,6 +150,72 @@ final class ProtonAccountServiceTests: XCTestCase {
         XCTAssertEqual(error, .unreadableOutput)
     }
 
+    func testRefreshFailsWhenAnyVaultCannotBeListedAndKeepsThePriorCachedSnapshot() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "2.2.4")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"},{"shareId":"S2","name":"Shared"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"Kept","content":{"username":"kept@example.com"}}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S2", "--output", "json"],
+            stdout: Data(),
+            exitCode: 1
+        )
+        let service = makeService(executor: executor)
+        let prior = ProtonSnapshot(
+            cliVersion: "2.2.4",
+            capturedAt: Date(timeIntervalSince1970: 1_600_000_000),
+            vaults: [ProtonVault(shareID: "S0", vaultID: "V0", name: "Prior")],
+            items: [
+                ProtonItem(
+                    itemID: "prior-item",
+                    shareID: "S0",
+                    vaultName: "Prior",
+                    type: .login,
+                    title: "Prior Snapshot",
+                    username: "prior@example.com",
+                    password: nil,
+                    totp: nil,
+                    urls: [],
+                    note: nil
+                )
+            ]
+        )
+        try service.cache.save(prior, for: ProtonAccountService.accountID)
+
+        let result = await service.refresh()
+        guard case .failure(let error) = result else { return XCTFail("expected failure") }
+        XCTAssertEqual(error, .incompleteVaultRead)
+        XCTAssertEqual(service.cachedSnapshot(), prior)
+    }
+
+    func testRefreshFailsOnAnInvalidVaultIdentifierAndKeepsThePriorCachedSnapshot() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "2.2.4")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"--bad","name":"Broken"}]}"#
+        )
+        let service = makeService(executor: executor)
+        let prior = ProtonSnapshot(
+            cliVersion: "2.2.4",
+            capturedAt: Date(timeIntervalSince1970: 1_600_000_001),
+            vaults: [ProtonVault(shareID: "S0", vaultID: "V0", name: "Prior")],
+            items: []
+        )
+        try service.cache.save(prior, for: ProtonAccountService.accountID)
+
+        let result = await service.refresh()
+        guard case .failure(let error) = result else { return XCTFail("expected failure") }
+        XCTAssertEqual(error, .incompleteVaultRead)
+        XCTAssertEqual(service.cachedSnapshot(), prior)
+    }
+
     func testProbeStatusReadyWhenAuthenticated() async {
         let executor = FakeCLIExecutor()
         await stubHappyPath(executor)
