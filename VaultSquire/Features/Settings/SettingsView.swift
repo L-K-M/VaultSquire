@@ -7,12 +7,7 @@ struct SettingsView: View {
         TabView {
             Form {
                 LabeledContent("App shortcut", value: "Command-Shift-Space")
-                LabeledContent(
-                    "Vault state",
-                    value: appModel.hasNoAccounts
-                        ? "No accounts"
-                        : (appModel.isLocked ? "Locked" : "Unavailable")
-                )
+                LabeledContent("Vault state", value: vaultStateDescription)
 
                 Divider()
 
@@ -48,6 +43,15 @@ struct SettingsView: View {
         }
         .frame(width: 540, height: 340)
         .accessibilityIdentifier("settings-view")
+    }
+
+    /// How many vaults are open, which is the honest answer now that several
+    /// can be. The old wording reported "Unavailable" for an open vault.
+    private var vaultStateDescription: String {
+        if appModel.hasNoAccounts { return "No accounts" }
+        let open = appModel.sessions.filter(\.isOpen).count
+        guard open > 0 else { return "Locked" }
+        return open == 1 ? "1 vault open" : "\(open) vaults open"
     }
 
     /// Touch ID opt-in. Enrolling needs the vault open, because the key it

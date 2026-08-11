@@ -135,6 +135,7 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
             && fileManager.fileExists(atPath: fileURL(for: account).path)
     }
 
+
     func store(userKey: Data, boundTo wrappedUserKey: String, for account: AccountID) throws {
         guard isBiometryAvailable else { throw BiometricUnlockError.unavailable }
 
@@ -170,13 +171,26 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         // duplicate, and an old key must not linger behind a stale control.
         try? remove(for: account)
 
-        var query = baseQuery(for: account)
-        query[kSecValueData] = quickUnlockKey.withUnsafeBytes { Data($0) }
-        query[kSecAttrAccessControl] = control
-        query[kSecAttrSynchronizable] = kCFBooleanFalse
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw BiometricUnlockError.failed(status)
+        // The Data Protection Keychain needs a keychain-access-group
+        // entitlement, which a locally built or ad-hoc-signed app does not
+        // carry, so fall back to the legacy Keychain rather than failing the
+        // feature outright. The access control travels with the item either way.
+        var lastStatus = errSecSuccess
+        var stored = false
+        for dataProtection in [true, false] {
+            var query = baseQuery(for: account, dataProtection: dataProtection)
+            query[kSecValueData] = quickUnlockKey.withUnsafeBytes { Data($0) }
+            query[kSecAttrAccessControl] = control
+            query[kSecAttrSynchronizable] = kCFBooleanFalse
+            let status = SecItemAdd(query as CFDictionary, nil)
+            if status == errSecSuccess {
+                stored = true
+                break
+            }
+            lastStatus = status
+        }
+        guard stored else {
+            throw BiometricUnlockError.failed(lastStatus)
         }
 
         do {
@@ -187,6 +201,15 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
             // enrollment back so the state stays consistent.
             try? remove(for: account)
             throw BiometricUnlockError.failed(errSecIO)
+        }
+
+        // Prove the enrollment is readable back before reporting success. A
+        // write the Keychain accepted but no lookup can find would otherwise
+        // leave the UI silently unchanged, which is what "clicking does
+        // nothing" looks like.
+        guard hasKey(for: account) else {
+            try? remove(for: account)
+            throw BiometricUnlockError.failed(errSecItemNotFound)
         }
     }
 
@@ -202,13 +225,18 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         // of the quick-unlock key rather than merely preceding it.
         box.context.localizedReason = reason
 
-        var query = baseQuery(for: account)
-        query[kSecReturnData] = kCFBooleanTrue
-        query[kSecMatchLimit] = kSecMatchLimitOne
-        query[kSecUseAuthenticationContext] = box.context
-
+        // Read from whichever Keychain accepted the enrollment.
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        var status = errSecItemNotFound
+        for dataProtection in [true, false] {
+            var query = baseQuery(for: account, dataProtection: dataProtection)
+            query[kSecReturnData] = kCFBooleanTrue
+            query[kSecMatchLimit] = kSecMatchLimitOne
+            query[kSecUseAuthenticationContext] = box.context
+            status = SecItemCopyMatching(query as CFDictionary, &result)
+            if status != errSecItemNotFound { break }
+        }
+
         switch status {
         case errSecSuccess:
             break
@@ -255,12 +283,19 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         if fileManager.fileExists(atPath: url.path) {
             try? fileManager.removeItem(at: url)
         }
-        let status = SecItemDelete(baseQuery(for: account) as CFDictionary)
-        switch status {
-        case errSecSuccess, errSecItemNotFound:
-            return
-        default:
-            throw BiometricUnlockError.failed(status)
+        // Delete from both Keychains: an enrollment made under one must not
+        // survive revocation because the other reported "not found".
+        var failure: OSStatus?
+        for dataProtection in [true, false] {
+            let status = SecItemDelete(
+                baseQuery(for: account, dataProtection: dataProtection) as CFDictionary
+            )
+            if status != errSecSuccess && status != errSecItemNotFound {
+                failure = status
+            }
+        }
+        if let failure {
+            throw BiometricUnlockError.failed(failure)
         }
     }
 
@@ -268,15 +303,24 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
 
     /// Whether the gated Keychain record exists, without prompting: an
     /// existence check must never put a fingerprint dialog on screen.
+    ///
+    /// Attributes are requested rather than data — asking for the secret is
+    /// what would prompt, and a query that returns nothing at all is not a
+    /// valid lookup. This mirrors `KeychainCredentialStore.hasCredentials`.
     private func keychainItemExists(for account: AccountID) -> Bool {
-        var query = baseQuery(for: account)
-        query[kSecReturnData] = kCFBooleanFalse
-        query[kSecMatchLimit] = kSecMatchLimitOne
-        query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        // A gated item reports "interaction not allowed" precisely because it
-        // exists and would have prompted.
-        return status == errSecSuccess || status == errSecInteractionNotAllowed
+        for dataProtection in [true, false] {
+            var query = baseQuery(for: account, dataProtection: dataProtection)
+            query[kSecReturnAttributes] = kCFBooleanTrue
+            query[kSecMatchLimit] = kSecMatchLimitOne
+            query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
+            let status = SecItemCopyMatching(query as CFDictionary, nil)
+            // A gated item reports "interaction not allowed" precisely because
+            // it exists and would have prompted.
+            if status == errSecSuccess || status == errSecInteractionNotAllowed {
+                return true
+            }
+        }
+        return false
     }
 
     /// Prefer complete file protection, falling back to a plain atomic write
@@ -303,12 +347,15 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         return directory.appendingPathComponent("\(name).quickunlock", isDirectory: false)
     }
 
-    private func baseQuery(for account: AccountID) -> [CFString: Any] {
-        [
+    private func baseQuery(for account: AccountID, dataProtection: Bool) -> [CFString: Any] {
+        var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
-            kSecUseDataProtectionKeychain: kCFBooleanTrue as Any,
             kSecAttrService: service,
             kSecAttrAccount: "\(account.provider.rawValue)|\(account.rawValue)",
         ]
+        if dataProtection {
+            query[kSecUseDataProtectionKeychain] = kCFBooleanTrue
+        }
+        return query
     }
 }

@@ -181,6 +181,42 @@ final class BiometricUnlockTests: XCTestCase {
         XCTAssertEqual(stored, userKeyData)
     }
 
+    /// The silent-failure regression: pressing the Settings button did nothing
+    /// visible when the Keychain refused the write. Enrollment that fails must
+    /// leave a message and must not claim to be enrolled.
+    @MainActor
+    func testFailedEnrollmentReportsInsteadOfDoingNothing() async throws {
+        let store = FakeBiometricVaultKeyStore()
+        try store.store(userKey: userKeyData, boundTo: wrappedUserKey, for: account)
+        let model = try makeModel(store: store)
+        model.refreshAccountPresence()
+        model.unlockWithBiometrics()
+        try await pollUntil { model.isUnlocked }
+
+        model.disableBiometricUnlock()
+        XCTAssertTrue(model.canEnrollBiometrics)
+
+        store.storeFails = true
+        model.enableBiometricUnlock()
+
+        XCTAssertNotNil(model.biometricError, "a refused enrollment must say so")
+        XCTAssertFalse(model.canUnlockWithBiometrics, "and must not claim to be enrolled")
+    }
+
+    /// Pressing enroll with no vault open explains itself rather than silently
+    /// returning.
+    @MainActor
+    func testEnrollingWithNoOpenVaultExplainsItself() throws {
+        let store = FakeBiometricVaultKeyStore()
+        let model = try makeModel(store: store)
+        model.refreshAccountPresence()
+
+        model.enableBiometricUnlock()
+
+        XCTAssertNotNil(model.biometricError)
+        XCTAssertFalse(store.hasKey(for: account))
+    }
+
     @MainActor
     func testLockingDropsTheEnrollmentOffer() async throws {
         let store = FakeBiometricVaultKeyStore()

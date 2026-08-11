@@ -406,7 +406,12 @@ final class AppModel: ObservableObject {
     /// Enrolls the open Vaultwarden vault's key behind Touch ID. Requires that
     /// vault to be open, because the key only exists in memory while it is.
     func enableBiometricUnlock() {
-        guard let vault = session(for: .vaultwardenPrimary)?.vaultwarden else { return }
+        guard let vault = session(for: .vaultwardenPrimary)?.vaultwarden else {
+            // The key exists only while the vault is open, so say that rather
+            // than doing nothing when the button is pressed in a closed state.
+            biometricError = "Unlock your vault first, then turn on Touch ID."
+            return
+        }
         let keyData = vault.keyring.userKey.encryptionKey + vault.keyring.userKey.macKey
         do {
             try biometricStore.store(
@@ -415,10 +420,34 @@ final class AppModel: ObservableObject {
                 for: .vaultwardenPrimary
             )
             biometricError = nil
+        } catch let error as BiometricUnlockError {
+            biometricError = Self.message(for: error)
         } catch {
             biometricError = "Touch ID couldn't be enabled for this vault."
         }
         refreshBiometricAvailability()
+    }
+
+    /// Enrollment and revocation failures, named exactly. The Keychain status
+    /// is included because it is the only thing that distinguishes "this build
+    /// isn't signed for the Keychain" from a genuine fault, and it is not
+    /// secret.
+    private static func message(for error: BiometricUnlockError) -> String {
+        switch error {
+        case .unavailable:
+            return "This Mac has no Touch ID available to VaultSquire."
+        case .cancelled:
+            return "Touch ID was cancelled."
+        case .notEnrolled:
+            return "Touch ID isn't set up for this vault."
+        case .invalidated:
+            return "The stored Touch ID key is no longer usable. Unlock with your master password and turn it on again."
+        case .failed(let status):
+            if status == errSecMissingEntitlement || status == errSecNotAvailable {
+                return "The Keychain refused to store the key (\(status)). A locally built, ad-hoc-signed VaultSquire has no Keychain entitlement; a signed build is needed for Touch ID."
+            }
+            return "The Keychain refused to store the key (status \(status))."
+        }
     }
 
     /// Forgets the enrolled key, so the next unlock needs the master password.
