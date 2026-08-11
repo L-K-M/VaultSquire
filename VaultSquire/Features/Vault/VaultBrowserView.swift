@@ -18,6 +18,9 @@ struct VaultBrowserView: View {
     @State private var selection: VaultItemID?
     @State private var query = ""
     @State private var editSession: EditSession?
+    /// The item awaiting archive confirmation; nil when no dialog is up.
+    @State private var pendingArchive: VaultItemID?
+    @State private var showArchiveConfirmation = false
     /// The password being typed for a locked vault, keyed by vault so switching
     /// between two locked vaults does not carry one field's text to the other.
     @State private var passwords: [AccountID: String] = [:]
@@ -49,6 +52,23 @@ struct VaultBrowserView: View {
         .sheet(item: $editSession) { session in
             VaultItemEditView(draft: session.draft) { editSession = nil }
                 .environmentObject(appModel)
+        }
+        .confirmationDialog(
+            "Archive this item?",
+            isPresented: $showArchiveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Archive", role: .destructive) {
+                if let pendingArchive {
+                    appModel.archive(pendingArchive)
+                }
+                pendingArchive = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingArchive = nil
+            }
+        } message: {
+            Text("\(archiveCandidateTitle) moves to the archive and leaves every list and search. You can unarchive it from the web vault.")
         }
         .onChange(of: appModel.quickSearchSelection) { _, newValue in
             guard let newValue else { return }
@@ -425,6 +445,17 @@ struct VaultBrowserView: View {
         )
     }
 
+    /// The quoted name of the item the archive confirmation names, so the
+    /// dialog is about a specific entry rather than an abstract action.
+    private var archiveCandidateTitle: String {
+        guard let pendingArchive,
+              let title = appModel.allOpenItems.first(where: { $0.id == pendingArchive })?.displayTitle,
+              !title.isEmpty else {
+            return "This item"
+        }
+        return "\u{201C}\(title)\u{201D}"
+    }
+
     private func submitUnlock(_ account: AccountID) {
         let password = passwords[account] ?? ""
         guard !password.isEmpty else { return }
@@ -513,7 +544,10 @@ struct VaultBrowserView: View {
             .accessibilityIdentifier("vault-edit")
 
             Button {
-                if let selection { appModel.archive(selection) }
+                if let selection {
+                    pendingArchive = selection
+                    showArchiveConfirmation = true
+                }
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }
