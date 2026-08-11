@@ -63,7 +63,7 @@ final class VaultwardenKeyDerivationTests: XCTestCase {
         let masterKey = try await VaultwardenKeyDerivation.deriveMasterKey(
             passwordBytes: Data(VaultwardenCryptoFixtures.passwordWhitespace.utf8),
             email: VaultwardenCryptoFixtures.emailRaw,
-            configuration: .pbkdf2SHA256(iterations: 5000)
+            configuration: .pbkdf2SHA256(iterations: 100_000)
         )
 
         XCTAssertEqual(
@@ -74,7 +74,7 @@ final class VaultwardenKeyDerivationTests: XCTestCase {
 
     func testStretchedMasterKeyKnownAnswer() throws {
         let cases = VaultwardenCryptoFixtures.pbkdf2Cases
-        let masterKey = Data(hexFixture: cases[1].masterKeyHex)!
+        let masterKey = Data(hexFixture: cases[0].masterKeyHex)!
 
         let stretched = try VaultwardenKeyDerivation.stretchMasterKey(masterKey)
 
@@ -87,7 +87,7 @@ final class VaultwardenKeyDerivationTests: XCTestCase {
 
     func testPBKDF2BoundsAreEnforced() async {
         await assertKDFIssue(
-            .pbkdf2SHA256(iterations: 4_999),
+            .pbkdf2SHA256(iterations: 99_999),
             expected: .iterationsBelowFloor
         )
         await assertKDFIssue(

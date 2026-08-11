@@ -10,7 +10,16 @@ enum VaultwardenKDFConfiguration: Hashable, Sendable {
     case pbkdf2SHA256(iterations: Int)
     case argon2id(iterations: Int, memoryMiB: Int, parallelism: Int)
 
-    static let pbkdf2IterationFloor = 5_000
+    /// Minimum accepted PBKDF2 round count. A legitimate Vaultwarden/Bitwarden
+    /// server already enforces this server-side (historically 100 000, the
+    /// long-standing minimum), so the only time a client observes fewer rounds
+    /// is a hostile or misconfigured server trying to cheapen offline attack on
+    /// the master password. This client-side floor is the *sole* guard on a
+    /// first login to such a server, where there is no prior accepted
+    /// configuration to compare against (SECURITY_AND_TESTING.md §4, "Malicious
+    /// configured server"). 100 000 closes that gap without rejecting servers
+    /// still configured at the older, server-accepted default.
+    static let pbkdf2IterationFloor = 100_000
     static let pbkdf2IterationCeiling = 2_000_000
     static let argon2IterationFloor = 2
     static let argon2IterationCeiling = 10

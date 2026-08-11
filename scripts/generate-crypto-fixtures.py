@@ -48,7 +48,7 @@ PASSWORD = "VSQ-Canary-Master-Password-πßé"
 PASSWORD_WHITESPACE = "  VSQ-Canary-Padded-Password  "
 ITEM_PLAINTEXT = "VSQ-Canary-item-plaintext-0001"
 
-PBKDF2_ITERATION_CASES = [5000, 100000, 600000]
+PBKDF2_ITERATION_CASES = [100000, 600000]
 
 
 def normalized_email(raw: str) -> str:
@@ -230,7 +230,7 @@ def main() -> int:
             "masterKeyHex": master,
             "authHashBase64": auth_hash(master, PASSWORD),
         })
-    padded_master = derive_master_key(PASSWORD_WHITESPACE, EMAIL_RAW, 5000)
+    padded_master = derive_master_key(PASSWORD_WHITESPACE, EMAIL_RAW, 100000)
 
     master_key = derive_master_key(PASSWORD, EMAIL_RAW, 100000)
     stretched = stretch_master_key(master_key)

@@ -10,9 +10,8 @@ enum VaultwardenCryptoFixtures {
     static let emailNormalized = "vsq-canary-user@example.com"
     static let password = "VSQ-Canary-Master-Password-πßé"
     static let passwordWhitespace = "  VSQ-Canary-Padded-Password  "
-    static let paddedPasswordMasterKeyHex = "18607faede6030b66e5ef649969a06cf099500f12daffdd5ea698f700fbbc76d"
+    static let paddedPasswordMasterKeyHex = "24e0831b0ba7020ec06798616bacad44a1ac31a20240283d7a465fc5d05900d8"
     static let pbkdf2Cases = [
-        (iterations: 5000, masterKeyHex: "258505e88944eb912dff03b8f4494a656a1a43e1469d4a027b9b321a0ec80e25", authHashBase64: "THnwvnpCKQNIjLLRT7UydztJ9srLJTwcQwdoAKAUkUU="),
         (iterations: 100000, masterKeyHex: "be126acdb04185863892418bcb8782f17c5a8b2c46c1fb4040554fbb28b61228", authHashBase64: "ncH0hSdj01pB6TGysqpIm7f+F4IRk+g+EMw5jdlo31U="),
         (iterations: 600000, masterKeyHex: "b811f695a4e8b38e8dbb6731e52e5e1bbf72c301505f0472a69997e44e71ff70", authHashBase64: "3AuPKTlRouV7Uiisyog3GMbm24J8ap/3Qkx8Khn7e6M="),
     ]

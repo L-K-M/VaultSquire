@@ -10,7 +10,7 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
     private var email: String { VaultwardenCryptoFixtures.emailRaw }
     private var passwordBytes: Data { Data(VaultwardenCryptoFixtures.password.utf8) }
     private var pbkdf2Case: (iterations: Int, masterKeyHex: String, authHashBase64: String) {
-        VaultwardenCryptoFixtures.pbkdf2Cases[1] // 100_000 iterations
+        VaultwardenCryptoFixtures.pbkdf2Cases[0] // 100_000 iterations
     }
 
     override func setUp() {
@@ -123,7 +123,7 @@ final class VaultwardenAuthenticatorTests: XCTestCase {
 
     func testBelowFloorKDFIsRejectedBeforeDerivation() async throws {
         stubConfig()
-        stubPrelogin(kdf: 0, iterations: 4_999)
+        stubPrelogin(kdf: 0, iterations: 99_999)
 
         do {
             _ = try await makeAuthenticator().login(
