@@ -15,6 +15,13 @@ final class SafeURITests: XCTestCase {
         let bare = SafeURI.destination(for: "github.com")
         XCTAssertEqual(bare?.scheme, "https")
         XCTAssertEqual(bare?.host, "github.com")
+
+        // A bare host with a port is also treated as https (not misread as a
+        // scheme, since a dotted prefix before a colon is a host:port pair).
+        let withPort = SafeURI.destination(for: "example.com:8080")
+        XCTAssertEqual(withPort?.scheme, "https")
+        XCTAssertEqual(withPort?.host, "example.com")
+        XCTAssertEqual(withPort?.url.port, 8080)
     }
 
     func testHTTPPermittedSoUserSeesSchemeBeforeOpening() {

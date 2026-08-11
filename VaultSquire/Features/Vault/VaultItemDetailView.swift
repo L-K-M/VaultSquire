@@ -29,12 +29,12 @@ struct VaultItemDetailView: View {
             isPresented: openConfirmation,
             presenting: pendingOpenDestination
         ) { destination in
-            Button("Open \(destination.scheme)://\(destination.host)") {
+            Button("Open \(destination.displayOrigin)") {
                 NSWorkspace.shared.open(destination.url)
             }
             Button("Cancel", role: .cancel) {}
         } message: { destination in
-            Text("VaultSquire will leave the app and open \(destination.scheme)://\(destination.host) in your default browser. Only open sites you recognize.")
+            Text("VaultSquire will leave the app and open \(destination.displayOrigin) in your default browser. Only open sites you recognize.")
         }
     }
 

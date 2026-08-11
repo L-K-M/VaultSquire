@@ -21,6 +21,14 @@ enum SafeURI {
         /// The destination host, for the confirmation prompt. Never empty for a
         /// Destination.
         var host: String { url.host ?? "" }
+        /// `scheme://host[:port]` for the confirmation prompt, including the port
+        /// only when the URL carries one so the user sees the exact destination.
+        var displayOrigin: String {
+            if let port = url.port {
+                return "\(scheme)://\(host):\(port)"
+            }
+            return "\(scheme)://\(host)"
+        }
     }
 
     /// Parses `raw` into a `Destination` only when it resolves to an `http(s)`
@@ -63,11 +71,16 @@ enum SafeURI {
     /// Returns the lowercased scheme when `value` begins with a valid RFC 3986
     /// scheme (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )` followed by `:`),
     /// otherwise nil. A leading digit is not a valid scheme start, so `1.2.3.4`
-    /// and `8080:foo` are treated as scheme-less.
+    /// and `8080:foo` are treated as scheme-less. A prefix containing `.` is
+    /// rejected as a scheme even though RFC 3986 permits it: no scheme in use on
+    /// macOS contains a dot, while a dotted prefix before a colon is almost
+    /// always a bare host with a port (`example.com:8080`), which must fall
+    /// through to bare-host handling rather than be misread as a scheme.
     private static func explicitScheme(of value: String) -> String? {
         guard let colon = value.firstIndex(of: ":") else { return nil }
         let prefix = value[value.startIndex..<colon]
         guard let first = prefix.first, first.isLetter else { return nil }
+        guard !prefix.contains(".") else { return nil }
         guard prefix.allSatisfy({ character in
             character.isLetter || character.isNumber
                 || character == "+" || character == "-" || character == "."
