@@ -55,7 +55,7 @@ final class URIOpeningPolicyTests: XCTestCase {
         XCTAssertEqual(decision?.display, "https://example.com")
     }
 
-    func testConfirmationMessageNamesFullAddressAndEffectiveDestination() {
+    func testConfirmationMessageNamesFullAddressAndEffectiveDestination() throws {
         let decision = try XCTUnwrap(
             URIOpeningPolicy.decision(for: "https://example.com:8443/login?next=%2Fvault#section")
         )
