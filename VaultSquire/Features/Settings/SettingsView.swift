@@ -10,11 +10,21 @@ struct SettingsView: View {
                 LabeledContent("App shortcut", value: "Command-Shift-Space")
                 LabeledContent("Vault state", value: vaultStateDescription)
 
+                Picker("Lock after inactivity", selection: autoLockMinutes) {
+                    Text("Never").tag(0.0)
+                    Text("1 minute").tag(1.0)
+                    Text("5 minutes").tag(5.0)
+                    Text("15 minutes").tag(15.0)
+                    Text("30 minutes").tag(30.0)
+                    Text("1 hour").tag(60.0)
+                }
+                .accessibilityIdentifier("settings-autolock")
+
                 Divider()
 
                 biometricSection
 
-                Text("A configurable global shortcut and lock policy are enabled only after their interaction and security tests pass.")
+                Text("Screen lock, sleep, and the screensaver always lock every vault; this clock only covers an idle, unlocked screen. A configurable global shortcut is enabled only after its interaction and security tests pass.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -49,8 +59,28 @@ struct SettingsView: View {
                 }
 #endif
         }
-        .frame(width: 540, height: 340)
+        .frame(width: 540, height: 380)
         .accessibilityIdentifier("settings-view")
+    }
+
+    /// The auto-lock picker, bound to the controller's defaults key. Writing
+    /// re-arms the inactivity timer so the new timeout applies immediately
+    /// rather than at the next launch. An absent value reads as the default
+    /// (15 minutes); a non-positive value is the policy's documented "Never".
+    private var autoLockMinutes: Binding<Double> {
+        Binding(
+            get: {
+                let key = AutoLockController.inactivityMinutesKey
+                guard let stored = UserDefaults.standard.object(forKey: key) as? Double else {
+                    return AutoLockController.defaultInactivityTimeout / 60
+                }
+                return stored > 0 ? stored : 0
+            },
+            set: { minutes in
+                UserDefaults.standard.set(minutes, forKey: AutoLockController.inactivityMinutesKey)
+                AutoLockController.shared.reloadPolicy()
+            }
+        )
     }
 
     /// How many vaults are open, which is the honest answer now that several

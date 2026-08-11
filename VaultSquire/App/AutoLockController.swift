@@ -140,6 +140,17 @@ final class AutoLockController {
         lastActivity = now()
     }
 
+    /// Re-reads the configured timeout and restarts the inactivity check, so a
+    /// change made in Settings takes effect immediately instead of at the next
+    /// launch. The idle clock restarts from now, which is the generous
+    /// direction: the user is demonstrably active, having just changed a
+    /// setting.
+    func reloadPolicy() {
+        guard started else { return }
+        noteActivity()
+        armInactivityCheck()
+    }
+
     /// A screen lock, screensaver start, sleep, or session resignation: lock
     /// immediately, without waiting for the inactivity clock.
     func systemLockObserved() {
@@ -163,8 +174,10 @@ final class AutoLockController {
         guard inactivityLockEnabled else { return }
         // Check at least twice per timeout so the lock lands close to the
         // boundary rather than a whole timeout late, but never more often
-        // than once a minute.
-        let interval = max(60, inactivityTimeout / 2)
+        // than once a minute. Short timeouts (a minute or two) get a check
+        // every few seconds instead, or the lock could land a whole timeout
+        // late.
+        let interval = min(max(5, inactivityTimeout / 4), max(60, inactivityTimeout / 2))
         inactivityTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {

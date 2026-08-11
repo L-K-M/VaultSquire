@@ -103,4 +103,25 @@ final class AutoLockControllerTests: XCTestCase {
         XCTAssertEqual(controller.inactivityTimeout, AutoLockController.defaultInactivityTimeout)
         XCTAssertTrue(controller.inactivityLockEnabled)
     }
+
+    /// The Settings picker writes the defaults key and calls `reloadPolicy`;
+    /// the new timeout must govern without a relaunch.
+    func testReloadPolicyAppliesAChangedTimeoutWithoutRestart() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let suite = "VSQ-autolock-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.set(15.0, forKey: AutoLockController.inactivityMinutesKey)
+        let controller = AutoLockController(defaults: defaults, now: { t0 })
+        let counter = LockCounter()
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        controller.start(onLock: { counter.count += 1 })
+
+        controller.checkInactivity(at: t0.addingTimeInterval(5 * 60))
+        XCTAssertEqual(counter.count, 0, "five idle minutes is inside the original timeout")
+
+        defaults.set(1.0, forKey: AutoLockController.inactivityMinutesKey)
+        controller.reloadPolicy()
+        controller.checkInactivity(at: t0.addingTimeInterval(5 * 60))
+        XCTAssertEqual(counter.count, 1, "the reloaded one-minute timeout applies immediately")
+    }
 }
