@@ -207,6 +207,9 @@ Read the documents in this order:
     automation.
 21. [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md): evidence required before
     that automation may be enabled.
+22. [`docs/security-review/2026-08-11-adversarial-review.md`](docs/security-review/2026-08-11-adversarial-review.md):
+    the 2026-08 adversarial security review findings, remediations, and
+    documented follow-ups (subordinate evidence).
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and

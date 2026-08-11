@@ -47,4 +47,19 @@ final class ProtonCLIVersionGateTests: XCTestCase {
         XCTAssertNil(ProtonCLIVersionGate.parseVersion(from: "no version here"))
         XCTAssertNil(ProtonCLIVersionGate.parseVersion(from: "2.2"))
     }
+
+    /// A pre-release build named after a supported stable must not inherit
+    /// that stable's admission: the suffix is part of the compared token, so
+    /// `2.2.4-beta.1` is rejected as itself, exactly like the 1Password gate.
+    func testAPrereleaseSuffixNeverInheritsAStablesAdmission() {
+        let gate = ProtonCLIVersionGate(supportedVersions: ["2.2.4"])
+        let parsed = ProtonCLIVersionGate.parseVersion(from: "proton-pass 2.2.4-beta.1\n")
+        XCTAssertEqual(parsed, ProtonCLIVersion(raw: "2.2.4-beta.1"))
+        XCTAssertThrowsError(try gate.admit(ProtonCLIVersion(raw: "2.2.4-beta.1"))) { error in
+            XCTAssertEqual(error as? ProtonCLIVersionGateError, .unsupportedVersion("2.2.4-beta.1"))
+        }
+        XCTAssertThrowsError(try ProtonCLIVersionGate.production.admit(
+            ProtonCLIVersion(raw: "2.2.4-beta.1")
+        ))
+    }
 }

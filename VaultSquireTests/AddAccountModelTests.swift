@@ -481,4 +481,135 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertNil(store.record(for: .primary))
         XCTAssertEqual(model.phase, .connecting, "a dismissed flow leaves no stale failure behind")
     }
+
+    // MARK: - KDF-change confirmation
+
+    /// A model whose account service already holds a snapshot with the given
+    /// last-accepted KDF — the state a re-authentication starts from.
+    private func makeSeededModel(
+        store: any VaultwardenCredentialStore,
+        seededIterations: Int
+    ) -> (AddAccountModel, VaultwardenAccountService) {
+        let accountService = makeIsolatedAccountService()
+        accountService.persistAfterLogin(
+            session: VaultwardenAuthSession(
+                accessToken: "a",
+                refreshToken: "r",
+                expiresIn: 3600,
+                masterKey: Data(repeating: 1, count: 32),
+                stretchedMasterKey: Data(repeating: 2, count: 64),
+                wrappedUserKey: "2.w|w|w",
+                wrappedPrivateKey: nil,
+                rememberTwoFactorToken: nil,
+                kdfConfiguration: .pbkdf2SHA256(iterations: seededIterations),
+                identityBaseURL: URL(string: "https://vault.example.com/identity")!,
+                apiBaseURL: URL(string: "https://vault.example.com/api")!
+            ),
+            serverBaseURL: URL(string: "https://vault.example.com")!,
+            email: "user@example.com"
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let model = AddAccountModel(
+            credentialStore: store,
+            deviceIdentity: device,
+            makeTransport: { environment in
+                VaultwardenTransport(environment: environment, session: session)
+            },
+            accountService: accountService
+        )
+        return (model, accountService)
+    }
+
+    private func stubPrelogin(iterations: Int) {
+        StubServer.shared.on("/api/config", respond: .json(200, "{}"))
+        StubServer.shared.on(
+            "/accounts/prelogin/password",
+            respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":\(iterations)}")
+        )
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"VSQ-refresh\"}")
+        )
+    }
+
+    private func beginSignIn(_ model: AddAccountModel) {
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        model.beginSignIn()
+    }
+
+    func testUnchangedKDFProceedsWithoutConfirmation() async {
+        let (model, _) = makeSeededModel(
+            store: InMemoryCredentialStore(), seededIterations: 100_000
+        )
+        stubPrelogin(iterations: 100_000)
+
+        beginSignIn(model)
+
+        let succeeded = await waitUntil { model.phase == .succeeded }
+        XCTAssertTrue(succeeded)
+        XCTAssertNil(model.kdfConfirmation, "an unchanged KDF never prompts")
+    }
+
+    func testChangedKDFIsConfirmedBeforeDerivationAndApprovalProceeds() async {
+        let (model, accountService) = makeSeededModel(
+            store: InMemoryCredentialStore(), seededIterations: 100_000
+        )
+        stubPrelogin(iterations: 200_000)
+
+        beginSignIn(model)
+
+        let presented = await waitUntil { model.kdfConfirmation != nil }
+        XCTAssertTrue(presented, "a changed KDF must be confirmed before deriving")
+        XCTAssertEqual(
+            model.kdfConfirmation?.last, .pbkdf2SHA256(iterations: 100_000)
+        )
+        XCTAssertEqual(
+            model.kdfConfirmation?.next, .pbkdf2SHA256(iterations: 200_000)
+        )
+        // The grant (carrying the derived proof) has not run while pending.
+        XCTAssertNil(StubServer.shared.lastRequest(pathSuffix: "/connect/token"))
+
+        model.resolveKDFConfirmation(approved: true)
+
+        let succeeded = await waitUntil { model.phase == .succeeded }
+        XCTAssertTrue(succeeded)
+        let snapshot = try? accountService.loadSnapshot()
+        XCTAssertEqual(
+            snapshot?.kdf.iterations, 200_000,
+            "the accepted configuration becomes the new baseline"
+        )
+    }
+
+    func testDeclinedKDFChangeFailsClosedAndKeepsTheBaseline() async {
+        let store = InMemoryCredentialStore()
+        let (model, accountService) = makeSeededModel(store: store, seededIterations: 100_000)
+        stubPrelogin(iterations: 200_000)
+
+        beginSignIn(model)
+
+        let presented = await waitUntil { model.kdfConfirmation != nil }
+        XCTAssertTrue(presented)
+
+        model.resolveKDFConfirmation(approved: false)
+
+        let failed = await waitUntil {
+            if case .failed = model.phase { return true }
+            return false
+        }
+        XCTAssertTrue(failed, "a declined KDF change must fail closed")
+        XCTAssertNil(store.record(for: .primary), "nothing is persisted for a declined change")
+        let snapshot = try? accountService.loadSnapshot()
+        XCTAssertEqual(
+            snapshot?.kdf.iterations, 100_000,
+            "the last accepted baseline is untouched by a declined change"
+        )
+        XCTAssertNil(
+            StubServer.shared.lastRequest(pathSuffix: "/connect/token"),
+            "a declined change never derives, so no grant is submitted"
+        )
+    }
 }
