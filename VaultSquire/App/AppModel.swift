@@ -826,15 +826,30 @@ final class AppModel: ObservableObject {
                         session.lastSyncedAt = snapshot.syncedAt
                         session.syncError = nil
                         if var vault = session.vaultwarden {
+                            // Decrypting every cipher and rebuilding the list is
+                            // real work — an AES-CBC decrypt and HMAC verify per
+                            // field, synchronously, right here on the main
+                            // actor. A sync that reports the same ciphers and
+                            // folders the vault already has decrypted (the
+                            // common case: nothing changed server-side since
+                            // the last sync) does not need to pay that cost
+                            // again, so it is skipped whenever the content
+                            // that feeds it is unchanged. `VaultwardenCipherModel`
+                            // and its `Folder` sibling are `Hashable`, so this
+                            // is a cheap structural comparison, not a decrypt.
+                            let contentUnchanged = vault.snapshot.ciphers == snapshot.ciphers
+                                && vault.snapshot.folders == snapshot.folders
                             vault.snapshot = snapshot
-                            vault.items = self.service.projections(keyring: vault.keyring, snapshot: snapshot)
-                            // A sync can add or rename folders, so the sidebar's
-                            // list is refreshed with the items it groups.
-                            vault.folderNames = self.service.decryptFolderNames(
-                                keyring: vault.keyring, snapshot: snapshot
-                            )
+                            if !contentUnchanged {
+                                vault.items = self.service.projections(keyring: vault.keyring, snapshot: snapshot)
+                                // A sync can add or rename folders, so the sidebar's
+                                // list is refreshed with the items it groups.
+                                vault.folderNames = self.service.decryptFolderNames(
+                                    keyring: vault.keyring, snapshot: snapshot
+                                )
+                                session.items = vault.items
+                            }
                             session.vaultwarden = vault
-                            session.items = vault.items
                         }
                     case .failure(let error):
                         session.syncError = Self.message(for: error)
