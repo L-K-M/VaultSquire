@@ -1152,6 +1152,8 @@ final class AppModel: ObservableObject {
             return "Couldn't reach the server. Showing the last synced vault."
         case .refreshFailed:
             return "The server didn't renew the session. It may be rate-limiting sign-ins; wait a minute and sync again."
+        case .tlsFailure:
+            return "The server's TLS certificate could not be verified. The vault was not synced."
         case .unexpectedStatus(let status):
             return "The server answered sync with HTTP \(status)."
         case .responseTooLarge:

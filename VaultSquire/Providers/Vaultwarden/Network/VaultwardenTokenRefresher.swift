@@ -8,6 +8,7 @@ import Foundation
 enum VaultwardenRefreshOutcome: Sendable {
     case refreshed(accessToken: String, refreshToken: String, expiresIn: Int?)
     case sessionExpired
+    case tlsFailure
     case transientFailure
 }
 
@@ -108,6 +109,8 @@ actor VaultwardenTokenRefresher {
                 body: .form(fields),
                 responseLimit: 1 * 1024 * 1024
             )
+        } catch VaultwardenTransportError.tlsFailure {
+            return .tlsFailure
         } catch {
             // A transport failure is transient; the caller retries later. It is
             // not a session-ending condition.

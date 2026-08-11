@@ -52,6 +52,7 @@ enum VaultwardenTransportError: Error, Equatable, Sendable {
     case responseTooLarge
     case notHTTP
     case cancelled
+    case tlsFailure
     case transportFailure
 }
 
@@ -249,10 +250,27 @@ struct VaultwardenTransport: Sendable {
             throw VaultwardenTransportError.cancelled
         } catch let error as URLError where error.code == .cancelled {
             throw VaultwardenTransportError.cancelled
+        } catch let error as URLError where Self.isTLSFailure(error.code) {
+            throw VaultwardenTransportError.tlsFailure
         } catch {
             // Never surface the underlying error object; it can carry the full
             // failing URL. The category alone crosses the boundary.
             throw VaultwardenTransportError.transportFailure
+        }
+    }
+
+    static func isTLSFailure(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .secureConnectionFailed,
+             .serverCertificateHasBadDate,
+             .serverCertificateUntrusted,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .clientCertificateRejected,
+             .clientCertificateRequired:
+            return true
+        default:
+            return false
         }
     }
 

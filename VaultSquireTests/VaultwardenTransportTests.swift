@@ -137,6 +137,13 @@ final class VaultwardenTransportTests: XCTestCase {
         )
     }
 
+    func testTLSFailuresAreClassifiedSeparatelyFromReachability() {
+        XCTAssertTrue(VaultwardenTransport.isTLSFailure(.serverCertificateUntrusted))
+        XCTAssertTrue(VaultwardenTransport.isTLSFailure(.secureConnectionFailed))
+        XCTAssertFalse(VaultwardenTransport.isTLSFailure(.cannotConnectToHost))
+        XCTAssertFalse(VaultwardenTransport.isTLSFailure(.timedOut))
+    }
+
     func testRetryAfterParsing() {
         XCTAssertEqual(VaultwardenTransport.parseRetryAfter("30"), 30)
         XCTAssertEqual(VaultwardenTransport.parseRetryAfter("  5 "), 5)

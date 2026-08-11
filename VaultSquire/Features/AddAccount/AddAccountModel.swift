@@ -280,6 +280,8 @@ final class AddAccountModel: ObservableObject, Identifiable {
             fail(with: "Authentication succeeded, but the credentials could not be saved. Please try again.")
         } catch let error as VaultwardenAPIError {
             fail(with: error.safeDisplayMessage)
+        } catch let error as VaultwardenTransportError {
+            fail(with: Self.message(forTransportError: error))
         } catch {
             fail(with: "Sign in could not be completed.")
         }
@@ -301,6 +303,8 @@ final class AddAccountModel: ObservableObject, Identifiable {
             // Surface the error on the challenge screen; a send failure must not
             // discard the 2FA context and drop the user back to the form.
             failureMessage = error.safeDisplayMessage
+        } catch let error as VaultwardenTransportError {
+            failureMessage = Self.message(forTransportError: error)
         } catch {
             failureMessage = "The verification email could not be sent."
         }
@@ -346,6 +350,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
         } catch let error as VaultwardenAPIError {
             phase = .challenged
             self.failureMessage = error.safeDisplayMessage
+        } catch let error as VaultwardenTransportError {
+            phase = .challenged
+            self.failureMessage = Self.message(forTransportError: error)
         } catch {
             // A non-API failure (timeout, cancellation, decode) is not a
             // rejected code, so avoid implying the entered code was wrong.
@@ -428,6 +435,21 @@ final class AddAccountModel: ObservableObject, Identifiable {
         guard !Task.isCancelled else { return }
         clearSensitiveState()
         phase = .failed(message)
+    }
+
+    private static func message(
+        forTransportError error: VaultwardenTransportError
+    ) -> String {
+        switch error {
+        case .tlsFailure:
+            return "The server's TLS certificate could not be verified."
+        case .responseTooLarge:
+            return "The server response was too large to process safely."
+        case .cancelled:
+            return "Sign in was cancelled."
+        case .notHTTP, .transportFailure:
+            return "The server could not be reached securely."
+        }
     }
 
     private static func message(forURLError error: Error) -> String {

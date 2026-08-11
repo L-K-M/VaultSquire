@@ -527,6 +527,12 @@ struct VaultwardenAuthenticator: Sendable {
         if let apiError = error as? VaultwardenAPIError {
             return apiError
         }
+        if error as? VaultwardenTransportError == .tlsFailure {
+            return VaultwardenAPIError(
+                category: .tls,
+                safeDisplayMessage: "The server's TLS certificate could not be verified."
+            )
+        }
 
         return VaultwardenAPIError(
             category: .network,

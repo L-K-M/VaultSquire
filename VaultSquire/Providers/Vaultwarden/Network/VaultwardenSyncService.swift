@@ -2,7 +2,8 @@ import Foundation
 
 enum VaultwardenSyncError: Error, Equatable, Sendable {
     /// The refresh token is no longer valid; the account must reauthenticate.
-    /// The caller keeps the last good snapshot — a sync failure never wipes it.
+    /// The account layer preserves its ciphertext behind a durable lockout
+    /// marker, or destroys the offline-open path if that marker cannot commit.
     case sessionExpired
     /// The network transport failed while fetching the vault. This is the only
     /// case that genuinely means "couldn't reach the server"; every other
@@ -13,6 +14,9 @@ enum VaultwardenSyncError: Error, Equatable, Sendable {
     /// rate limit, or a server error. Distinct from `transient` because the
     /// vault fetch never ran.
     case refreshFailed
+    /// TLS trust failed on refresh or sync. Distinct wording prevents a
+    /// certificate failure from being presented as ordinary reachability.
+    case tlsFailure
     /// The vault fetch returned an HTTP status that is neither success nor a
     /// session rejection. The status is carried for display; it is not secret.
     case unexpectedStatus(Int)
@@ -72,6 +76,8 @@ struct VaultwardenSyncService: Sendable {
             accessToken = token
         case .sessionExpired:
             return .failure(.sessionExpired)
+        case .tlsFailure:
+            return .failure(.tlsFailure)
         case .transientFailure:
             return .failure(.refreshFailed)
         }
@@ -83,6 +89,8 @@ struct VaultwardenSyncService: Sendable {
             response = try await transport.send(.get, url: syncURL, bearer: accessToken)
         } catch VaultwardenTransportError.responseTooLarge {
             return .failure(.responseTooLarge)
+        } catch VaultwardenTransportError.tlsFailure {
+            return .failure(.tlsFailure)
         } catch {
             return .failure(.transient)
         }
