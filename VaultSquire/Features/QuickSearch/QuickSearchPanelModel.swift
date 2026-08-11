@@ -3,11 +3,12 @@ import Foundation
 @MainActor
 final class QuickSearchPanelModel: ObservableObject {
     @Published var query = ""
-
-    /// Incremented by the controller once the panel has been made key. The
-    /// search field's focus is driven from this rather than from `onAppear`,
-    /// which fires only for the first presentation and can run before the panel
-    /// holds key status.
+    /// The index of the keyboard-selected result, or nil when nothing is
+    /// selected. The view drives ↑/↓ through `moveSelection(by:)` and opens
+    /// the selection with `selectedItemID`. It is reset to nil whenever the
+    /// query or the underlying item set changes, so a stale index can never
+    /// point past the end of the current results.
+    @Published private(set) var selectedIndex: Int?
     @Published private(set) var presentationID = 0
 
     /// The searchable projections for this presentation, empty while locked.
@@ -27,6 +28,7 @@ final class QuickSearchPanelModel: ObservableObject {
 
     func clear() {
         query.removeAll(keepingCapacity: false)
+        selectedIndex = nil
     }
 
     /// Loads a presentation's items and open handler and announces it, so the
@@ -44,6 +46,44 @@ final class QuickSearchPanelModel: ObservableObject {
 
     func open(_ id: VaultItemID) {
         onOpen?(id)
+    }
+
+    /// Moves the keyboard selection by `offset` rows, clamping to the result
+    /// list. With no selection, a downward move selects the first row and an
+    /// upward move selects the last, matching the Spotlight/Raycast convention.
+    /// A no-op when there is nothing to select.
+    func moveSelection(by offset: Int) {
+        let count = results.count
+        guard count > 0 else { selectedIndex = nil; return }
+        let current = selectedIndex ?? (offset > 0 ? -1 : count)
+        var proposed = current + offset
+        if proposed < 0 { proposed = 0 }
+        if proposed >= count { proposed = count - 1 }
+        selectedIndex = proposed
+    }
+
+    /// Resets the selection. Called by the view when the query changes, so the
+    /// highlight never lingers on a row the new filter has already removed.
+    func resetSelection() {
+        selectedIndex = nil
+    }
+
+    /// The id of the selected result, or nil when nothing is selected. Used by
+    /// the view to scroll the selection into view.
+    var selectedItemID: VaultItemID? {
+        guard let selectedIndex, selectedIndex >= 0, selectedIndex < results.count else {
+            return nil
+        }
+        return results[selectedIndex].id
+    }
+
+    /// The id to open for ↩: the selection when one exists, otherwise the first
+    /// result. Nil when there is nothing to open.
+    var openOnEnterItemID: VaultItemID? {
+        if let selectedIndex, selectedIndex >= 0, selectedIndex < results.count {
+            return results[selectedIndex].id
+        }
+        return results.first?.id
     }
 
     func notePresented() {

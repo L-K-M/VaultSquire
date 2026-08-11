@@ -8,7 +8,7 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
 
     override init() {
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 330),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 360),
             styleMask: [.titled, .closable, .fullSizeContentView, .utilityWindow],
             backing: .buffered,
             defer: true
