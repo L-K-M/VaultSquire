@@ -61,7 +61,18 @@ struct VaultBrowserView: View {
             appModel.clearQuickSearchSelection()
         }
         .onChange(of: appModel.scope) { _, _ in
+            // A new scope is a fresh list: drop both the old filter and the old
+            // selection so neither carries into a vault it does not belong to.
+            query = ""
             selection = nil
+        }
+        .onChange(of: query) { _, _ in
+            // If the filter hides the selected row, drop the selection too, so
+            // the detail pane and the highlighted row never disagree with the
+            // visible list.
+            guard let selection,
+                  !filteredItems.contains(where: { $0.id == selection }) else { return }
+            self.selection = nil
         }
         .task {
             // Offer Touch ID as soon as the browser appears when it is set up,
@@ -232,14 +243,43 @@ struct VaultBrowserView: View {
         }
     }
 
+    @ViewBuilder
     private var itemList: some View {
-        List(filteredItems, selection: $selection) { item in
-            itemRow(item)
-                .tag(item.id)
+        let items = filteredItems
+        Group {
+            if items.isEmpty {
+                emptyItemList
+            } else {
+                List(items, selection: $selection) { item in
+                    itemRow(item)
+                        .tag(item.id)
+                }
+                .accessibilityIdentifier("vault-item-list")
+            }
         }
         .searchable(text: $query, prompt: searchPrompt)
         .navigationTitle(scopeTitle)
-        .accessibilityIdentifier("vault-item-list")
+    }
+
+    /// The empty-state for the item list: a "no matches" message when a filter
+    /// excludes everything, and a plain "no items" when the scope itself is
+    /// empty. Kept consistent with Quick Search's empty state.
+    @ViewBuilder
+    private var emptyItemList: some View {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        ContentUnavailableView {
+            Label(
+                trimmed.isEmpty ? "No items" : "No matches",
+                systemImage: trimmed.isEmpty ? "tray" : "magnifyingglass"
+            )
+        } description: {
+            if trimmed.isEmpty {
+                Text("This scope has no items to show.")
+            } else {
+                Text("No items match “\(trimmed)”.")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var scopeTitle: String {
