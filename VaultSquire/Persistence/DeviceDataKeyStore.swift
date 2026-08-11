@@ -96,8 +96,8 @@ struct DeviceDataKeyStore: Sendable {
         switch status {
         case errSecSuccess:
             guard let attributes = result as? [CFString: Any],
-                  attributes[kSecAttrAccessible] as? CFString
-                    == kSecAttrAccessibleWhenUnlockedThisDeviceOnly else {
+                  attributes[kSecAttrAccessible] as? String
+                    == (kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String) else {
                 throw DeviceDataKeyStoreError.insecureKeyRecord
             }
             guard var data = attributes[kSecValueData] as? Data, data.count == 32 else {

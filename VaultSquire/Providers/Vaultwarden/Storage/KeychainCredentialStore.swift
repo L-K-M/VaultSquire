@@ -46,8 +46,8 @@ struct KeychainCredentialStore: VaultwardenCredentialStore {
         switch status {
         case errSecSuccess:
             guard let attributes = result as? [CFString: Any],
-                  attributes[kSecAttrAccessible] as? CFString
-                    == kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                  attributes[kSecAttrAccessible] as? String
+                    == (kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String),
                   var data = attributes[kSecValueData] as? Data,
                   data.count <= Self.maximumRecordBytes else {
                 throw VaultwardenCredentialStoreError.malformedRecord
