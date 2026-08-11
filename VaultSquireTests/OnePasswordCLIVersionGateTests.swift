@@ -43,12 +43,15 @@ final class OnePasswordCLIVersionGateTests: XCTestCase {
     /// untested build. Parsing must keep the pre-release suffix so
     /// `2.38.1-beta.01` is compared as itself: stripping the suffix would let a
     /// beta inherit the allowlisted stable `2.38.1`'s admission.
-    func testABetaIsNotAdmittedByTheStableItIsNamedAfter() {
+    func testABetaIsNotAdmittedByTheStableItIsNamedAfter() throws {
         let parsed = OnePasswordCLIVersionGate.parseVersion(from: "2.38.1-beta.01")
         XCTAssertEqual(parsed, OnePasswordCLIVersion(raw: "2.38.1-beta.01"))
 
+        // Unwrapped before the assertion: inside it, a nil would surface as a
+        // wrong-error failure rather than naming the parse as the cause.
+        let version = try XCTUnwrap(parsed)
         let gate = OnePasswordCLIVersionGate(supportedVersions: ["2.38.1"])
-        XCTAssertThrowsError(try gate.admit(try XCTUnwrap(parsed))) { error in
+        XCTAssertThrowsError(try gate.admit(version)) { error in
             XCTAssertEqual(
                 error as? OnePasswordCLIVersionGateError,
                 .unsupportedVersion("2.38.1-beta.01")

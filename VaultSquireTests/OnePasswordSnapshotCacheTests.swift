@@ -6,12 +6,17 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
     private let account = OnePasswordAccountService.accountID
     private let key = SymmetricKey(size: .bits256)
 
-    private func makeCache(key: SymmetricKey? = nil) -> OnePasswordSnapshotCache {
+    private func makeCache() -> OnePasswordSnapshotCache {
+        let sealingKey = key
+        return OnePasswordSnapshotCache(keyProvider: { sealingKey }, directory: makeDirectory())
+    }
+
+    /// A fresh temporary directory, removed when the test finishes.
+    private func makeDirectory() -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VaultSquire1PCache-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-        let sealingKey = key ?? self.key
-        return OnePasswordSnapshotCache(keyProvider: { sealingKey }, directory: directory)
+        return directory
     }
 
     private func makeSnapshot() -> OnePasswordSnapshot {
@@ -58,9 +63,7 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
     /// The seal is bound to a device key, so another device's key cannot open
     /// the blob — it fails closed rather than returning partial content.
     func testAnotherKeyCannotOpenTheSeal() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VaultSquire1PCache-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let directory = makeDirectory()
 
         let mine = SymmetricKey(size: .bits256)
         let theirs = SymmetricKey(size: .bits256)
@@ -76,9 +79,7 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
     /// The seal authenticates the account identity, so a blob moved into
     /// another account's slot cannot be opened as that account's data.
     func testASnapshotSealedForAnotherAccountFailsClosed() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VaultSquire1PCache-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let directory = makeDirectory()
 
         let sealingKey = key
         let cache = OnePasswordSnapshotCache(keyProvider: { sealingKey }, directory: directory)
@@ -100,9 +101,7 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
     }
 
     func testTamperedBytesFailClosed() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VaultSquire1PCache-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let directory = makeDirectory()
         let sealingKey = key
         let cache = OnePasswordSnapshotCache(keyProvider: { sealingKey }, directory: directory)
         try cache.save(makeSnapshot(), for: account)
@@ -120,9 +119,7 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
     /// The payload must never rest as readable JSON: only the sealed envelope
     /// reaches disk.
     func testNothingReadableReachesDisk() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VaultSquire1PCache-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let directory = makeDirectory()
         let sealingKey = key
         let cache = OnePasswordSnapshotCache(keyProvider: { sealingKey }, directory: directory)
         try cache.save(makeSnapshot(), for: account)

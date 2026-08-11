@@ -79,10 +79,14 @@ final class CLIProcessExecutorTests: XCTestCase {
 
     func testFailsClosedWhenOutputExceedsTheBound() async throws {
         let executor = CLIProcessExecutor()
+        // Resolved before the assertion: inside the autoclosure, the helper's
+        // catch would swallow the XCTSkip and report a wrong-error failure
+        // instead of skipping on a host without the fixture.
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/yes")
         await XCTAssertThrowsErrorAsync(
             try await executor.execute(
                 CLIInvocation(arguments: [], timeout: .seconds(30), outputLimit: 8),
-                executableURL: try macOSExecutableURL(at: "/usr/bin/yes")
+                executableURL: executableURL
             )
         ) { error in
             XCTAssertEqual(error as? CLIExecutionError, .outputLimitExceeded)
@@ -91,10 +95,11 @@ final class CLIProcessExecutorTests: XCTestCase {
 
     func testTimesOutALongRunningChild() async throws {
         let executor = CLIProcessExecutor()
+        let executableURL = try macOSExecutableURL(at: "/bin/sleep")
         await XCTAssertThrowsErrorAsync(
             try await executor.execute(
                 CLIInvocation(arguments: ["2"], timeout: .milliseconds(20)),
-                executableURL: try macOSExecutableURL(at: "/bin/sleep")
+                executableURL: executableURL
             )
         ) { error in
             XCTAssertEqual(error as? CLIExecutionError, .timedOut)

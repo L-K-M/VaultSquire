@@ -183,11 +183,7 @@ final class OnePasswordLeakageTests: XCTestCase {
         executor: FakeCLIExecutor,
         cache: OnePasswordSnapshotCache? = nil
     ) -> OnePasswordAccountService {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VaultSquire1PLeakSvc-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-        let key = SymmetricKey(size: .bits256)
-        return OnePasswordAccountService(
+        OnePasswordAccountService(
             locator: OnePasswordCLILocator(
                 candidatePaths: [approvedPath],
                 isExecutable: { _ in true },
@@ -195,9 +191,18 @@ final class OnePasswordLeakageTests: XCTestCase {
             ),
             executor: executor,
             versionGate: OnePasswordCLIVersionGate(supportedVersions: ["2.38.1"]),
-            cache: cache ?? OnePasswordSnapshotCache(keyProvider: { key }, directory: directory),
+            cache: cache ?? makeCache(),
             now: { Date(timeIntervalSince1970: 1_700_000_000) }
         )
+    }
+
+    /// A cache in a fresh temporary directory, removed when the test finishes.
+    private func makeCache() -> OnePasswordSnapshotCache {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VaultSquire1PLeak-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let key = SymmetricKey(size: .bits256)
+        return OnePasswordSnapshotCache(keyProvider: { key }, directory: directory)
     }
 
     private func stubHappyPath(_ executor: FakeCLIExecutor) async {

@@ -10,7 +10,7 @@ final class AppModelTests: XCTestCase {
         presence: @escaping () -> AppModel.AccountPresence = { .none },
         descriptors: [AccountDescriptor] = [],
         protonService: ProtonAccountService = ProtonAccountService(),
-        onePasswordService: OnePasswordAccountService = OnePasswordAccountService()
+        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService()
     ) -> (AppModel, AccountDescriptorStore) {
         let defaults = UserDefaults(suiteName: "VSQ-appmodel-\(UUID().uuidString)")!
         let store = AccountDescriptorStore(defaults: defaults)
@@ -433,6 +433,20 @@ final class AppModelTests: XCTestCase {
     }
 
     // MARK: - 1Password, read-only, per vault
+
+    /// The default for tests that never open a 1Password vault. Its locator has
+    /// no candidate paths, so a test that registers a 1Password descriptor
+    /// without supplying a service reports "not installed" instead of reaching
+    /// for a real binary on the machine running the suite.
+    private static func inertOnePasswordService() -> OnePasswordAccountService {
+        OnePasswordAccountService(
+            locator: OnePasswordCLILocator(
+                candidatePaths: [],
+                isExecutable: { _ in false },
+                resolveRealPath: { $0 }
+            )
+        )
+    }
 
     @MainActor
     private func makeOnePasswordService(executor: FakeCLIExecutor) -> OnePasswordAccountService {
