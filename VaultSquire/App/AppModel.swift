@@ -470,7 +470,11 @@ final class AppModel: ObservableObject {
         unlockError = nil
         refreshBiometricAvailability()
         clipboard.clearIfOwned()
-        if !isUnlocked {
+        if isUnlocked {
+            // Something is still open, so the panel stays — but it must stop
+            // offering the items of the vault that just closed.
+            ApplicationCoordinator.shared.refreshQuickSearch()
+        } else {
             ApplicationCoordinator.shared.dismissQuickSearch()
         }
         AppLog.record(.vaultLocked)
@@ -1002,6 +1006,15 @@ extension AppModel: QuickSearchDataSource {
     /// scoped to; a locked vault contributes nothing.
     var quickSearchItems: [VaultItemProjection] { allOpenItems }
     var quickSearchIsUnlocked: Bool { isUnlocked }
+
+    /// One title per configured vault, so a merged result names its source.
+    /// Built with a reduce rather than `uniqueKeysWithValues`, which would trap
+    /// if two sessions ever shared an account.
+    var quickSearchVaultTitles: [AccountID: String] {
+        sessions.reduce(into: [:]) { titles, session in
+            titles[session.account] = session.title
+        }
+    }
 
     func openFromQuickSearch(_ id: VaultItemID) {
         quickSearchSelection = id

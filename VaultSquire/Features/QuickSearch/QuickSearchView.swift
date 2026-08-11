@@ -8,28 +8,7 @@ struct QuickSearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-
-                TextField("Search the unlocked vault", text: $model.query)
-                .textFieldStyle(.plain)
-                .font(.title3)
-                .focused($searchFocused)
-                .onSubmit(openFirstResult)
-                .accessibilityIdentifier("quick-search-field")
-
-                Text("esc")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, 22)
-            .frame(height: 58)
+            searchField
 
             Divider()
 
@@ -42,6 +21,58 @@ struct QuickSearchView: View {
             focusSearchField()
         }
         .onExitCommand(perform: onDismiss)
+        // The field holds first responder, so the arrows are handled here on an
+        // ancestor of it: a single-line field does nothing with up and down, and
+        // a launcher whose only reachable result is the first one is not a
+        // launcher. Return opens whatever is highlighted.
+        .onKeyPress(.upArrow) {
+            model.moveSelection(by: -1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            model.moveSelection(by: 1)
+            return .handled
+        }
+        .onKeyPress(.home) {
+            model.selectFirst()
+            return .handled
+        }
+        .onKeyPress(.end) {
+            model.selectLast()
+            return .handled
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            TextField("Search every open vault", text: $model.query)
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .focused($searchFocused)
+                .onSubmit(openSelection)
+                .accessibilityIdentifier("quick-search-field")
+
+            if model.isUnlocked, !model.results.isEmpty {
+                Text("\(model.results.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel("\(model.results.count) results")
+            }
+
+            Text("esc")
+                .font(.caption.monospaced())
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 22)
+        .frame(height: 58)
     }
 
     @ViewBuilder
@@ -63,36 +94,110 @@ struct QuickSearchView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("quick-search-empty")
         } else {
-            List(model.results) { item in
-                Button {
-                    open(item.id)
-                } label: {
-                    resultRow(item)
-                }
-                .buttonStyle(.plain)
-            }
-            .listStyle(.plain)
-            .accessibilityIdentifier("quick-search-results")
+            resultList
         }
     }
 
-    private func resultRow(_ item: VaultItemProjection) -> some View {
-        HStack(spacing: 10) {
+    /// The results, with the highlight drawn rather than left to the list's own
+    /// selection: the search field owns first responder, so a `List` selection
+    /// would render in its inactive grey exactly when the user is driving it
+    /// from the keyboard.
+    private var resultList: some View {
+        ScrollViewReader { proxy in
+            List(model.results) { item in
+                resultRow(item, isSelected: model.selection == item.id)
+                    .id(item.id)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture { open(item.id) }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .accessibilityIdentifier("quick-search-results")
+            .onChange(of: model.selection) { _, newValue in
+                guard let newValue else { return }
+                proxy.scrollTo(newValue)
+            }
+        }
+    }
+
+    private func resultRow(_ item: VaultItemProjection, isSelected: Bool) -> some View {
+        let identity = item.iconIdentity
+        return HStack(spacing: 10) {
+            badge(identity, category: item.category, isSelected: isSelected)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.displayTitle).fontWeight(.medium).lineLimit(1)
                 if let subtitle = item.displaySubtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.8) : Color.secondary)
+                        .lineLimit(1)
                 }
             }
-            Spacer()
+            Spacer(minLength: 8)
+            if let vault = model.vaultTitle(for: item.id) {
+                Text(vault)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(
+                        isSelected ? Color.white.opacity(0.22) : Color.secondary.opacity(0.15),
+                        in: Capsule()
+                    )
+                    .foregroundStyle(isSelected ? Color.white : Color.secondary)
+            }
+            if isSelected {
+                Image(systemName: "return")
+                    .font(.caption)
+                    .foregroundStyle(Color.white.opacity(0.8))
+                    .accessibilityHidden(true)
+            }
         }
-        .contentShape(Rectangle())
-        .padding(.vertical, 2)
+        .foregroundStyle(isSelected ? Color.white : Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            isSelected ? Color.accentColor : Color.clear,
+            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+        )
     }
 
-    private func openFirstResult() {
-        guard model.isUnlocked, let first = model.results.first else { return }
-        open(first.id)
+    /// A small monogram or category badge. Deliberately not `ItemIconView`:
+    /// this panel is hosted outside the main window's environment and has no
+    /// site-icon store, and a launcher should never start a network request for
+    /// a row that scrolls past.
+    private func badge(
+        _ identity: ItemIconIdentity,
+        category: VaultItemCategory,
+        isSelected: Bool
+    ) -> some View {
+        let tint = identity.host == nil
+            ? Color.secondary
+            : Color(hue: identity.hue, saturation: 0.62, brightness: 0.72)
+        return Group {
+            if identity.host == nil {
+                Image(systemName: category.symbolName).font(.system(size: 11))
+            } else {
+                Text(identity.monogram)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+            }
+        }
+        .foregroundStyle(isSelected ? Color.white : tint)
+        .frame(width: 22, height: 22)
+        .background(
+            (isSelected ? Color.white.opacity(0.22) : tint.opacity(0.18)),
+            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+        )
+        .accessibilityHidden(true)
+    }
+
+    private func openSelection() {
+        guard model.isUnlocked, model.selection != nil else { return }
+        model.openSelection()
+        onDismiss()
     }
 
     private func open(_ id: VaultItemID) {

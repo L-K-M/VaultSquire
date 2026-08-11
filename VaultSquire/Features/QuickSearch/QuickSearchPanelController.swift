@@ -43,9 +43,16 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         model
     }
 
+    /// Whether the panel is on screen, so the coordinator can keep a visible
+    /// panel's list current without ever raising a dismissed one.
+    var isVisible: Bool {
+        panel.isVisible
+    }
+
     func show(
         items: [VaultItemProjection] = [],
         isUnlocked: Bool = false,
+        vaultTitles: [AccountID: String] = [:],
         onOpen: ((VaultItemID) -> Void)? = nil
     ) {
         model.clear()
@@ -56,9 +63,21 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         // Announced only after the panel is key, so the view's focus assignment
         // cannot run while first responder still belongs to the window.
-        model.present(items: items, isUnlocked: isUnlocked, onOpen: onOpen)
+        model.present(
+            items: items, isUnlocked: isUnlocked, vaultTitles: vaultTitles, onOpen: onOpen
+        )
         PerformanceTrace.record(.quickSearchVisible)
         AppLog.record(.quickSearchPresented)
+    }
+
+    /// Refreshes what a visible panel is searching, leaving the query and the
+    /// focus alone.
+    func update(
+        items: [VaultItemProjection],
+        isUnlocked: Bool,
+        vaultTitles: [AccountID: String] = [:]
+    ) {
+        model.update(items: items, isUnlocked: isUnlocked, vaultTitles: vaultTitles)
     }
 
     func dismiss() {
