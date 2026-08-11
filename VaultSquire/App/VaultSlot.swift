@@ -44,6 +44,7 @@ struct VaultSlot: Identifiable, Sendable {
     enum Kind: Sendable, Hashable {
         case vaultwarden
         case proton
+        case onePassword
     }
 
     enum State: Equatable, Sendable {
@@ -59,7 +60,8 @@ struct VaultSlot: Identifiable, Sendable {
     let kind: Kind
     /// The vault's display name in the sidebar.
     let title: String
-    /// Non-secret second line: the account email, or how Proton is reached.
+    /// Non-secret second line: the account email, or how the provider's CLI is
+    /// reached.
     let subtitle: String
 
     var state: State = .locked
@@ -75,6 +77,10 @@ struct VaultSlot: Identifiable, Sendable {
     /// The open Proton snapshot: a lossy, device-sealed capture, never a write
     /// source.
     var proton: ProtonSnapshot?
+    /// The open 1Password snapshot: likewise lossy, device-sealed, and never a
+    /// write source. It carries no secret value at all — those are fetched when
+    /// an item is opened.
+    var onePassword: OnePasswordSnapshot?
 
     var id: AccountID { account }
 
@@ -88,9 +94,10 @@ struct VaultSlot: Identifiable, Sendable {
         return false
     }
 
-    /// Whether this provider supports mutations at all. Proton is read-only:
-    /// the documented CLI has no write path that keeps private values out of
-    /// argv, so no write surface exists for it.
+    /// Whether this provider supports mutations at all. Both CLI providers are
+    /// read-only: neither documented CLI has a write path that keeps private
+    /// values out of argv without rebuilding an item from lossy output, so no
+    /// write surface exists for them.
     var isWritable: Bool { kind == .vaultwarden }
 
     /// The exact capabilities this vault's items carry, which the UI gates
@@ -100,6 +107,7 @@ struct VaultSlot: Identifiable, Sendable {
         switch kind {
         case .vaultwarden: return VaultwardenAccountService.capabilities
         case .proton: return ProtonReadModel.capabilities
+        case .onePassword: return OnePasswordReadModel.capabilities
         }
     }
 
@@ -141,19 +149,20 @@ struct VaultSlot: Identifiable, Sendable {
 
     /// The containers an item belongs to, as (identity, display name).
     ///
-    /// A Proton item's container is its share, whose identifier is already part
-    /// of the item's compound id — so two vaults sharing a name stay distinct.
-    /// A Vaultwarden item's container is its folder, and the folder's name is
-    /// the only identity the projection carries.
+    /// A Proton item's container is its share and a 1Password item's is its
+    /// vault; either identifier is already part of the item's compound id, so
+    /// two containers sharing a name stay distinct. A Vaultwarden item's
+    /// container is its folder, and the folder's name is the only identity the
+    /// projection carries.
     private static func groupKeys(
         of item: VaultItemProjection,
         kind: Kind
     ) -> [(id: String, name: String)] {
         switch kind {
-        case .proton:
-            guard case .providerSpace(let shareID) = item.id.space.scope else { return [] }
-            let name = item.groupingLabels.first { !$0.isEmpty } ?? shareID
-            return [(shareID, name)]
+        case .proton, .onePassword:
+            guard case .providerSpace(let spaceID) = item.id.space.scope else { return [] }
+            let name = item.groupingLabels.first { !$0.isEmpty } ?? spaceID
+            return [(spaceID, name)]
         case .vaultwarden:
             return item.groupingLabels.filter { !$0.isEmpty }.map { ($0, $0) }
         }
@@ -166,6 +175,7 @@ struct VaultSlot: Identifiable, Sendable {
         items = []
         vaultwarden = nil
         proton = nil
+        onePassword = nil
         syncError = nil
         isSyncing = false
         generation &+= 1

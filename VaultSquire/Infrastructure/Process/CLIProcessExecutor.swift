@@ -3,9 +3,10 @@ import Foundation
 
 /// One fully-formed CLI invocation. Its arguments are fixed subcommands and
 /// reviewed opaque identifiers only — never a search term, secret, token,
-/// user-authored field name, item content, or credential. `ProtonCLIRunner`
-/// is the only constructor, so no other path can assemble an argument vector.
-struct ProtonCLIInvocation: Equatable, Sendable {
+/// user-authored field name, item content, or credential. Each provider's own
+/// runner is the only constructor of its invocations, so no other path can
+/// assemble an argument vector.
+struct CLIInvocation: Equatable, Sendable {
     let arguments: [String]
     let timeout: Duration
     /// Upper bound on captured standard-output bytes; a larger stream is
@@ -23,13 +24,13 @@ struct ProtonCLIInvocation: Equatable, Sendable {
 /// caller parses as untrusted data. `standardErrorByteCount` is a byte count
 /// only: standard error is treated as secret-bearing, so its content is never
 /// retained, logged, or returned.
-struct ProtonCLIExecution: Sendable {
+struct CLIExecution: Sendable {
     let exitCode: Int32
     let standardOutput: Data
     let standardErrorByteCount: Int
 }
 
-enum ProtonCLIExecutionError: Error, Equatable, Sendable {
+enum CLIExecutionError: Error, Equatable, Sendable {
     case executableNotAbsolute
     case invalidOutputLimit
     case launchFailed
@@ -43,11 +44,11 @@ enum ProtonCLIExecutionError: Error, Equatable, Sendable {
 /// must bound captured output and duration, and must terminate the child on
 /// cancellation. Tests substitute a fake so the runner's gating and parsing are
 /// exercised without a real binary.
-protocol ProtonCLIExecuting: Sendable {
+protocol CLIExecuting: Sendable {
     func execute(
-        _ invocation: ProtonCLIInvocation,
+        _ invocation: CLIInvocation,
         executableURL: URL
-    ) async throws -> ProtonCLIExecution
+    ) async throws -> CLIExecution
 }
 
 /// The production executor: a no-shell `Foundation.Process` with a fixed
@@ -55,15 +56,40 @@ protocol ProtonCLIExecuting: Sendable {
 /// standard output captured up to a byte limit while standard error is counted
 /// but discarded. It mirrors `ProcessProbe`'s proven termination and drain
 /// machinery, adding bounded content capture for the JSON read contract.
-actor ProtonCLIProcessExecutor: ProtonCLIExecuting {
+///
+/// This is the one process boundary every provider CLI runs through — the
+/// `ProcessRunner` component ARCHITECTURE.md §4 names — so the no-shell,
+/// no-secret-in-argv-or-environment, bounded, cancellable rules are enforced
+/// in a single reviewed place rather than re-implemented per provider.
+actor CLIProcessExecutor: CLIExecuting {
     static let terminationGracePeriod = Duration.seconds(2)
     static let drainGracePeriod = Duration.seconds(2)
+
+    /// Extra fixed, non-secret switches merged over the base environment.
+    ///
+    /// This exists for documented CLI mode switches a provider must pin — such
+    /// as 1Password's `OP_BIOMETRIC_UNLOCK_ENABLED`, which selects the only
+    /// authentication mode VaultSquire permits. It is never a channel for a
+    /// token, session, credential, search term, or any user-authored value:
+    /// the environment is a prohibited channel for those, and every entry here
+    /// is a compile-time constant owned by a provider's runner. It cannot
+    /// remove a base entry, only add or pin one.
+    private let environmentOverlay: [String: String]
+
+    init(environmentOverlay: [String: String] = [:]) {
+        self.environmentOverlay = environmentOverlay
+    }
 
     /// A minimal environment. `HOME` is passed through unchanged so the CLI
     /// finds its own session and configuration stores; it is never relocated to
     /// a fake value, and no `XDG_*`, token, or session variable is added. The
     /// CLI is always invoked by absolute path, so `PATH` is only a fallback for
     /// any helper it may resolve.
+    ///
+    /// Because this is an allowlist rather than a filter of the app's own
+    /// environment, a secret-bearing variable the app happened to inherit —
+    /// `OP_SESSION`, `OP_SERVICE_ACCOUNT_TOKEN`, `OP_CONNECT_TOKEN` — cannot
+    /// reach a child process at all.
     static func environment() -> [String: String] {
         var environment = [
             "LANG": "C",
@@ -76,22 +102,28 @@ actor ProtonCLIProcessExecutor: ProtonCLIExecuting {
         return environment
     }
 
+    /// The exact environment this executor gives its children: the base
+    /// allowlist with the provider's fixed switches merged over it.
+    func childEnvironment() -> [String: String] {
+        Self.environment().merging(environmentOverlay) { _, overlay in overlay }
+    }
+
     func execute(
-        _ invocation: ProtonCLIInvocation,
+        _ invocation: CLIInvocation,
         executableURL: URL
-    ) async throws -> ProtonCLIExecution {
+    ) async throws -> CLIExecution {
         guard executableURL.isFileURL, executableURL.path.hasPrefix("/") else {
-            throw ProtonCLIExecutionError.executableNotAbsolute
+            throw CLIExecutionError.executableNotAbsolute
         }
         guard invocation.outputLimit > 0 else {
-            throw ProtonCLIExecutionError.invalidOutputLimit
+            throw CLIExecutionError.invalidOutputLimit
         }
 
-        let collector = ProtonCLIOutputCollector(limit: invocation.outputLimit)
-        let execution = ProtonCLIExecutionState(
+        let collector = CLIOutputCollector(limit: invocation.outputLimit)
+        let execution = CLIExecutionState(
             executableURL: executableURL,
             arguments: invocation.arguments,
-            environment: Self.environment()
+            environment: childEnvironment()
         )
         let streams = await execution.chunkStreams()
         let standardOutputTask = Task {
@@ -115,12 +147,12 @@ actor ProtonCLIProcessExecutor: ProtonCLIExecuting {
                 await execution.stopReading()
                 await standardOutputTask.value
                 await standardErrorTask.value
-                throw ProtonCLIExecutionError.cancelled
+                throw CLIExecutionError.cancelled
             } catch {
                 await execution.stopReading()
                 await standardOutputTask.value
                 await standardErrorTask.value
-                throw ProtonCLIExecutionError.launchFailed
+                throw CLIExecutionError.launchFailed
             }
 
             let deadlineTask = Task {
@@ -143,24 +175,24 @@ actor ProtonCLIProcessExecutor: ProtonCLIExecuting {
                 await execution.stopReading()
                 try Task.checkCancellation()
                 if didTimeOut {
-                    throw ProtonCLIExecutionError.timedOut
+                    throw CLIExecutionError.timedOut
                 }
                 // A child that outlived its readers is treated as a timeout: its
                 // output is incomplete, so parsing it would be unsafe.
                 if !didDrainCleanly {
-                    throw ProtonCLIExecutionError.timedOut
+                    throw CLIExecutionError.timedOut
                 }
-                return ProtonCLIExecution(
+                return CLIExecution(
                     exitCode: exitCode,
                     standardOutput: captured.standardOutput,
                     standardErrorByteCount: captured.standardErrorByteCount
                 )
-            } catch let error as ProtonCLIExecutionError {
+            } catch let error as CLIExecutionError {
                 await execution.stopReading()
                 throw error
             } catch is CancellationError {
                 await execution.stopReading()
-                throw ProtonCLIExecutionError.cancelled
+                throw CLIExecutionError.cancelled
             }
         } onCancel: {
             Task { await execution.cancel(escalatingAfter: Self.terminationGracePeriod) }
@@ -170,7 +202,7 @@ actor ProtonCLIProcessExecutor: ProtonCLIExecuting {
     private nonisolated static func joinDrains(
         _ standardOutputTask: Task<Void, Never>,
         _ standardErrorTask: Task<Void, Never>,
-        execution: ProtonCLIExecutionState,
+        execution: CLIExecutionState,
         grace: Duration
     ) async -> Bool {
         let forceTask = Task { () -> Bool in
@@ -191,9 +223,9 @@ actor ProtonCLIProcessExecutor: ProtonCLIExecuting {
 
     private nonisolated static func drain(
         _ chunks: AsyncStream<Data>,
-        from stream: ProtonCLIStream,
-        into collector: ProtonCLIOutputCollector,
-        execution: ProtonCLIExecutionState
+        from stream: CLIStream,
+        into collector: CLIOutputCollector,
+        execution: CLIExecutionState
     ) async {
         for await chunk in chunks {
             let exceeded = await collector.consume(chunk, from: stream)
@@ -205,7 +237,7 @@ actor ProtonCLIProcessExecutor: ProtonCLIExecuting {
     }
 }
 
-private enum ProtonCLIStream: Hashable, Sendable {
+private enum CLIStream: Hashable, Sendable {
     case standardOutput
     case standardError
 }
@@ -213,7 +245,7 @@ private enum ProtonCLIStream: Hashable, Sendable {
 /// Accumulates bounded standard-output content and a standard-error byte count.
 /// Exceeding the standard-output limit fails the whole run closed, so partial
 /// or oversize output never reaches a parser.
-private actor ProtonCLIOutputCollector {
+private actor CLIOutputCollector {
     struct Captured: Sendable {
         let standardOutput: Data
         let standardErrorByteCount: Int
@@ -222,15 +254,15 @@ private actor ProtonCLIOutputCollector {
     private let limit: Int
     private var standardOutput = Data()
     private var standardErrorByteCount = 0
-    private var closedStreams = Set<ProtonCLIStream>()
-    private var terminalError: ProtonCLIExecutionError?
+    private var closedStreams = Set<CLIStream>()
+    private var terminalError: CLIExecutionError?
     private var waiter: CheckedContinuation<Captured, any Error>?
 
     init(limit: Int) {
         self.limit = limit
     }
 
-    func consume(_ chunk: Data, from stream: ProtonCLIStream) -> Bool {
+    func consume(_ chunk: Data, from stream: CLIStream) -> Bool {
         guard terminalError == nil, !closedStreams.contains(stream) else {
             return false
         }
@@ -247,7 +279,7 @@ private actor ProtonCLIOutputCollector {
         return false
     }
 
-    func close(_ stream: ProtonCLIStream) {
+    func close(_ stream: CLIStream) {
         guard terminalError == nil, !closedStreams.contains(stream) else {
             return
         }
@@ -271,7 +303,7 @@ private actor ProtonCLIOutputCollector {
         terminalError = .outputLimitExceeded
         // Drop buffered plaintext immediately; the run is failing closed.
         standardOutput = Data()
-        waiter?.resume(throwing: ProtonCLIExecutionError.outputLimitExceeded)
+        waiter?.resume(throwing: CLIExecutionError.outputLimitExceeded)
         waiter = nil
     }
 
@@ -290,7 +322,7 @@ private actor ProtonCLIOutputCollector {
 /// Owns the `Process`, its pipes, and its termination state. Structure and
 /// termination policy mirror `ProcessProbe`; the read handlers yield `Data`
 /// chunks so standard output can be captured rather than only counted.
-private actor ProtonCLIExecutionState {
+private actor CLIExecutionState {
     private let process = Process()
     private let standardOutput = Pipe()
     private let standardError = Pipe()

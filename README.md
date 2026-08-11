@@ -1,14 +1,15 @@
 # VaultSquire
 
-VaultSquire is a native macOS client for self-hosted Vaultwarden instances and
-Proton Pass accounts. The Vaultwarden provider is implemented end to end —
-sign-in with an optional second factor, master-password unlock, sync, a
-device-sealed encrypted offline cache, item browsing with reveal, copy, and
-rotating TOTP, and create, edit, and archive writes. The Proton Pass provider is
-implemented read-only through the official user-installed CLI: detection, a
-fail-closed version gate, vault and item reads, and a device-sealed lossy
-offline snapshot. There is no supported or distributable release; release
-automation stays blocked by [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md).
+VaultSquire is a native macOS client for self-hosted Vaultwarden instances,
+Proton Pass accounts, and 1Password accounts. The Vaultwarden provider is
+implemented end to end — sign-in with an optional second factor,
+master-password unlock, sync, a device-sealed encrypted offline cache, item
+browsing with reveal, copy, and rotating TOTP, and create, edit, and archive
+writes. The Proton Pass and 1Password providers are implemented read-only
+through their official user-installed CLIs: detection, a fail-closed version
+gate, vault and item reads, and a device-sealed lossy offline snapshot. There is
+no supported or distributable release; release automation stays blocked by
+[`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md).
 
 Current source version: <!-- version -->0.1.0<!-- /version -->. This is a source
 version, not a supported or distributable release.
@@ -35,8 +36,8 @@ security boundaries:
 - one clean-room native Swift application named VaultSquire;
 - one add-account sheet whose provider choice lists Vaultwarden (a form for
   server URL, email, and master password, followed by a second-factor step only
-  when the server requires one) and Proton Pass (a credential-free detection
-  pane that connects to your own signed-in official CLI and opens the vault
+  when the server requires one), Proton Pass, and 1Password (credential-free
+  detection panes that connect to your own official CLI and open the vault
   read-only);
 - Proton Pass access through the official user-installed CLI, with required
   reads and writes enabled only per exact tested command/version when complete
@@ -91,13 +92,34 @@ security boundaries:
   stored, and what is stored decrypts vault content only: it cannot authenticate
   to the server. Changing the enrolled fingerprints or rotating the vault key
   invalidates it, and every failure falls back to the password prompt.
-- **Caveat.** The Proton CLI command and JSON contract is implemented against
-  Proton's *documented* surface (PROTON_PASS_RESEARCH.md §5, §8) and gated to the
-  releases recorded there; it has not been exercised against a live CLI in this
-  environment. On a real machine the version allowlist and the JSON key mapping
-  are the single points to reconcile against the installed build — a mismatch
-  fails closed with an honest "couldn't read the CLI output", never a false
-  success. All CLI-boundary logic is covered by unit tests over a fake executor.
+- **1Password — read only, through your own CLI.** VaultSquire never asks for a
+  1Password credential: the account password and Secret Key stay with
+  1Password's own desktop app, which authorizes the CLI with a biometric prompt.
+  Desktop-app integration is the only supported mode, because manual sign-in and
+  service accounts both deliver a credential through argv or the environment.
+  The provider locates an allowlisted absolute `op` path, gates the reported
+  version against a fail-closed allowlist of stable releases, resolves the
+  account so a second signed-in account cannot answer a read, and lists vaults
+  and items. Its sealed snapshot carries no secret at all — not even a note — so
+  opening an item is what fetches secrets, and they live in memory for that
+  session only. Every write is disabled.
+- **Caveat.** Both CLI command and JSON contracts are implemented against their
+  vendors' *documented* surfaces (PROTON_PASS_RESEARCH.md §5, §8;
+  ONEPASSWORD_CLI_RESEARCH.md §5, §8) and gated to the releases recorded there;
+  neither has been exercised against a live CLI in this environment. On a real
+  machine the version allowlists and the JSON key mappings are the points to
+  reconcile against the installed builds — a mismatch fails closed with an
+  honest "couldn't read the CLI output", never a false success. All CLI-boundary
+  logic is covered by unit tests over a fake executor.
+- **1Password's two open gates.** 1Password's API and SDK Terms define its CLI
+  into "Developer Tools", grant no affirmative licence to it, and prohibit
+  building a product that replicates a substantial portion of the Services;
+  that question needs a written answer before any release presenting 1Password
+  support. Separately, `op`'s documented macOS session credential derives from
+  the invoking terminal's tty, and VaultSquire spawns it with no terminal — so
+  whether a GUI-spawned `op` can be authorized at all is unproven and must be
+  exercised on a real Mac. See
+  [ADR 0007](docs/adr/0007-onepassword-third-provider.md).
 - **No release.** Release, preview, and distribution remain blocked by
   [`RELEASE_ELIGIBILITY.md`](RELEASE_ELIGIBILITY.md); this is a source tree, not
   a shippable product.
@@ -140,8 +162,9 @@ Read the documents in this order:
    decision and mandatory source-isolation rules.
 6. [`PROTON_PASS_RESEARCH.md`](PROTON_PASS_RESEARCH.md): selected CLI
    integration, read/write capability rules, data model, and risks.
-7. [`ONEPASSWORD_CLI_RESEARCH.md`](ONEPASSWORD_CLI_RESEARCH.md): candidate
-   1Password CLI provider feasibility research; not an accepted scope change.
+7. [`ONEPASSWORD_CLI_RESEARCH.md`](ONEPASSWORD_CLI_RESEARCH.md): 1Password CLI
+   integration evidence, read/write capability rules, and the terms and
+   authorization gates that still bind release.
 8. [`IMPLEMENTATION_CONTEXT.md`](IMPLEMENTATION_CONTEXT.md): clean-history
    bootstrap procedure and attestation status.
 9. [`WORKSTREAM_0.md`](WORKSTREAM_0.md): governance/evidence completion record

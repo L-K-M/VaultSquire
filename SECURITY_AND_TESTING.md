@@ -18,13 +18,13 @@ Vaultwarden scenarios in
 ### Required Properties
 
 - A Vaultwarden master password is never persisted or sent to the server as
-  plaintext. VaultSquire never asks for or captures a Proton account password;
-  the official CLI/browser owns Proton login.
+  plaintext. VaultSquire never asks for or captures a Proton or 1Password
+  credential; the official CLI, browser, or vendor desktop app owns that login.
 - Vaultwarden cryptography is interoperable with a pinned reference and fails
   closed on unknown algorithms, malformed values, and failed authentication.
 - VaultSquire contains no Keyguard code or source-derived implementation detail
-  and no copied/linked Proton implementation code.
-- Every Proton CLI process has a tested command contract, bounded I/O,
+  and no copied, linked, or bundled Proton or 1Password implementation code.
+- Every provider CLI process has a tested command contract, bounded I/O,
   cancellation, and no secret or item content in argv or environment variables.
 - A failed or cancelled sync cannot replace the last complete encrypted vault.
 - No intended plaintext vault content is written to database pages, journals,
@@ -368,10 +368,15 @@ VaultSquire necessarily trusts:
 - Redact WebSocket query tokens and presigned attachment URLs.
 - Treat notifications as hints and perform catch-up after reconnect.
 
-### Proton CLI Process Boundary
+### CLI Process Boundary
+
+These invariants bind every provider that executes an external CLI — currently
+Proton Pass and 1Password. They are enforced by one shared no-shell executor
+(`CLIProcessExecutor`) rather than re-implemented per provider, so the rules
+below have a single reviewable implementation.
 
 - Require the official CLI to be installed separately by the user. Do not
-  bundle, vendor, link, or copy it or any Proton implementation code.
+  bundle, vendor, link, or copy it or any vendor implementation code.
 - Resolve a user-approved absolute executable path. Never search an untrusted
   current directory, invoke a shell, or interpolate a command string. Resolve
   symlinks before approval and record signature and notarization status,
@@ -380,8 +385,10 @@ VaultSquire necessarily trusts:
 - Record and enforce an explicit allowlist of exact tested CLI versions/build
   identities and command-specific schemas. Every unlisted patch release fails
   closed.
-- Let the CLI or browser collect Proton credentials and second factors.
-  VaultSquire must never request, proxy, or store the Proton account password.
+- Let the CLI, browser, or vendor desktop app collect the provider's
+  credentials and second factors. VaultSquire must never request, proxy, store,
+  or automate them — including 1Password's account password, Secret Key, and its
+  desktop app's authorization prompt.
 - Put no password, TOTP seed, note, title, username, URL, item content, token,
   search term, or credential material in argv or environment variables. Limit
   variable argv to reviewed opaque identifiers and non-secret selectors required
@@ -395,7 +402,11 @@ VaultSquire necessarily trusts:
 - Keep raw stdout and stderr only in bounded transient buffers. Never persist,
   log, attach to errors, crash reports, or support bundles, or pass them to an
   analytics/crash SDK.
-- Serialize commands per Proton account and terminate them on cancellation,
+- Give a child process an environment built from an allowlist rather than a
+  filter of VaultSquire's own, so a secret-bearing variable the app inherited
+  cannot reach it. A provider may pin fixed, non-secret documented mode
+  switches; never a token, session, credential, or user-authored value.
+- Serialize commands per provider account and terminate them on cancellation,
   lock, logout, sleep, screen lock, account removal, or session-generation
   change. Late output cannot publish state.
 - Refresh and atomically replace the complete app-encrypted snapshot after every
@@ -408,6 +419,22 @@ VaultSquire necessarily trusts:
   session/keyring access pass on clean systems. Otherwise use the reviewed
   Developer ID Hardened Runtime build with minimal access, no privileged helper,
   and no Mac App Store target.
+
+#### 1Password Additions
+
+- Support desktop-app integration only. Manual sign-in and service accounts are
+  prohibited, not deferred: both deliver a credential through argv or the
+  environment, which the rules above forbid.
+- Capture no secret into a snapshot at all — no concealed value, one-time-password
+  seed, or note — even if a build's `item list` were to return field values.
+  Secrets are fetched only when an item is opened.
+- Address every account-bearing command to a resolved opaque account identifier,
+  and drop an identifier that fails validation rather than placing it in argv.
+- Keep every write disabled. No documented command unarchives or restores an
+  item, so no such action may be offered.
+- Do not present 1Password support in any release until the API and SDK Terms
+  question and the TTY-less authorization spike in `ONEPASSWORD_CLI_RESEARCH.md`
+  §1 are both resolved.
 
 ### Permissions And Provider Capabilities
 
@@ -559,6 +586,18 @@ state, and fixture generator revision.
 | Unsupported newer/older version | Fail-closed capability behavior | Blocking |
 | App Sandbox spike | Executable, inheritance, session, and keyring feasibility | Architecture decision gate |
 | Direct Hardened Runtime build | Reviewed fallback and clean-Mac behavior | Blocking if selected |
+
+### 1Password CLI Matrix
+
+| Lane | Purpose | Merge/release behavior |
+|---|---|---|
+| Fake executable fixtures | Process, cancellation, bounds, malformed output, and leakage | Blocking |
+| Argv and environment leakage suite | No secret in argv; environment is a fixed allowlist; nothing secret at rest | Blocking |
+| Unsupported version, including a beta named after a supported stable | Fail-closed version gating | Blocking |
+| Official stable CLI candidate | Establish the command and JSON contract | Blocking once declared supported |
+| Unauthorized desktop app | Honest not-authorized status for a locked app, disabled integration, or declined prompt | Blocking |
+| TTY-less authorization spike | Whether a GUI-spawned `op` can be authorized at all, and under App Sandbox | Release gate; unresolved |
+| Terms review | API and SDK Terms competing-product question | Release gate; unresolved |
 
 For every live CLI run, record the executable identity result, exact CLI
 version, macOS version, processor architecture, distribution mode, command

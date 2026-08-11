@@ -9,7 +9,8 @@ final class AppModelTests: XCTestCase {
     private func makeModel(
         presence: @escaping () -> AppModel.AccountPresence = { .none },
         descriptors: [AccountDescriptor] = [],
-        protonService: ProtonAccountService = ProtonAccountService()
+        protonService: ProtonAccountService = ProtonAccountService(),
+        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService()
     ) -> (AppModel, AccountDescriptorStore) {
         let defaults = UserDefaults(suiteName: "VSQ-appmodel-\(UUID().uuidString)")!
         let store = AccountDescriptorStore(defaults: defaults)
@@ -29,6 +30,7 @@ final class AppModelTests: XCTestCase {
             queryAccountPresence: presence,
             service: service,
             protonService: protonService,
+            onePasswordService: onePasswordService,
             biometricStore: FakeBiometricVaultKeyStore(available: false)
         )
         return (model, store)
@@ -99,7 +101,7 @@ final class AppModelTests: XCTestCase {
     // MARK: - Proton, read-only, per vault
 
     @MainActor
-    private func makeProtonService(executor: FakeProtonCLIExecutor) -> ProtonAccountService {
+    private func makeProtonService(executor: FakeCLIExecutor) -> ProtonAccountService {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VSQ-appmodel-proton-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -119,7 +121,7 @@ final class AppModelTests: XCTestCase {
 
     @MainActor
     func testOpeningProtonPopulatesItemsReadOnly() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -178,7 +180,7 @@ final class AppModelTests: XCTestCase {
     /// disturb another that is open.
     @MainActor
     func testLockingOneVaultLeavesTheOtherOpen() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -224,7 +226,7 @@ final class AppModelTests: XCTestCase {
     /// grouping labels, and scoping to one narrows the list to it.
     @MainActor
     func testVaultExposesItsContainersAndScopingNarrowsToThem() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -276,7 +278,7 @@ final class AppModelTests: XCTestCase {
     /// holding separate items, which keying on the display name would break.
     @MainActor
     func testSameNamedProtonVaultsStaySeparateContainers() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -320,7 +322,7 @@ final class AppModelTests: XCTestCase {
     /// A read-only vault is never offered as a destination for a new item.
     @MainActor
     func testWritableVaultsExcludesReadOnlyProviders() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -355,7 +357,7 @@ final class AppModelTests: XCTestCase {
     /// every open vault on each appearance.
     @MainActor
     func testRefreshPreservesAnOpenVault() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -389,7 +391,7 @@ final class AppModelTests: XCTestCase {
     /// everything that is open regardless of the browser's scope.
     @MainActor
     func testScopeNarrowsTheListButQuickSearchSpansEveryOpenVault() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -428,6 +430,229 @@ final class AppModelTests: XCTestCase {
         // … but Quick Search still finds the open Proton item.
         XCTAssertEqual(model.quickSearchItems.count, 1)
         XCTAssertTrue(model.quickSearchIsUnlocked)
+    }
+
+    // MARK: - 1Password, read-only, per vault
+
+    /// The default for tests that never open a 1Password vault. Its locator has
+    /// no candidate paths, so a test that registers a 1Password descriptor
+    /// without supplying a service reports "not installed" instead of reaching
+    /// for a real binary on the machine running the suite.
+    private static func inertOnePasswordService() -> OnePasswordAccountService {
+        OnePasswordAccountService(
+            locator: OnePasswordCLILocator(
+                candidatePaths: [],
+                isExecutable: { _ in false },
+                resolveRealPath: { $0 }
+            )
+        )
+    }
+
+    @MainActor
+    private func makeOnePasswordService(executor: FakeCLIExecutor) -> OnePasswordAccountService {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VSQ-appmodel-1p-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let key = SymmetricKey(size: .bits256)
+        return OnePasswordAccountService(
+            locator: OnePasswordCLILocator(
+                candidatePaths: ["/usr/local/bin/op"],
+                isExecutable: { _ in true },
+                resolveRealPath: { $0 }
+            ),
+            executor: executor,
+            versionGate: OnePasswordCLIVersionGate(supportedVersions: ["2.38.1"]),
+            cache: OnePasswordSnapshotCache(keyProvider: { key }, directory: directory),
+            now: { Date(timeIntervalSince1970: 1_700_000_000) }
+        )
+    }
+
+    @MainActor
+    private func stubOnePassword(_ executor: FakeCLIExecutor) async {
+        await executor.stub(arguments: ["--version"], stdout: "2.38.1\n")
+        await executor.stub(
+            arguments: ["whoami", "--format", "json"],
+            stdout: #"{"account_uuid":"ACCOUNT1"}"#
+        )
+        await executor.stub(
+            arguments: ["vault", "list", "--format", "json", "--account", "ACCOUNT1"],
+            stdout: #"[{"id":"VAULT1","name":"Private"}]"#
+        )
+        await executor.stub(
+            arguments: [
+                "item", "list", "--vault", "VAULT1", "--format", "json", "--account", "ACCOUNT1"
+            ],
+            stdout: """
+            [{"id":"ITEM1","title":"Example Service","category":"LOGIN",
+              "fields":[{"id":"username","type":"STRING","purpose":"USERNAME",
+                         "label":"username","value":"squire@example.com"}]}]
+            """
+        )
+        await executor.stub(
+            arguments: [
+                "item", "get", "ITEM1", "--vault", "VAULT1",
+                "--format", "json", "--reveal", "--account", "ACCOUNT1"
+            ],
+            stdout: """
+            {"id":"ITEM1","title":"Example Service","category":"LOGIN",
+             "fields":[{"id":"password","type":"CONCEALED","purpose":"PASSWORD",
+                        "label":"password","value":"VSQ-1p-secret"}]}
+            """
+        )
+    }
+
+    @MainActor
+    func testOpeningOnePasswordPopulatesItemsReadOnly() async throws {
+        let executor = FakeCLIExecutor()
+        await stubOnePassword(executor)
+
+        let account = OnePasswordAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "1Password", email: "Official 1Password CLI"
+                )
+            ],
+            onePasswordService: makeOnePasswordService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        XCTAssertEqual(model.session(for: account)?.kind, .onePassword)
+
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        XCTAssertEqual(model.items.count, 1)
+        XCTAssertEqual(model.items.first?.displayTitle, "Example Service")
+
+        // 1Password is read-only: nothing offers a write on its items.
+        let id = try XCTUnwrap(model.items.first?.id)
+        XCTAssertFalse(model.canCreateItems)
+        XCTAssertFalse(model.canArchive(id))
+        XCTAssertFalse(model.canEdit(id))
+        XCTAssertNil(model.draft(for: id))
+
+        // Listing carries no secrets; opening the item fetches them.
+        XCTAssertNil(model.detail(for: id)?.fields.first { $0.label == "Password" })
+        model.hydrateIfNeeded(id)
+        try await pollUntil {
+            model.detail(for: id)?.fields.contains { $0.label == "Password" } == true
+        }
+        XCTAssertEqual(
+            model.detail(for: id)?.fields.first { $0.label == "Password" }?.value, "VSQ-1p-secret"
+        )
+
+        // Locking drops the items and the fetched secret, and the detail is no
+        // longer readable from the stale identifier.
+        model.lock(account)
+        XCTAssertFalse(model.isUnlocked)
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertNil(model.detail(for: id))
+    }
+
+    /// Re-opening after a lock must not resurrect the previous session's
+    /// secret: the fetched content is dropped with the vault, so the detail
+    /// starts bare again.
+    @MainActor
+    func testReopeningOnePasswordDoesNotResurrectAFetchedSecret() async throws {
+        let executor = FakeCLIExecutor()
+        await stubOnePassword(executor)
+
+        let account = OnePasswordAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "1Password", email: "Official 1Password CLI"
+                )
+            ],
+            onePasswordService: makeOnePasswordService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let id = try XCTUnwrap(model.items.first?.id)
+        model.hydrateIfNeeded(id)
+        try await pollUntil {
+            model.detail(for: id)?.fields.contains { $0.label == "Password" } == true
+        }
+
+        model.lock(account)
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        XCTAssertNil(model.detail(for: id)?.fields.first { $0.label == "Password" })
+    }
+
+    /// A read-only provider's item must not gain a write action by sitting in a
+    /// merged list beside a writable vault.
+    @MainActor
+    func testAMergedListStillGatesEachItemByItsOwnProvider() async throws {
+        let executor = FakeCLIExecutor()
+        await stubOnePassword(executor)
+
+        let onePassword = OnePasswordAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: .vaultwardenPrimary,
+                    serverDisplay: "vault.example.com",
+                    email: "user@example.com"
+                ),
+                AccountDescriptor(
+                    account: onePassword,
+                    serverDisplay: "1Password",
+                    email: "Official 1Password CLI"
+                ),
+            ],
+            onePasswordService: makeOnePasswordService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(onePassword)
+        try await pollUntil { model.session(for: onePassword)?.isOpen == true }
+
+        model.scope = .allVaults
+        let id = try XCTUnwrap(model.items.first?.id)
+        XCTAssertEqual(id.provider, .onePasswordCLI)
+        XCTAssertFalse(model.canArchive(id))
+        XCTAssertFalse(model.canEdit(id))
+
+        // Locking the never-opened Vaultwarden vault leaves 1Password alone.
+        model.lock(.vaultwardenPrimary)
+        XCTAssertTrue(model.session(for: onePassword)?.isOpen == true)
+        XCTAssertEqual(model.allOpenItems.count, 1)
+    }
+
+    /// The sidebar groups 1Password items by their vault, keyed on the vault
+    /// identifier carried in each item's compound id.
+    @MainActor
+    func testOnePasswordItemsGroupByTheirVault() async throws {
+        let executor = FakeCLIExecutor()
+        await stubOnePassword(executor)
+
+        let account = OnePasswordAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "1Password", email: "Official 1Password CLI"
+                )
+            ],
+            onePasswordService: makeOnePasswordService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let groups = try XCTUnwrap(model.session(for: account)?.groups)
+        XCTAssertEqual(groups.map(\.id), ["VAULT1"])
+        XCTAssertEqual(groups.map(\.name), ["Private"])
+        XCTAssertEqual(groups.map(\.count), [1])
+
+        model.scope = .group(account, "VAULT1")
+        XCTAssertEqual(model.items.count, 1)
     }
 
     @MainActor

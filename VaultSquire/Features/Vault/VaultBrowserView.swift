@@ -354,6 +354,23 @@ struct VaultBrowserView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(session.isOpening)
                 .accessibilityIdentifier("open-proton-vault")
+            case .onePassword:
+                Text("VaultSquire reads these vaults through the official 1Password CLI. Your 1Password app will ask you to authorize it.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    appModel.open(session.account)
+                } label: {
+                    if session.isOpening {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Open Vault")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(session.isOpening)
+                .accessibilityIdentifier("open-onepassword-vault")
             }
 
             if case .failed(let message) = session.state {
@@ -391,8 +408,9 @@ struct VaultBrowserView: View {
         if let selection, let detail = appModel.detail(for: selection) {
             VaultItemDetailView(detail: detail)
                 .id(selection)
-                // A Proton item's secret fields are fetched the first time it is
-                // opened; every other provider already has them in memory.
+                // A CLI provider's item has its secret fields fetched the first
+                // time it is opened, because listing deliberately carries none;
+                // a Vaultwarden item already has them in memory.
                 .task(id: selection) { appModel.hydrateIfNeeded(selection) }
         } else {
             ContentUnavailableView {

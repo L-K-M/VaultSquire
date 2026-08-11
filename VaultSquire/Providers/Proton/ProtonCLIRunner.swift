@@ -78,7 +78,7 @@ enum ProtonCLIRunnerError: Error, Equatable, Sendable {
     case unparseableVersion
     /// The reported version is not in the tested allowlist.
     case unsupportedVersion(String)
-    case execution(ProtonCLIExecutionError)
+    case execution(CLIExecutionError)
 }
 
 /// Drives the located binary through the executor with only fixed subcommands
@@ -89,7 +89,7 @@ enum ProtonCLIRunnerError: Error, Equatable, Sendable {
 /// caller.
 struct ProtonCLIRunner: Sendable {
     let binary: ProtonCLIBinary
-    let executor: any ProtonCLIExecuting
+    let executor: any CLIExecuting
     let versionGate: ProtonCLIVersionGate
 
     /// Maximum accepted length of an opaque identifier. Proton share and item
@@ -99,7 +99,7 @@ struct ProtonCLIRunner: Sendable {
 
     init(
         binary: ProtonCLIBinary,
-        executor: any ProtonCLIExecuting,
+        executor: any CLIExecuting,
         versionGate: ProtonCLIVersionGate = .production
     ) {
         self.binary = binary
@@ -159,16 +159,16 @@ struct ProtonCLIRunner: Sendable {
         _ arguments: [String],
         timeout: Duration = .seconds(20),
         outputLimit: Int = 4 * 1024 * 1024
-    ) async throws -> ProtonCLIExecution {
-        let invocation = ProtonCLIInvocation(
+    ) async throws -> CLIExecution {
+        let invocation = CLIInvocation(
             arguments: arguments,
             timeout: timeout,
             outputLimit: outputLimit
         )
-        let execution: ProtonCLIExecution
+        let execution: CLIExecution
         do {
             execution = try await executor.execute(invocation, executableURL: binary.executableURL)
-        } catch let error as ProtonCLIExecutionError {
+        } catch let error as CLIExecutionError {
             throw ProtonCLIRunnerError.execution(error)
         }
         guard execution.exitCode == 0 else {

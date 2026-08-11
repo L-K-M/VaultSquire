@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// The provider choices offered by the add-account sheet. Vaultwarden is the
-/// implemented provider; Proton Pass is listed with its staged status so the
-/// selection surface exists ahead of the CLI-based integration bound by
-/// PROTON_PASS_RESEARCH.md. The domain's provider namespace already reserves
-/// `ProviderID.protonCLI` for it.
+/// The provider choices offered by the add-account sheet. Vaultwarden signs in
+/// with a form; Proton Pass and 1Password are credential-free detection panes
+/// over their own official user-installed CLIs, bound by
+/// PROTON_PASS_RESEARCH.md and ONEPASSWORD_CLI_RESEARCH.md.
 enum AddAccountProvider: Hashable {
     case vaultwarden
     case protonPass
+    case onePassword
 }
 
 /// The add-account sheet: a provider selector over a single sign-in form
@@ -21,8 +21,11 @@ struct AddAccountView: View {
     /// Invoked when the user opens their Proton vault from the detection pane.
     /// The shell wires this to the read-only open flow and dismisses the sheet.
     var onOpenProtonVault: () -> Void = {}
+    /// The same, for the 1Password detection pane.
+    var onOpenOnePasswordVault: () -> Void = {}
 
     @StateObject private var protonConnect = ProtonConnectModel()
+    @StateObject private var onePasswordConnect = OnePasswordConnectModel()
     @State private var provider: AddAccountProvider = .vaultwarden
 
     var body: some View {
@@ -35,10 +38,10 @@ struct AddAccountView: View {
                 successView
             } else {
                 providerHeader
-                if provider == .vaultwarden {
-                    signInForm
-                } else {
-                    protonPanel
+                switch provider {
+                case .vaultwarden: signInForm
+                case .protonPass: protonPanel
+                case .onePassword: onePasswordPanel
                 }
             }
         }
@@ -62,6 +65,7 @@ struct AddAccountView: View {
             Picker("Provider", selection: $provider) {
                 Text("Vaultwarden").tag(AddAccountProvider.vaultwarden)
                 Text("Proton Pass").tag(AddAccountProvider.protonPass)
+                Text("1Password").tag(AddAccountProvider.onePassword)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -207,6 +211,94 @@ struct AddAccountView: View {
             }
         case .error:
             Text("VaultSquire couldn't read the Proton Pass CLI's output, so reads stay disabled.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The 1Password connection pane. It reads through the official
+    /// user-installed `op` CLI and collects no 1Password credential: the account
+    /// password and Secret Key stay with 1Password's own desktop app, which
+    /// authorizes the CLI with a biometric prompt. The pane reports the detected
+    /// status honestly and offers to open the vault read-only when a supported,
+    /// authorized CLI is present.
+    private var onePasswordPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("1Password")
+                .font(.callout.weight(.semibold))
+            Text("VaultSquire reads your 1Password vaults through the official 1Password CLI that you install, alongside the 1Password app that authorizes it. It never asks for your account password or Secret Key.")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
+            onePasswordStatusContent
+
+            HStack {
+                Button("Cancel", action: onClose)
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Recheck") { onePasswordConnect.probe() }
+                    .accessibilityIdentifier("add-account-onepassword-recheck")
+                if onePasswordConnect.isReady {
+                    Button("Open Vault") { onOpenOnePasswordVault() }
+                        .keyboardShortcut(.defaultAction)
+                        .accessibilityIdentifier("add-account-onepassword-open")
+                }
+            }
+        }
+        .onAppear { onePasswordConnect.probe() }
+        .onDisappear { onePasswordConnect.cancel() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("add-account-onepassword")
+    }
+
+    @ViewBuilder
+    private var onePasswordStatusContent: some View {
+        switch onePasswordConnect.stage {
+        case .probing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Looking for the 1Password CLI…").foregroundStyle(.secondary)
+            }
+        case .status(let status):
+            onePasswordStatusMessage(status)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("add-account-onepassword-status")
+        }
+    }
+
+    @ViewBuilder
+    private func onePasswordStatusMessage(_ status: OnePasswordConnectionStatus) -> some View {
+        switch status {
+        case .notInstalled:
+            Text("No 1Password CLI was found. Install the official CLI, then recheck.")
+                .foregroundStyle(.secondary)
+        case .unsupportedVersion(let version):
+            Text("Found a 1Password CLI reporting version \(version), which VaultSquire hasn't verified. Reads stay disabled until a tested version is installed.")
+                .foregroundStyle(.secondary)
+        case .unparseableVersion:
+            Text("VaultSquire couldn't read the 1Password CLI's version, so reads stay disabled.")
+                .foregroundStyle(.secondary)
+        case .notAuthorized:
+            Text("The 1Password CLI isn't authorized. Open the 1Password app, turn on \"Integrate with 1Password CLI\" in Settings › Developer, then recheck and approve the prompt.")
+                .foregroundStyle(.secondary)
+        case .ready(let version, let approvedPath, let resolvedRealPath):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("1Password CLI \(version) is ready.", systemImage: "checkmark.seal")
+                    .foregroundStyle(.green)
+                Text(approvedPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                if resolvedRealPath != approvedPath {
+                    Text("→ \(resolvedRealPath)")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        case .error:
+            Text("VaultSquire couldn't read the 1Password CLI's output, so reads stay disabled.")
                 .foregroundStyle(.secondary)
         }
     }
