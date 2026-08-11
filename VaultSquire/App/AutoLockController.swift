@@ -17,6 +17,45 @@ import Foundation
 /// user reads without touching anything is intentional.
 @MainActor
 final class AutoLockController {
+    enum InactivityPreference: Int, CaseIterable, Identifiable {
+        case oneMinute = 1
+        case fiveMinutes = 5
+        case fifteenMinutes = 15
+        case thirtyMinutes = 30
+        case oneHour = 60
+        case never = 0
+
+        static let defaultValue: Self = .fifteenMinutes
+
+        var id: Int { rawValue }
+
+        var minutes: Double {
+            Double(rawValue)
+        }
+
+        var timeout: TimeInterval? {
+            guard self != .never else { return nil }
+            return minutes * 60
+        }
+
+        var title: String {
+            switch self {
+            case .oneMinute:
+                "After 1 minute"
+            case .fiveMinutes:
+                "After 5 minutes"
+            case .fifteenMinutes:
+                "After 15 minutes"
+            case .thirtyMinutes:
+                "After 30 minutes"
+            case .oneHour:
+                "After 1 hour"
+            case .never:
+                "Never lock for inactivity"
+            }
+        }
+    }
+
     /// The app's controller, started from the root scene with the shell's
     /// lock-everything action. Tests construct isolated instances.
     static let shared = AutoLockController()
@@ -55,15 +94,24 @@ final class AutoLockController {
     /// The configured inactivity timeout in seconds. Only meaningful when
     /// `inactivityLockEnabled` is true.
     var inactivityTimeout: TimeInterval {
-        let minutes = defaults.double(forKey: Self.inactivityMinutesKey)
-        return minutes > 0 ? minutes * 60 : Self.defaultInactivityTimeout
+        inactivityPreference.timeout ?? Self.defaultInactivityTimeout
     }
 
     /// Whether the inactivity trigger is on. Absent means on; an explicitly
     /// configured non-positive value disables it. System events still lock.
     var inactivityLockEnabled: Bool {
-        guard defaults.object(forKey: Self.inactivityMinutesKey) != nil else { return true }
-        return defaults.double(forKey: Self.inactivityMinutesKey) > 0
+        inactivityPreference != .never
+    }
+
+    var inactivityPreference: InactivityPreference {
+        guard let value = defaults.object(forKey: Self.inactivityMinutesKey) as? NSNumber else {
+            return .defaultValue
+        }
+        let minutes = value.intValue
+        if minutes <= 0 {
+            return .never
+        }
+        return InactivityPreference(rawValue: minutes) ?? .defaultValue
     }
 
     /// Installs the lock closure and starts watching. Idempotent: calling
@@ -106,13 +154,13 @@ final class AutoLockController {
         eventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .mouseMoved]
         ) { [weak self] event in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.noteActivity()
             }
             return event
         }
 
-        armInactivityCheck()
+        scheduleInactivityCheck()
     }
 
     /// Removes every observer and stops the inactivity check. The shared
@@ -138,6 +186,14 @@ final class AutoLockController {
     /// Records input activity, restarting the idle clock.
     func noteActivity() {
         lastActivity = now()
+        scheduleInactivityCheck()
+    }
+
+    /// Re-applies the stored setting immediately. Shorter timeouts can lock at
+    /// once when the current idle period already exceeds the new deadline.
+    func preferencesDidChange() {
+        checkInactivity(at: now())
+        scheduleInactivityCheck()
     }
 
     /// A screen lock, screensaver start, sleep, or session resignation: lock
@@ -157,24 +213,21 @@ final class AutoLockController {
         onLock?()
     }
 
-    private func armInactivityCheck() {
+    private func scheduleInactivityCheck() {
         inactivityTask?.cancel()
         inactivityTask = nil
-        guard inactivityLockEnabled else { return }
-        // Check at least twice per timeout so the lock lands close to the
-        // boundary rather than a whole timeout late, but never more often
-        // than once a minute.
-        let interval = max(60, inactivityTimeout / 2)
+        guard started, let timeout = inactivityPreference.timeout else { return }
+        let deadline = lastActivity.addingTimeInterval(timeout)
+        let delay = max(0, deadline.timeIntervalSince(now()))
         inactivityTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(interval))
-                } catch {
-                    return
-                }
-                guard let self, !Task.isCancelled else { return }
-                self.checkInactivity(at: self.now())
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
             }
+            guard let self, !Task.isCancelled else { return }
+            self.checkInactivity(at: self.now())
+            self.scheduleInactivityCheck()
         }
     }
 }

@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage(AutoLockController.inactivityMinutesKey)
+    private var inactivityMinutes = AutoLockController.InactivityPreference.defaultValue.rawValue
+
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var siteIcons: SiteIconStore
 
@@ -12,15 +15,28 @@ struct SettingsView: View {
 
                 Divider()
 
+                autoLockSection
+
+                Divider()
+
                 biometricSection
 
-                Text("A configurable global shortcut and lock policy are enabled only after their interaction and security tests pass.")
+                Text("The global shortcut remains fixed until its interaction and accessibility tests pass.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             .padding(24)
             .tabItem {
                 Label("General", systemImage: "gearshape")
+            }
+            .onAppear {
+                let normalized = normalizedInactivityMinutes
+                if inactivityMinutes != normalized {
+                    inactivityMinutes = normalized
+                }
+            }
+            .onChange(of: inactivityMinutes) { _, _ in
+                AutoLockController.shared.preferencesDidChange()
             }
 
             VStack(alignment: .leading, spacing: 16) {
@@ -60,6 +76,40 @@ struct SettingsView: View {
         let open = appModel.sessions.filter(\.isOpen).count
         guard open > 0 else { return "Locked" }
         return open == 1 ? "1 vault open" : "\(open) vaults open"
+    }
+
+    @ViewBuilder
+    private var autoLockSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Lock when VaultSquire is inactive", selection: inactivitySelection) {
+                ForEach(AutoLockController.InactivityPreference.allCases) { preference in
+                    Text(preference.title).tag(preference.rawValue)
+                }
+            }
+            .accessibilityIdentifier("settings-auto-lock")
+
+            Text("Default: After 15 minutes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("“Never lock for inactivity” disables only the idle timer. Locking for screen lock, screensaver start, session switch, system sleep, and the explicit Lock command still applies.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Never lock for inactivity disables only the idle timer. Screen lock, screensaver start, session switch, system sleep, and the explicit Lock command still lock VaultSquire.")
+        }
+    }
+
+    private var inactivitySelection: Binding<Int> {
+        Binding(
+            get: { normalizedInactivityMinutes },
+            set: { inactivityMinutes = $0 }
+        )
+    }
+
+    private var normalizedInactivityMinutes: Int {
+        let current = AutoLockController.shared.inactivityPreference.rawValue
+        return current
     }
 
     /// Site-icon opt-in. Off by default, and the wording says plainly what

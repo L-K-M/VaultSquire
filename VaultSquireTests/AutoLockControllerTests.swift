@@ -23,6 +23,7 @@ final class AutoLockControllerTests: XCTestCase {
         let controller = AutoLockController(defaults: defaults, now: now)
         let counter = LockCounter()
         addTeardownBlock {
+            controller.stop()
             // The controller's observers and timer all capture it weakly, so
             // releasing it leaves nothing that can fire; only the isolated
             // defaults suite needs cleanup.
@@ -102,5 +103,64 @@ final class AutoLockControllerTests: XCTestCase {
         let (controller, _, _) = makeController(now: { t0 })
         XCTAssertEqual(controller.inactivityTimeout, AutoLockController.defaultInactivityTimeout)
         XCTAssertTrue(controller.inactivityLockEnabled)
+        XCTAssertEqual(
+            controller.inactivityPreference,
+            AutoLockController.InactivityPreference.defaultValue
+        )
+    }
+
+    func testPreferenceChangeToShorterTimeoutLocksWhenAlreadyIdleTooLong() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        var current = t0
+        let suite = "VSQ-autolock-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.set(15, forKey: AutoLockController.inactivityMinutesKey)
+        let controller = AutoLockController(defaults: defaults, now: { current })
+        let counter = LockCounter()
+        addTeardownBlock {
+            controller.stop()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        controller.start(onLock: { counter.count += 1 })
+
+        current = t0.addingTimeInterval(10 * 60)
+        defaults.set(5, forKey: AutoLockController.inactivityMinutesKey)
+        controller.preferencesDidChange()
+
+        XCTAssertEqual(counter.count, 1, "a shorter timeout takes effect immediately")
+    }
+
+    func testPreferenceChangeToLongerTimeoutRearmsTheClock() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        var current = t0
+        let suite = "VSQ-autolock-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.set(15, forKey: AutoLockController.inactivityMinutesKey)
+        let controller = AutoLockController(defaults: defaults, now: { current })
+        let counter = LockCounter()
+        addTeardownBlock {
+            controller.stop()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        controller.start(onLock: { counter.count += 1 })
+
+        current = t0.addingTimeInterval(10 * 60)
+        defaults.set(30, forKey: AutoLockController.inactivityMinutesKey)
+        controller.preferencesDidChange()
+        controller.checkInactivity(at: t0.addingTimeInterval(20 * 60))
+        XCTAssertEqual(counter.count, 0, "the old deadline no longer applies")
+
+        controller.checkInactivity(at: t0.addingTimeInterval(30 * 60))
+        XCTAssertEqual(counter.count, 1, "the new deadline is now authoritative")
+    }
+
+    func testUnsupportedStoredValueFallsBackToTheDefaultTimeout() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, _, _) = makeController(timeoutMinutes: 2, now: { t0 })
+        XCTAssertEqual(
+            controller.inactivityPreference,
+            AutoLockController.InactivityPreference.defaultValue
+        )
+        XCTAssertEqual(controller.inactivityTimeout, AutoLockController.defaultInactivityTimeout)
     }
 }
