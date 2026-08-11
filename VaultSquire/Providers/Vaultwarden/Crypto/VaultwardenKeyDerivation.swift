@@ -18,7 +18,10 @@ enum VaultwardenKDFConfiguration: Hashable, Sendable {
     /// first login to such a server, where there is no prior accepted
     /// configuration to compare against (SECURITY_AND_TESTING.md §4, "Malicious
     /// configured server"). 100 000 closes that gap without rejecting servers
-    /// still configured at the older, server-accepted default.
+    /// still configured at the older, server-accepted minimum. The current
+    /// default for new accounts is 600 000; the floor accepts the legacy minimum
+    /// but does not require the modern default, so it does not lock out servers
+    /// still set to 100 000–200 000.
     static let pbkdf2IterationFloor = 100_000
     static let pbkdf2IterationCeiling = 2_000_000
     static let argon2IterationFloor = 2
