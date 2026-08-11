@@ -99,10 +99,26 @@ struct VaultwardenSyncService: Sendable {
         capturedAt: Date
     ) -> VaultwardenVaultSnapshot {
         var updated = current
-        // The sync profile reissues the wrapped key material; keep the prior
-        // values when the server omits them so unlock never loses its key.
-        updated.wrappedUserKey = sync.profile.key ?? current.wrappedUserKey
-        updated.wrappedPrivateKey = sync.profile.privateKey ?? current.wrappedPrivateKey
+        // The wrapped key material is established at login — a complete
+        // authentication transaction. Sync must never rotate it silently: a
+        // *different* key from the server means the account's key material
+        // changed server-side, which requires a fresh re-authentication, not an
+        // in-place overwrite that would leave the stored snapshot decryptable
+        // only under a key the user did not choose. (The new ciphertext would
+        // then fail to decrypt under the retained key — a visible, fail-closed
+        // signal — rather than being silently re-keyed.)
+        //
+        // Adopt the sync-provided material only to fill a still-empty bootstrap
+        // slot: some servers return the wrapped user key from the sync profile
+        // rather than the token grant, so the first sync after login seeds it.
+        // SECURITY_AND_TESTING.md § "Vaultwarden Authentication": treat
+        // re-authentication as the only path that replaces wrapped key material.
+        if current.wrappedUserKey.isEmpty, let key = sync.profile.key {
+            updated.wrappedUserKey = key
+        }
+        if current.wrappedPrivateKey == nil, let privateKey = sync.profile.privateKey {
+            updated.wrappedPrivateKey = privateKey
+        }
         updated.organizations = sync.profile.organizations.map {
             .init(id: $0.id, name: $0.name, wrappedKey: $0.key)
         }

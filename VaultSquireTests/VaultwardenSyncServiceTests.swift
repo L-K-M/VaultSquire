@@ -68,9 +68,84 @@ final class VaultwardenSyncServiceTests: XCTestCase {
         XCTAssertEqual(success.snapshot.generation, 4, "generation must strictly advance")
         XCTAssertEqual(success.snapshot.ciphers.count, 1)
         XCTAssertEqual(success.snapshot.folders.first?.id, "f1")
-        XCTAssertEqual(success.snapshot.wrappedUserKey, "2.new|new|new")
+        // The wrapped user key is established at login and must not be rotated by
+        // a sync: the profile's "2.new|new|new" is ignored in favor of the key
+        // the account already holds.
+        XCTAssertEqual(success.snapshot.wrappedUserKey, "2.old|old|old")
         XCTAssertEqual(success.snapshot.email, "user@example.com", "context is preserved from the prior snapshot")
         XCTAssertEqual(success.refreshToken, "VSQ-refresh-2", "the rotated refresh token is returned")
+    }
+
+    func testSyncSeedsEmptyBootstrapKeyFromProfile() async throws {
+        // Bootstrap path: some servers return the wrapped user key only from
+        // the sync profile, so the first sync after login must fill an empty
+        // slot. (Distinct from rotation: the slot is empty, not established.)
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r2\"}")
+        )
+        StubServer.shared.on(
+            "/api/sync",
+            respond: .json(200, """
+            {\"Profile\":{\"Key\":\"2.boot|boot|boot\",\"PrivateKey\":\"2.boot-pk|p|p\",\"Organizations\":[]},
+             \"Folders\":[],\"Ciphers\":[]}
+            """)
+        )
+        var bootstrap = makeCurrentSnapshot()
+        bootstrap.wrappedUserKey = ""
+        bootstrap.wrappedPrivateKey = nil
+
+        let result = await (try makeService()).sync(
+            current: bootstrap,
+            refresher: try makeRefresher(),
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        guard case .success(let success) = result else {
+            return XCTFail("expected a successful sync, got \(result)")
+        }
+        XCTAssertEqual(
+            success.snapshot.wrappedUserKey,
+            "2.boot|boot|boot",
+            "an empty bootstrap slot must be filled from the sync profile"
+        )
+        XCTAssertEqual(
+            success.snapshot.wrappedPrivateKey,
+            "2.boot-pk|p|p",
+            "an absent bootstrap private key must be filled from the sync profile"
+        )
+    }
+
+    func testSyncRefusesToSilentlyOverwriteEstablishedPrivateKey() async throws {
+        // A server-side rotation that also changes the wrapped private key must
+        // not be silently absorbed: the established key is retained so the user
+        // re-authenticates instead of being re-keyed under material they did not
+        // choose.
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(200, "{\"access_token\":\"a\",\"refresh_token\":\"r2\"}")
+        )
+        StubServer.shared.on(
+            "/api/sync",
+            respond: .json(200, """
+            {\"Profile\":{\"Key\":\"2.attacker|attacker|attacker\",\"PrivateKey\":\"2.attacker-pk|x|y\",\"Organizations\":[]},
+             \"Folders\":[],\"Ciphers\":[]}
+            """)
+        )
+        var established = makeCurrentSnapshot()
+        established.wrappedPrivateKey = "2.established-pk|a|b"
+
+        let result = await (try makeService()).sync(
+            current: established,
+            refresher: try makeRefresher(),
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        guard case .success(let success) = result else {
+            return XCTFail("expected a successful sync, got \(result)")
+        }
+        XCTAssertEqual(success.snapshot.wrappedUserKey, "2.old|old|old", "established user key must not rotate")
+        XCTAssertEqual(success.snapshot.wrappedPrivateKey, "2.established-pk|a|b", "established private key must not rotate")
     }
 
     func testRateLimitedRefreshIsReportedAsRefreshFailedNotUnreachable() async throws {
