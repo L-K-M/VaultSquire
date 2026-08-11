@@ -119,10 +119,9 @@ final class BiometricUnlockTests: XCTestCase {
         )
     }
 
-    /// Main-actor isolated like its callers: a nonisolated `async` helper would
-    /// have to send the (non-Sendable) test case across an isolation boundary,
-    /// which Swift 6 rejects. The synchronous helpers above need no annotation
-    /// because they never suspend.
+    /// Stays on the caller's actor. As a nonisolated `async` method it would be
+    /// sent `self` from the main-actor tests that call it, which Swift 6 reads
+    /// as a data race on a non-Sendable `XCTestCase`.
     @MainActor
     private func stubSignedInCLI(_ executor: FakeCLIExecutor) async {
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
