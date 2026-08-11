@@ -741,11 +741,17 @@ final class AppModelTests: XCTestCase {
         try await pollUntil { model.cliBackgroundTaskCountForTesting == 1 }
 
         // Locking must cancel the registered task so it stops producing
-        // plaintext, then the task unregisters itself on completion.
+        // plaintext. The registry entry is removed synchronously by lock, so
+        // wait on the operation itself observing cancellation (the real proof),
+        // yielding the main actor so the cancelled task can resume and record it.
         model.lock(account)
-        try await pollUntil { model.cliBackgroundTaskCountForTesting == 0 }
+        var wasCancelled = false
+        for _ in 0..<400 {
+            wasCancelled = await flag.wasMarked
+            if wasCancelled { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
 
-        let wasCancelled = await flag.wasMarked
         XCTAssertTrue(
             wasCancelled,
             "Lock must cancel the registered CLI background task for the account"
