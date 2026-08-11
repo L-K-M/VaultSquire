@@ -10,6 +10,11 @@ This is the living future-work backlog distilled from [`sol.md`](sol.md). The re
 | VS-007 | In review; macOS CI green; ready for review | [#35 — Fail partial CLI snapshot refresh publication](https://github.com/L-K-M/VaultSquire/pull/35) |
 | VS-023, VS-043 | In review; macOS CI green; ready for review | [#36 — Add auto-lock inactivity preference](https://github.com/L-K-M/VaultSquire/pull/36) |
 | VS-019, VS-028, VS-033, VS-051 | In review; CI pending at analysis update | [#40 — Unify in-memory vault search](https://github.com/L-K-M/VaultSquire/pull/40) |
+| VS-055 | Parallel in-review fix | [#41 — Stop showing a password the provider has already changed](https://github.com/L-K-M/VaultSquire/pull/41) |
+| VS-056 | Parallel in-review fix | [#32 — Clear cached site icons on per-vault lock](https://github.com/L-K-M/VaultSquire/pull/32) |
+| VS-057 | Two overlapping parallel fixes; reconcile rather than merge both blindly | [#38](https://github.com/L-K-M/VaultSquire/pull/38), [#56](https://github.com/L-K-M/VaultSquire/pull/56) |
+| VS-058 | Parallel in-review fix; macOS behavior still needs evidence | [#39 — Let a Dock click reopen the main window](https://github.com/L-K-M/VaultSquire/pull/39) |
+| VS-010 | **Blocked implementation:** offline fallback must not merge before user-presence-bound cache-key release | [#53](https://github.com/L-K-M/VaultSquire/pull/53) |
 | Multiple P0 boundaries | Existing broad overlapping work; not counted as done; currently conflicts with `main` | [#30 — Adversarial password-manager security hardening](https://github.com/L-K-M/VaultSquire/pull/30) |
 
 **Completed and removed from this backlog:** none in this review cycle. The four implementation PRs are intentionally separate from this analysis PR and remain listed until merged.
@@ -335,6 +340,36 @@ Recommendation: when exactly one configured vault is locked, select it automatic
 `ItemIconView` uses a fixed HSB brightness/saturation hue as foreground over an 18% tint of the same hue. Yellow/green portions of the 3,600-value hue range can have poor light-mode contrast, so specific sites receive a permanently hard-to-read badge.
 
 Recommendation: derive separate light/dark foreground and background tones with a minimum contrast target, add a pure color-math test over all hue buckets, and validate increased-contrast mode on macOS.
+
+#### VS-055 — CLI on-demand secrets remain stale after a successful refresh — P0/P1, high confidence
+
+`protonContent` and `onePasswordContent` are cleared on lock but not when `syncNow` replaces a CLI snapshot. If a password changes in the official provider, a user who previously opened that item can sync successfully and still see the old cached secret beside a fresh sync timestamp.
+
+Recommendation: invalidate all on-demand content for the refreshed account before publishing new projections, or bind each content value to the snapshot generation/version and refuse a mismatch. A changed/removed item must never reuse old content.
+
+#### VS-056 — Per-vault lock leaves site-derived icons in shared memory — P1, high confidence
+
+The shared `SiteIconStore` is cleared by Lock All, but the sidebar's per-vault lock calls only `appModel.lock(account)`. Host-derived images from the closed vault can remain in the process and on rows from another vault; because the cache is keyed only by host, ownership cannot be separated.
+
+Recommendation: conservatively clear the shared icon store on any vault lock, or namespace/reference-count entries by open account and erase those belonging only to the closed generation.
+
+#### VS-057 — Quick Search hand-off can lose or hide the chosen item — P1, high confidence
+
+The hand-off widens only a mismatched `.vault` scope, not `.group`; it sets `scope` and then `selection`, while a separate scope-change handler unconditionally clears selection. Choosing an item from another folder/share can leave a detail outside the visible list or no selection at all.
+
+Recommendation: centralize navigation as one transaction: choose the narrowest scope containing the item, then reconcile selection only after scope publication. Clear selection only when it is genuinely absent from the new scope. Add all-vault/vault/group cross-navigation tests.
+
+#### VS-058 — Closing the sole main window may strand the running app — P1, medium confidence; macOS runtime validation required
+
+The app intentionally remains running after its last window closes, but uses a single `Window` scene and has no explicit reopen handler. A Dock click may leave the process with no visible main window. This is strongly suggested by the lifecycle code but must be confirmed on macOS.
+
+Recommendation: use a reopenable single-window scene/command and implement `applicationShouldHandleReopen`; test Dock click, Window menu, Quick Search while main is closed, multiple Spaces, and restoration-disabled behavior.
+
+#### VS-059 — The tested `VaultSession` state machine is not the production state machine — P1, high confidence
+
+`VaultSession` models authentication, connectivity, sync, generations, and reauthentication with extensive tests, but production `AppModel`/`VaultSlot` uses a separate simpler state model. This explains several gaps above: session expiry, reauthentication, and durable rotation behavior are “implemented” only in an unused abstraction.
+
+Recommendation: either wire the actor into production as the single authority or delete it and move its invariants/tests to the live model. Maintaining two state machines creates false confidence and drift.
 
 ### E. Test, documentation, and delivery issues
 
