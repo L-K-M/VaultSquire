@@ -92,8 +92,12 @@ struct VaultItemDetailView: View {
 
     private func plainRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
-            Text(field.value)
-                .textSelection(field.allowsTextSelection ? .enabled : .disabled)
+            if field.allowsTextSelection {
+                Text(field.value)
+                    .textSelection(.enabled)
+            } else {
+                Text(field.value)
+            }
             Spacer()
             copyButton(field.value, isSecret: false)
         }
@@ -101,8 +105,12 @@ struct VaultItemDetailView: View {
 
     private func uriRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
-            Text(field.value)
-                .textSelection(field.allowsTextSelection ? .enabled : .disabled)
+            if field.allowsTextSelection {
+                Text(field.value)
+                    .textSelection(.enabled)
+            } else {
+                Text(field.value)
+            }
             if let decision = URIOpeningPolicy.decision(for: field.value) {
                 Button {
                     pendingOpen = decision
@@ -121,9 +129,14 @@ struct VaultItemDetailView: View {
 
     private func secretRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
-            Text(revealed.contains(field.id) ? field.value : "••••••••••")
-                .font(.body.monospaced())
-                .textSelection(field.allowsTextSelection ? .enabled : .disabled)
+            if field.allowsTextSelection {
+                Text(revealed.contains(field.id) ? field.value : "••••••••••")
+                    .font(.body.monospaced())
+                    .textSelection(.enabled)
+            } else {
+                Text(revealed.contains(field.id) ? field.value : "••••••••••")
+                    .font(.body.monospaced())
+            }
             Spacer()
             Button {
                 toggleReveal(field.id)
