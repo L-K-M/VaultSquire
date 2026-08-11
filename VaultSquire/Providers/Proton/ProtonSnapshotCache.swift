@@ -68,7 +68,7 @@ struct ProtonSnapshot: Equatable, Sendable, Codable {
                 && ProtonCLIRunner.isValidOpaqueIdentifier($0.shareID)
                 && Self.isDisplayString($0.vaultName)
                 && Self.isDisplayString($0.title)
-                && $0.username.map(Self.isDisplayString) != false
+                && $0.username.map({ Self.isDisplayString($0) }) != false
                 && $0.urls.count <= 100
                 && $0.urls.allSatisfy { Self.isDisplayString($0, maximumBytes: 2_048) }
         }
