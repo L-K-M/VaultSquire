@@ -359,7 +359,8 @@ final class OnePasswordAccountServiceTests: XCTestCase {
         await executor.stub(arguments: ["--version"], stdout: "2.38.1")
         await executor.stub(arguments: ["account", "list", "--format", "json"], stdout: "[]")
         let service = makeService(executor: executor)
-        XCTAssertEqual(await service.probeStatus(), .noAccounts)
+        let status = await service.probeStatus()
+        XCTAssertEqual(status, .noAccounts)
     }
 
     /// `account list` reads local configuration, so a failure there is a broken
@@ -371,7 +372,8 @@ final class OnePasswordAccountServiceTests: XCTestCase {
             arguments: ["account", "list", "--format", "json"], stdout: Data(), exitCode: 1
         )
         let service = makeService(executor: executor)
-        XCTAssertEqual(await service.probeStatus(), .error)
+        let status = await service.probeStatus()
+        XCTAssertEqual(status, .error)
     }
 
     /// Two signed-in accounts are both offered; neither is silently chosen.
