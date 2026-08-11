@@ -18,7 +18,12 @@ final class AppModel: ObservableObject {
     /// state and decrypted material.
     @Published private(set) var sessions: [VaultSlot] = []
     /// What the item list is showing: everything open, or one vault.
-    @Published var scope: VaultScope = .allVaults
+    @Published var scope: VaultScope = .allVaults {
+        didSet {
+            guard oldValue != scope else { return }
+            rebuildItems()
+        }
+    }
 
     @Published private(set) var accountPresence: AccountPresence = .unknown
     /// The configured accounts, for display in the shell and unlock prompt.
@@ -136,14 +141,23 @@ final class AppModel: ObservableObject {
 
     /// The items shown for the current scope, merged across vaults when the
     /// scope is All Vaults and sorted by title so a merged list reads as one.
-    var items: [VaultItemProjection] {
+    ///
+    /// Cached rather than computed. Building it flat-maps every open vault and
+    /// sorts with a localized comparison, and the list read it on every body
+    /// pass — which means on every keystroke in the search field, twice more
+    /// for the placeholder's item count, and again for every unrelated change
+    /// the model published. It is rebuilt when the vaults or the scope change,
+    /// which is the only time the answer can differ.
+    @Published private(set) var items: [VaultItemProjection] = []
+
+    private func rebuildItems() {
         let scoped: [VaultItemProjection]
         if case .group(_, let group) = scope {
             scoped = scopedSessions.flatMap { $0.items(inGroup: group) }
         } else {
             scoped = scopedSessions.flatMap(\.items)
         }
-        return scoped.sorted { lhs, rhs in
+        items = scoped.sorted { lhs, rhs in
             lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
         }
     }
@@ -204,6 +218,7 @@ final class AppModel: ObservableObject {
             rebuilt.append(previous)
         }
         sessions = rebuilt
+        rebuildItems()
 
         if let account = scope.account, session(for: account) == nil {
             scope = .allVaults
@@ -881,9 +896,15 @@ final class AppModel: ObservableObject {
 
     // MARK: - Session plumbing
 
+    /// The one funnel every session change goes through, which is also where
+    /// the two derived collections are refreshed: the vault's container list
+    /// and the scoped item list. Rebuilding them here costs one pass per
+    /// mutation instead of several passes per redraw.
     private func mutate(_ account: AccountID, _ body: (inout VaultSlot) -> Void) {
         guard let index = sessions.firstIndex(where: { $0.account == account }) else { return }
         body(&sessions[index])
+        sessions[index].refreshGroups()
+        rebuildItems()
     }
 
     /// Whether a vault is still on the generation an async task started under.

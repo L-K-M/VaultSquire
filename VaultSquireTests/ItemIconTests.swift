@@ -168,6 +168,7 @@ final class SiteIconStoreTests: XCTestCase {
         store.isEnabled = true
 
         await store.load("github.com")
+        store.publishPendingImages()
         XCTAssertNotNil(store.image(for: "github.com"))
 
         // A second row for the same site draws from the cache.
@@ -227,6 +228,7 @@ final class SiteIconStoreTests: XCTestCase {
         let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in png })
         store.isEnabled = true
         await store.load("github.com")
+        store.publishPendingImages()
         XCTAssertNotNil(store.image(for: "github.com"))
 
         store.isEnabled = false
@@ -244,10 +246,44 @@ final class SiteIconStoreTests: XCTestCase {
         store.isEnabled = true
         await store.load("github.com")
         await store.load("example.com")
+        store.publishPendingImages()
         XCTAssertEqual(store.images.count, 2)
 
         store.clear()
         XCTAssertTrue(store.images.isEmpty)
+    }
+
+    /// Every row, the sidebar, and the detail observe this store, so an icon
+    /// published on its own invalidated the whole window — once per site in the
+    /// vault, arriving as a burst the moment a vault opened. Resolved icons are
+    /// held and published together instead.
+    func testResolvedIconsArePublishedInOneUpdate() async {
+        let png = pngData
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in png })
+        store.isEnabled = true
+
+        await store.load("one.example")
+        await store.load("two.example")
+        store.publishPendingImages()
+
+        XCTAssertEqual(store.images.count, 2)
+        // Nothing is left waiting, so a second publish changes nothing.
+        store.publishPendingImages()
+        XCTAssertEqual(store.images.count, 2)
+    }
+
+    /// And the publish happens on its own: nothing has to ask for it.
+    func testAnIconAppearsWithoutAnExplicitPublish() async throws {
+        let png = pngData
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in png })
+        store.isEnabled = true
+
+        await store.load("github.com")
+
+        for _ in 0..<200 where store.image(for: "github.com") == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(store.image(for: "github.com"))
     }
 
     func testThePreferenceSurvivesANewStore() async {
