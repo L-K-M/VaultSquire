@@ -30,6 +30,10 @@ struct VaultBrowserView: View {
         let draft: VaultItemDraft
     }
 
+    /// The item awaiting the user's confirmation before it is archived. Set by
+    /// the toolbar button; cleared by the dialog's buttons.
+    @State private var pendingArchive: VaultItemID?
+
     private var filteredItems: [VaultItemProjection] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return appModel.items }
@@ -49,6 +53,23 @@ struct VaultBrowserView: View {
         .sheet(item: $editSession) { session in
             VaultItemEditView(draft: session.draft) { editSession = nil }
                 .environmentObject(appModel)
+        }
+        .confirmationDialog(
+            "Archive this item?",
+            isPresented: archiveConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Archive") {
+                if let pendingArchive {
+                    appModel.archive(pendingArchive)
+                }
+                self.pendingArchive = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingArchive = nil
+            }
+        } message: {
+            Text("The item disappears from this list, and VaultSquire has no way to bring it back yet. If you change your mind, restore it from your Vaultwarden app.")
         }
         .onChange(of: appModel.quickSearchSelection) { _, newValue in
             guard let newValue else { return }
@@ -75,6 +96,20 @@ struct VaultBrowserView: View {
     }
 
     // MARK: - Sidebar
+
+    /// Drives the archive confirmation dialog from `pendingArchive`: the dialog
+    /// is presented while an item is awaiting confirmation, and dismissing it
+    /// (Esc or the window's close) cancels the pending archive.
+    private var archiveConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { pendingArchive != nil },
+            set: { presented in
+                if !presented {
+                    pendingArchive = nil
+                }
+            }
+        )
+    }
 
     private var scopeSelection: Binding<VaultScope?> {
         Binding(
@@ -513,7 +548,7 @@ struct VaultBrowserView: View {
             .accessibilityIdentifier("vault-edit")
 
             Button {
-                if let selection { appModel.archive(selection) }
+                pendingArchive = selection
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }
