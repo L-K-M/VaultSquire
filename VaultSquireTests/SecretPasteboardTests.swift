@@ -23,12 +23,6 @@ final class SecretPasteboardTests: XCTestCase {
         try? await Task.sleep(for: .seconds(3_600))
     }
 
-    override func tearDown() async {
-        // No shared mutable store is held between tests; named pasteboards are
-        // discarded with each test instance.
-        await super.tearDown()
-    }
-
     func testCopyWritesValueAndConcealedTransientHints() {
         let pasteboard = makePasteboard()
         let store = SecretPasteboard(pasteboard: pasteboard, sleep: blockingSleep)
