@@ -431,6 +431,7 @@ final class AppModel: ObservableObject {
         if !isUnlocked {
             ApplicationCoordinator.shared.dismissQuickSearch()
         }
+        clearClipboardIfOwned()
         AppLog.record(.vaultLocked)
     }
 
@@ -445,7 +446,15 @@ final class AppModel: ObservableObject {
         unlockError = nil
         refreshBiometricAvailability()
         ApplicationCoordinator.shared.dismissQuickSearch()
+        clearClipboardIfOwned()
         AppLog.record(.vaultLocked)
+    }
+
+    /// Clears the system clipboard if this app still owns the last copied
+    /// secret, so a copied value does not outlive the session that produced it.
+    /// The conditional clear leaves another application's later copy untouched.
+    private func clearClipboardIfOwned() {
+        SecretPasteboard.shared.clearIfOwning()
     }
 
     /// Drops every on-demand secret fetched for one vault. Both CLI providers

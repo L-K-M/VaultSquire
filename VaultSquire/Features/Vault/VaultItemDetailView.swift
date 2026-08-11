@@ -146,9 +146,11 @@ struct VaultItemDetailView: View {
     }
 
     private func copyToPasteboard(_ value: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(value, forType: .string)
+        // Routed through SecretPasteboard so a copied secret expires (default
+        // 30 seconds), is cleared conditionally so another app's later copy is
+        // never erased, and is cleared again on lock and termination — the
+        // clipboard invariants in SECURITY_AND_TESTING.md § "Clipboard".
+        SecretPasteboard.shared.copy(value)
     }
 
     private func normalizedURL(_ raw: String) -> URL? {

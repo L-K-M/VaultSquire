@@ -11,6 +11,7 @@
 		C00000000000000000000085 /* SiteIconStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000088 /* SiteIconStore.swift */; };
 		C00000000000000000000086 /* ItemIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000089 /* ItemIconView.swift */; };
 		C00000000000000000000087 /* ItemIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008A /* ItemIconTests.swift */; };
+		C000000000000000000000A2 /* SecretPasteboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000A2 /* SecretPasteboardTests.swift */; };
 		C00000000000000000000076 /* VaultSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000079 /* VaultSlot.swift */; };
 		C00000000000000000000077 /* VaultBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007A /* VaultBrowserView.swift */; };
 		C00000000000000000000073 /* BiometricVaultKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000076 /* BiometricVaultKeyStore.swift */; };
@@ -49,6 +50,7 @@
 		C00000000000000000000063 /* VaultwardenWriteServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */; };
 		C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000060 /* VaultwardenAccountService.swift */; };
 		C0000000000000000000005F /* VaultItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000062 /* VaultItemDetailView.swift */; };
+		C000000000000000000000A1 /* SecretPasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000A1 /* SecretPasteboard.swift */; };
 		C00000000000000000000054 /* VaultItemDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000057 /* VaultItemDetail.swift */; };
 		C00000000000000000000055 /* VaultwardenKeyring.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000058 /* VaultwardenKeyring.swift */; };
 		C00000000000000000000056 /* VaultwardenVaultUnlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000059 /* VaultwardenVaultUnlock.swift */; };
@@ -162,6 +164,7 @@
 		B00000000000000000000088 /* SiteIconStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SiteIconStore.swift; path = VaultSquire/Features/Vault/SiteIconStore.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000089 /* ItemIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconView.swift; path = VaultSquire/Features/Vault/ItemIconView.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000008A /* ItemIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconTests.swift; path = VaultSquireTests/ItemIconTests.swift; sourceTree = SOURCE_ROOT; };
+		B000000000000000000000A2 /* SecretPasteboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SecretPasteboardTests.swift; path = VaultSquireTests/SecretPasteboardTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000079 /* VaultSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultSlot.swift; path = VaultSquire/App/VaultSlot.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000007A /* VaultBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultBrowserView.swift; path = VaultSquire/Features/Vault/VaultBrowserView.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000076 /* BiometricVaultKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BiometricVaultKeyStore.swift; path = VaultSquire/Persistence/BiometricVaultKeyStore.swift; sourceTree = SOURCE_ROOT; };
@@ -200,6 +203,7 @@
 		B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteServiceTests.swift; path = VaultSquireTests/VaultwardenWriteServiceTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000060 /* VaultwardenAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenAccountService.swift; path = VaultSquire/Providers/Vaultwarden/VaultwardenAccountService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000062 /* VaultItemDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDetailView.swift; path = VaultSquire/Features/Vault/VaultItemDetailView.swift; sourceTree = SOURCE_ROOT; };
+		B000000000000000000000A1 /* SecretPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SecretPasteboard.swift; path = VaultSquire/Features/Vault/SecretPasteboard.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000057 /* VaultItemDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDetail.swift; path = VaultSquire/Domain/VaultItemDetail.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000058 /* VaultwardenKeyring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenKeyring.swift; path = VaultSquire/Providers/Vaultwarden/Crypto/VaultwardenKeyring.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000059 /* VaultwardenVaultUnlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenVaultUnlock.swift; path = VaultSquire/Providers/Vaultwarden/Crypto/VaultwardenVaultUnlock.swift; sourceTree = SOURCE_ROOT; };
@@ -329,6 +333,7 @@
 				B0000000000000000000007A /* VaultBrowserView.swift */,
 				B00000000000000000000065 /* VaultItemEditView.swift */,
 				B00000000000000000000062 /* VaultItemDetailView.swift */,
+				B000000000000000000000A1 /* SecretPasteboard.swift */,
 			);
 			path = Vault;
 			sourceTree = "<group>";
@@ -596,6 +601,7 @@
 			isa = PBXGroup;
 			children = (
 				B0000000000000000000008A /* ItemIconTests.swift */,
+				B000000000000000000000A2 /* SecretPasteboardTests.swift */,
 				B00000000000000000000077 /* FakeBiometricVaultKeyStore.swift */,
 				B00000000000000000000078 /* BiometricUnlockTests.swift */,
 				B00000000000000000000075 /* VaultwardenAccountServiceTests.swift */,
@@ -849,6 +855,7 @@
 				C00000000000000000000047 /* CacheEnvelopeCipher.swift in Sources */,
 				C0000000000000000000005D /* VaultwardenAccountService.swift in Sources */,
 				C0000000000000000000005F /* VaultItemDetailView.swift in Sources */,
+				C000000000000000000000A1 /* SecretPasteboard.swift in Sources */,
 				C00000000000000000000054 /* VaultItemDetail.swift in Sources */,
 				C00000000000000000000055 /* VaultwardenKeyring.swift in Sources */,
 				C00000000000000000000056 /* VaultwardenVaultUnlock.swift in Sources */,
@@ -869,6 +876,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C00000000000000000000087 /* ItemIconTests.swift in Sources */,
+				C000000000000000000000A2 /* SecretPasteboardTests.swift in Sources */,
 				C00000000000000000000074 /* FakeBiometricVaultKeyStore.swift in Sources */,
 				C00000000000000000000075 /* BiometricUnlockTests.swift in Sources */,
 				C00000000000000000000072 /* VaultwardenAccountServiceTests.swift in Sources */,

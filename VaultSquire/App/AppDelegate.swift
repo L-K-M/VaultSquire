@@ -8,6 +8,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ApplicationCoordinator.shared.dismissQuickSearch()
+        // A copied secret should not outlive the app: clear it if VaultSquire
+        // still owns the clipboard. Conditional, so another app's later copy is
+        // never erased. (SECURITY_AND_TESTING.md § "Clipboard".)
+        SecretPasteboard.shared.clearIfOwning()
         AppLog.record(.applicationWillTerminate)
     }
 
