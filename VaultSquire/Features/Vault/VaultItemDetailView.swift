@@ -217,34 +217,59 @@ struct VaultItemDetailView: View {
     /// domain ("github.com") is completed to https. The effective host and
     /// scheme are shown to the user in the confirmation dialog before anything
     /// opens.
+    ///
+    /// The scheme and authority are validated on the raw string rather than
+    /// trusting URLComponents, which parses some authorities leniently: a
+    /// smuggled authority like `javascript:alert(1)` (a non-numeric port) is
+    /// rejected here even if URLComponents would have accepted it.
     static func safeLinkURL(from raw: String) -> URL? {
         var candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty else { return nil }
         if !candidate.contains("://") {
             candidate = "https://\(candidate)"
         }
-        guard let components = URLComponents(string: candidate),
-              let scheme = components.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              let host = components.host, !host.isEmpty,
-              components.user == nil,
-              components.password == nil,
-              // `.url` applies RFC 3986 validation, so an authority like
-              // "javascript:alert(1)" (a non-numeric port) fails here even
-              // though URLComponents parsed it leniently.
-              let url = components.url else {
+        guard let schemeRange = candidate.range(of: "://") else { return nil }
+        let scheme = String(candidate[candidate.startIndex..<schemeRange.lowerBound]).lowercased()
+        guard scheme == "http" || scheme == "https" else { return nil }
+
+        let remainder = candidate[schemeRange.upperBound...]
+        // authority = everything up to the first "/", "?", or "#".
+        let authority = remainder.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+        guard !authority.isEmpty else { return nil }
+        guard let hostPort = Self.validateAuthority(authority) else { return nil }
+
+        let pathAndRest = remainder.dropFirst(authority.count)
+        let rebuilt = "\(scheme)://\(hostPort.host)\(hostPort.port.map { ":\($0)" } ?? "")\(pathAndRest)"
+        return URLComponents(string: rebuilt)?.url
+    }
+
+    /// Validates an authority as a bare `host` or `host:numeric-port`. Returns
+    /// nil for embedded credentials, a non-numeric port, an empty host, or a
+    /// host containing anything outside letters, digits, `-`, `_`, and `.`
+    /// (IPv6 and IDN hosts are conservatively refused as link targets).
+    private static func validateAuthority(_ authority: Substring) -> (host: String, port: Int?)? {
+        if authority.contains("@") {
+            return nil // userinfo is rejected outright
+        }
+        let colonCount = authority.filter { $0 == ":" }.count
+        guard colonCount <= 1 else { return nil }
+
+        var host = Substring(authority)
+        var port: Int?
+        if let colon = authority.firstIndex(of: ":") {
+            host = authority[..<colon]
+            let portPart = authority[authority.index(after: colon)...]
+            guard !portPart.isEmpty, portPart.allSatisfy(\.isNumber),
+                  let parsedPort = Int(portPart) else {
+                return nil
+            }
+            port = parsedPort
+        }
+        guard !host.isEmpty,
+              host.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." || $0 == "_" }) else {
             return nil
         }
-        // Defense in depth: a host that is not a plausible reg-name or IPv6
-        // literal is refused, so nothing odd can be handed to the system
-        // opener.
-        let allowedHostCharacters = CharacterSet(
-            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._:"
-        )
-        guard host.unicodeScalars.allSatisfy({ allowedHostCharacters.contains($0) }) else {
-            return nil
-        }
-        return url
+        return (String(host), port)
     }
 
     /// The confirmation button's label: the effective host with its port, so
