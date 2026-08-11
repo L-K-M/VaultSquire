@@ -756,8 +756,10 @@ final class AppModelTests: XCTestCase {
         // actually reached the process boundary.
         model.lock(account)
         try await pollUntil { model.cliBackgroundTaskCountForTesting == 0 }
+        // `await` cannot sit inside XCTAssertTrue's autoclosure; resolve first.
+        let observedCancellation = await executor.observedCancellation
         XCTAssertTrue(
-            await executor.observedCancellation,
+            observedCancellation,
             "Lock must cancel the in-flight Proton CLI task"
         )
     }
