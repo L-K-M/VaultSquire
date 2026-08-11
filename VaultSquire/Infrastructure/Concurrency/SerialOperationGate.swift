@@ -23,7 +23,7 @@ actor SerialOperationGate {
 
     /// Runs `operation` after every previously enqueued operation has finished,
     /// in submission order.
-    func run<T: Sendable>(_ operation: @Sendable () async -> T) async -> T {
+    func run<T: Sendable>(_ operation: @escaping @Sendable () async -> T) async -> T {
         let previous = tail
         let current = Task<T, Never> { [previous] in
             if let previous {
