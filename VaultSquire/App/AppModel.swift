@@ -457,6 +457,8 @@ final class AppModel: ObservableObject {
                 return "The Keychain refused to store the key (\(status)). A locally built, ad-hoc-signed VaultSquire has no Keychain entitlement; a signed build is needed for Touch ID."
             }
             return "The Keychain refused to store the key (status \(status))."
+        case .notReadableAfterStore:
+            return "The key was stored but couldn't be read back, so Touch ID wasn't enabled."
         }
     }
 

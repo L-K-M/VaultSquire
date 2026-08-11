@@ -19,6 +19,11 @@ enum BiometricUnlockError: Error, Equatable, Sendable {
     case invalidated
     /// The Keychain refused the operation for another reason.
     case failed(OSStatus)
+    /// The Keychain accepted the write but the record could not be read back,
+    /// so the enrollment is not usable and was rolled back. Distinct from
+    /// `failed` because nothing refused anything — reporting it as a refusal
+    /// sends the reader looking in the wrong place.
+    case notReadableAfterStore
 }
 
 /// The seam the app unlocks through, so tests can exercise enrollment, unlock,
@@ -209,7 +214,7 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
         // nothing" looks like.
         guard hasKey(for: account) else {
             try? remove(for: account)
-            throw BiometricUnlockError.failed(errSecItemNotFound)
+            throw BiometricUnlockError.notReadableAfterStore
         }
     }
 
@@ -309,15 +314,28 @@ struct BiometricVaultKeyStore: BiometricVaultKeyStoring {
     /// valid lookup. This mirrors `KeychainCredentialStore.hasCredentials`.
     private func keychainItemExists(for account: AccountID) -> Bool {
         for dataProtection in [true, false] {
-            var query = baseQuery(for: account, dataProtection: dataProtection)
-            query[kSecReturnAttributes] = kCFBooleanTrue
-            query[kSecMatchLimit] = kSecMatchLimitOne
-            query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
-            let status = SecItemCopyMatching(query as CFDictionary, nil)
-            // A gated item reports "interaction not allowed" precisely because
-            // it exists and would have prompted.
-            if status == errSecSuccess || status == errSecInteractionNotAllowed {
-                return true
+            for skipUI in [true, false] {
+                var query = baseQuery(for: account, dataProtection: dataProtection)
+                query[kSecReturnAttributes] = kCFBooleanTrue
+                query[kSecMatchLimit] = kSecMatchLimitOne
+                if skipUI {
+                    query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
+                }
+
+                // The result pointer is required: asking for a return type and
+                // passing NULL is a parameter error, not a lookup, which made
+                // this check report "missing" for an item that was there.
+                var result: CFTypeRef?
+                let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+                // A gated item reports "interaction not allowed" precisely
+                // because it exists and would otherwise have prompted.
+                if status == errSecSuccess || status == errSecInteractionNotAllowed {
+                    return true
+                }
+                if status == errSecItemNotFound {
+                    break
+                }
             }
         }
         return false
