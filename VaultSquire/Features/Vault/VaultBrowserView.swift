@@ -20,6 +20,8 @@ struct VaultBrowserView: View {
     /// The password being typed for a locked vault, keyed by vault so switching
     /// between two locked vaults does not carry one field's text to the other.
     @State private var passwords: [AccountID: String] = [:]
+    /// Which vaults have their container list expanded in the sidebar.
+    @State private var expandedVaults: Set<AccountID> = []
 
     /// Wraps a draft so it can drive an item-identified sheet.
     private struct EditSession: Identifiable {
@@ -99,8 +101,23 @@ struct VaultBrowserView: View {
 
             Section("Vaults") {
                 ForEach(appModel.sessions) { session in
-                    vaultRow(session)
-                        .tag(VaultScope.vault(session.account))
+                    // A vault with containers of its own — Proton's vaults,
+                    // Vaultwarden's folders — expands to show them; one with
+                    // none stays a plain row rather than an empty twisty.
+                    if session.isOpen, !session.groups.isEmpty {
+                        DisclosureGroup(isExpanded: expansion(for: session.account)) {
+                            ForEach(session.groups) { group in
+                                groupRow(group)
+                                    .tag(VaultScope.group(session.account, group.id))
+                            }
+                        } label: {
+                            vaultRow(session)
+                                .tag(VaultScope.vault(session.account))
+                        }
+                    } else {
+                        vaultRow(session)
+                            .tag(VaultScope.vault(session.account))
+                    }
                 }
             }
         }
@@ -158,6 +175,38 @@ struct VaultBrowserView: View {
         .accessibilityIdentifier("vault-row-\(session.account.rawValue)")
     }
 
+    /// One container inside a vault. Indented by the disclosure group itself,
+    /// so the row only carries its own name and count.
+    private func groupRow(_ group: VaultGroup) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "folder")
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+                .accessibilityHidden(true)
+            Text(group.name).lineLimit(1)
+            Spacer(minLength: 4)
+            Text("\(group.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("vault-group-\(group.id)")
+    }
+
+    /// Per-vault expansion state, so expanding one container list does not
+    /// collapse another and the choice survives a re-render.
+    private func expansion(for account: AccountID) -> Binding<Bool> {
+        Binding(
+            get: { expandedVaults.contains(account) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedVaults.insert(account)
+                } else {
+                    expandedVaults.remove(account)
+                }
+            }
+        )
+    }
+
     private func rowSubtitle(_ session: VaultSlot) -> String {
         if case .failed(let message) = session.state { return message }
         if session.isOpening { return "Opening…" }
@@ -196,6 +245,7 @@ struct VaultBrowserView: View {
         switch appModel.scope {
         case .allVaults: return "All Vaults"
         case .vault(let account): return appModel.session(for: account)?.title ?? "Vault"
+        case .group(_, let group): return group
         }
     }
 
@@ -368,11 +418,18 @@ struct VaultBrowserView: View {
                         .help(error)
                         .accessibilityIdentifier("vault-sync-error")
                 } else if let date = appModel.lastSyncedAt {
-                    Text("Synced \(date.formatted(.relative(presentation: .named)))")
+                    // The toolbar draws a fixed-size background behind this
+                    // item; without fixedSize the label is compressed and its
+                    // text clips against the edges of that bubble. The
+                    // abbreviated form ("2 min ago") also keeps it short.
+                    Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help("Last synced \(date.formatted(.relative(presentation: .named)))")
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button {

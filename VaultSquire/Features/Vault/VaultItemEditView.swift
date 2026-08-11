@@ -7,6 +7,10 @@ struct VaultItemEditView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var draft: VaultItemDraft
     @State private var websitesText: String
+    /// Which vault a new item is created in. Nil until the sheet appears, then
+    /// defaulted to the browser's target. An edit never uses it: the item
+    /// belongs to the vault it came from.
+    @State private var destination: AccountID?
     let onClose: () -> Void
 
     init(draft: VaultItemDraft, onClose: @escaping () -> Void) {
@@ -27,6 +31,7 @@ struct VaultItemEditView: View {
                     TextField("Name", text: $draft.title)
                         .accessibilityIdentifier("edit-title")
                     Toggle("Favorite", isOn: $draft.favorite)
+                    destinationRow
                 }
                 Section("Login") {
                     TextField("Username", text: $draft.username)
@@ -89,6 +94,34 @@ struct VaultItemEditView: View {
             }
         }
         .accessibilityIdentifier("vault-item-edit")
+        .onAppear {
+            if destination == nil {
+                destination = appModel.createTarget?.account
+                    ?? appModel.writableVaults.first?.account
+            }
+        }
+    }
+
+    /// Where a new item lands. Shown whenever creating, even with one writable
+    /// vault, so the destination is never a guess the user has to infer. An
+    /// edit shows the owning vault as a fact instead: an item cannot be moved
+    /// between vaults here.
+    @ViewBuilder
+    private var destinationRow: some View {
+        if draft.isEditing {
+            if let vault = draft.itemID.flatMap({ appModel.session(for: $0.account) }) {
+                LabeledContent("Vault", value: vault.title)
+            }
+        } else if appModel.writableVaults.count > 1 {
+            Picker("Vault", selection: $destination) {
+                ForEach(appModel.writableVaults) { vault in
+                    Text(vault.title).tag(Optional(vault.account))
+                }
+            }
+            .accessibilityIdentifier("edit-destination")
+        } else if let only = appModel.writableVaults.first {
+            LabeledContent("Vault", value: only.title)
+        }
     }
 
     private func submit() {
@@ -96,6 +129,6 @@ struct VaultItemEditView: View {
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        appModel.save(draft)
+        appModel.save(draft, to: destination)
     }
 }

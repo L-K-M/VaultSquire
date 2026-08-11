@@ -89,7 +89,7 @@ final class AppModel: ObservableObject {
         switch scope {
         case .allVaults:
             return sessions.filter(\.isOpen)
-        case .vault(let account):
+        case .vault(let account), .group(let account, _):
             return sessions.filter { $0.account == account && $0.isOpen }
         }
     }
@@ -97,11 +97,15 @@ final class AppModel: ObservableObject {
     /// The items shown for the current scope, merged across vaults when the
     /// scope is All Vaults and sorted by title so a merged list reads as one.
     var items: [VaultItemProjection] {
-        scopedSessions
-            .flatMap(\.items)
-            .sorted { lhs, rhs in
-                lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
-            }
+        let scoped: [VaultItemProjection]
+        if case .group(_, let group) = scope {
+            scoped = scopedSessions.flatMap { $0.items(inGroup: group) }
+        } else {
+            scoped = scopedSessions.flatMap(\.items)
+        }
+        return scoped.sorted { lhs, rhs in
+            lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+        }
     }
 
     /// Every open vault's items, for Quick Search — it always searches
@@ -125,10 +129,16 @@ final class AppModel: ObservableObject {
         sessions.first { $0.account == account }
     }
 
-    /// The vault a single-vault scope names, whether or not it is open.
+    /// The vault the current scope names, whether or not it is open.
     var selectedSession: VaultSlot? {
-        guard case .vault(let account) = scope else { return nil }
+        guard let account = scope.account else { return nil }
         return session(for: account)
+    }
+
+    /// Every open vault a new item could be created in, for the destination
+    /// picker. Read-only providers never appear.
+    var writableVaults: [VaultSlot] {
+        sessions.filter { $0.isOpen && $0.capabilities.contains(.createItem) }
     }
 
     // MARK: - Presence and accounts
@@ -155,7 +165,7 @@ final class AppModel: ObservableObject {
         }
         sessions = rebuilt
 
-        if case .vault(let account) = scope, session(for: account) == nil {
+        if let account = scope.account, session(for: account) == nil {
             scope = .allVaults
         }
         refreshBiometricAvailability()
@@ -551,11 +561,12 @@ final class AppModel: ObservableObject {
         draft(for: itemID) != nil
     }
 
-    /// Saves a create or edit. An edit routes to the vault that owns the item;
-    /// a create goes to the unambiguous writable target.
-    func save(_ draft: VaultItemDraft) {
+    /// Saves a create or edit. An edit routes to the vault that owns the item,
+    /// which `destination` can never override; a create goes to the vault the
+    /// user picked, or to the unambiguous writable target when they did not.
+    func save(_ draft: VaultItemDraft, to destination: AccountID? = nil) {
         guard !isWriting else { return }
-        let account = draft.itemID?.account ?? createTarget?.account
+        let account = draft.itemID?.account ?? destination ?? createTarget?.account
         guard let account,
               let owner = session(for: account),
               owner.isOpen,

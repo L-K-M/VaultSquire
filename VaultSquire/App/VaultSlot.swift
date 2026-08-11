@@ -1,9 +1,36 @@
 import Foundation
 
-/// What the browser is showing: everything that is open, or one vault.
+/// What the browser is showing: everything that is open, one vault, or one
+/// container inside a vault.
 enum VaultScope: Hashable, Sendable {
     case allVaults
     case vault(AccountID)
+    /// A container within a vault: a Proton vault (share) or a Vaultwarden
+    /// folder, named by its non-secret grouping label.
+    case group(AccountID, String)
+
+    /// The vault this scope reads from, if it names one.
+    var account: AccountID? {
+        switch self {
+        case .allVaults: return nil
+        case .vault(let account): return account
+        case .group(let account, _): return account
+        }
+    }
+}
+
+/// One container inside a vault, as the sidebar lists it. Both providers
+/// already publish a non-secret grouping label per item — Proton the vault
+/// (share) name, Vaultwarden the folder name — so the hierarchy is derived
+/// from projections rather than from provider-specific plumbing.
+///
+/// Two containers in one account that share a name collapse into one row.
+/// They are indistinguishable in the UI anyway, and the label is all the
+/// projection carries.
+struct VaultGroup: Identifiable, Hashable, Sendable {
+    let id: String
+    var name: String { id }
+    let count: Int
 }
 
 /// One configured vault and whatever of it is currently open.
@@ -74,6 +101,26 @@ struct VaultSlot: Identifiable, Sendable {
         case .vaultwarden: return VaultwardenAccountService.capabilities
         case .proton: return ProtonReadModel.capabilities
         }
+    }
+
+    /// The containers inside this vault, in name order, with how many items
+    /// each holds. Empty while the vault is closed, because it is derived from
+    /// the open projections.
+    var groups: [VaultGroup] {
+        var counts: [String: Int] = [:]
+        for item in items {
+            for label in item.groupingLabels where !label.isEmpty {
+                counts[label, default: 0] += 1
+            }
+        }
+        return counts
+            .map { VaultGroup(id: $0.key, count: $0.value) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// The items in one container of this vault.
+    func items(inGroup group: String) -> [VaultItemProjection] {
+        items.filter { $0.groupingLabels.contains(group) }
     }
 
     /// Drops every decrypted value and advances the generation so in-flight

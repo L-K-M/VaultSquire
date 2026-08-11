@@ -220,6 +220,89 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.isUnlocked)
     }
 
+    /// The sidebar hierarchy: a vault's containers come from the items' own
+    /// grouping labels, and scoping to one narrows the list to it.
+    @MainActor
+    func testVaultExposesItsContainersAndScopingNarrowsToThem() async throws {
+        let executor = FakeProtonCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"},{"shareId":"S2","name":"Work"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S2", "--output", "json"],
+            stdout: #"{"items":[{"id":"i2","type":"login","title":"Payroll"},{"id":"i3","type":"login","title":"Intranet"}]}"#
+        )
+
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let groups = try XCTUnwrap(model.session(for: account)?.groups)
+        XCTAssertEqual(groups.map(\.name), ["Personal", "Work"])
+        XCTAssertEqual(groups.first { $0.name == "Work" }?.count, 2)
+
+        model.scope = .group(account, "Work")
+        XCTAssertEqual(model.items.map(\.displayTitle), ["Intranet", "Payroll"])
+
+        model.scope = .group(account, "Personal")
+        XCTAssertEqual(model.items.map(\.displayTitle), ["GitHub"])
+
+        // Locking the vault empties its containers rather than leaving a stale
+        // hierarchy pointing at items that are gone.
+        model.lock(account)
+        XCTAssertTrue(model.session(for: account)?.groups.isEmpty == true)
+        XCTAssertTrue(model.items.isEmpty)
+    }
+
+    /// A read-only vault is never offered as a destination for a new item.
+    @MainActor
+    func testWritableVaultsExcludesReadOnlyProviders() async throws {
+        let executor = FakeProtonCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+
+        let proton = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: proton, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(proton)
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+
+        XCTAssertTrue(model.writableVaults.isEmpty)
+        XCTAssertNil(model.createTarget)
+        XCTAssertFalse(model.canCreateItems)
+    }
+
     /// The shell calls refreshAccountPresence every time it appears, so the
     /// rebuild must diff rather than recreate: recreating would silently lock
     /// every open vault on each appearance.
