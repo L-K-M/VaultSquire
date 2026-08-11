@@ -710,4 +710,32 @@ final class AppModelTests: XCTestCase {
         }
         XCTFail("condition did not hold within the timeout", file: file, line: line)
     }
+
+    // MARK: - Browser scope hand-off
+
+    /// The Quick Search hand-off must widen the browser scope whenever the
+    /// current scope names a different vault than the chosen item — including a
+    /// group scope, which the earlier `.vault`-only check missed.
+    func testQuickSearchHandOffWidensAVaultScopeFromAnotherVault() {
+        let vaultA = AccountID(provider: .vaultwarden, rawValue: "a")
+        let vaultB = AccountID(provider: .protonCLI, rawValue: "b")
+        XCTAssertTrue(VaultBrowserView.scopeNeedsWidening(.vault(vaultA), for: vaultB))
+    }
+
+    func testQuickSearchHandOffWidensAGroupScopeFromAnotherVault() {
+        let vaultA = AccountID(provider: .vaultwarden, rawValue: "a")
+        let vaultB = AccountID(provider: .protonCLI, rawValue: "b")
+        XCTAssertTrue(VaultBrowserView.scopeNeedsWidening(.group(vaultA, "Folder"), for: vaultB))
+    }
+
+    func testQuickSearchHandOffStaysInTheOwningScope() {
+        let vaultA = AccountID(provider: .vaultwarden, rawValue: "a")
+        XCTAssertFalse(VaultBrowserView.scopeNeedsWidening(.vault(vaultA), for: vaultA))
+        XCTAssertFalse(VaultBrowserView.scopeNeedsWidening(.group(vaultA, "Folder"), for: vaultA))
+    }
+
+    func testQuickSearchHandOffNeverWidensAllVaults() {
+        let vaultA = AccountID(provider: .vaultwarden, rawValue: "a")
+        XCTAssertFalse(VaultBrowserView.scopeNeedsWidening(.allVaults, for: vaultA))
+    }
 }

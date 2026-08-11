@@ -53,15 +53,44 @@ struct VaultBrowserView: View {
         .onChange(of: appModel.quickSearchSelection) { _, newValue in
             guard let newValue else { return }
             // Quick Search spans every open vault, so jump the browser to the
-            // scope that actually contains the chosen item.
-            if case .vault(let account) = appModel.scope, account != newValue.account {
+            // scope that actually contains the chosen item. The scope's account
+            // is compared rather than matching only a `.vault` scope: a group
+            // scope from another vault (a Proton share or a Vaultwarden folder)
+            // must widen too, or the detail pane would show an item the list
+            // cannot.
+            if Self.scopeNeedsWidening(appModel.scope, for: newValue.account) {
                 appModel.scope = .allVaults
             }
             selection = newValue
             appModel.clearQuickSearchSelection()
         }
         .onChange(of: appModel.scope) { _, _ in
-            selection = nil
+            // Drop the selection only when the new scope no longer shows it. A
+            // Quick Search hand-off that widened the scope keeps its item; a
+            // plain scope switch drops a selection the new scope cannot show.
+            // (Clearing unconditionally raced the hand-off above and wiped the
+            // item the user just picked.)
+            if let selection, !appModel.items.contains(where: { $0.id == selection }) {
+                self.selection = nil
+            }
+        }
+        .onChange(of: query) { _, newQuery in
+            // A narrower query can hide the selected row; never keep a detail
+            // for an item the list no longer offers.
+            guard let selection,
+                  !newQuery.trimmingCharacters(in: .whitespaces).isEmpty,
+                  !filteredItems.contains(where: { $0.id == selection }) else {
+                return
+            }
+            self.selection = nil
+        }
+        .onChange(of: appModel.items) { _, _ in
+            // A sync can remove, archive, or rename the selected item away;
+            // drop the detail rather than showing a row the list no longer has.
+            guard let selection, !appModel.items.contains(where: { $0.id == selection }) else {
+                return
+            }
+            self.selection = nil
         }
         .task {
             // Offer Touch ID as soon as the browser appears when it is set up,
@@ -540,6 +569,13 @@ struct VaultBrowserView: View {
             .keyboardShortcut("l", modifiers: [.command, .shift])
             .accessibilityIdentifier("vault-lock")
         }
+    }
+
+    /// Whether a Quick Search hand-off must widen the browser scope to All
+    /// Vaults: the current scope names a vault other than the chosen item's.
+    static func scopeNeedsWidening(_ scope: VaultScope, for account: AccountID) -> Bool {
+        guard let scopedAccount = scope.account else { return false }
+        return scopedAccount != account
     }
 
     private static func matches(_ item: VaultItemProjection, query: String) -> Bool {
