@@ -12,6 +12,7 @@ struct ProviderID: RawRepresentable, Hashable, Sendable, Codable {
 
     static let vaultwarden = ProviderID(rawValue: "vaultwarden")
     static let protonCLI = ProviderID(rawValue: "proton-cli")
+    static let onePasswordCLI = ProviderID(rawValue: "onepassword-cli")
 }
 
 /// A configured account inside one provider.

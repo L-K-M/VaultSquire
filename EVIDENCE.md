@@ -54,6 +54,29 @@ identity. Workstream 10 must record selected path, resolved path, hash, code
 signature/team/notarization result, exact version output, schemas, and capability
 manifest revision from clean-Mac tests.
 
+## 1Password CLI
+
+This provider has no immutable pin and cannot have one. The `op` binary is
+proprietary, 1Password publishes no source repository for it, and its API and
+SDK Terms prohibit reverse engineering. Its evidence is therefore documentation
+only, and is weaker than every other row in this file.
+
+| Evidence | Exact identity | Purpose | License boundary |
+|---|---|---|---|
+| 1Password CLI documentation | `www.1password.dev`, captured 2026-08-11; no archive hash | Command, JSON, and authentication research | Proprietary; documentation only, never copied into product code |
+| 1Password CLI release history | `app-updates.agilebits.com/product_history/CLI2`, captured 2026-08-11 | Version allowlist source; latest stable `2.38.1` (2026-07-30) | Proprietary; mutable page |
+| API and SDK Terms of Service | `1password.com/legal/api-sdk-terms-of-service`, last updated 2026-06-16 | Licensing and competing-product analysis | Proprietary; unresolved release gate |
+| Terms of Service | `1password.com/legal/terms-of-service`, last updated 2024-09-12 | Automation and redistribution analysis | Proprietary |
+
+No 1Password version is supported yet, and no executable identity has been
+recorded. The allowlisted stable releases in
+`OnePasswordCLIVersionGate.declaredSupportedVersions` come from the release
+history above, not from a tested binary. Before release, record the selected
+path, resolved path, hash, code-signature and notarization result, exact
+`--version` output, observed JSON schemas, and the `whoami` payload from
+clean-Mac tests — and resolve the terms question in
+[`ONEPASSWORD_CLI_RESEARCH.md`](ONEPASSWORD_CLI_RESEARCH.md) §14.
+
 ## Unresolved Evidence
 
 - Exact Xcode, Swift compiler, macOS SDK build, and Apple Team ID await a real
@@ -63,7 +86,11 @@ manifest revision from clean-Mac tests.
 - Official-client binary identities and synthetic fixture-generator revisions
   must be recorded with the fixture PRs that use them.
 - Mutable provider documentation and terms need archive hashes where they become
-  release-critical.
+  release-critical. The whole 1Password evidence base is of that kind, and its
+  terms question is already release-critical.
+- The 1Password CLI's TTY-less authorization behavior, and whether App Sandbox
+  permits reaching its desktop app, are unmeasured. No evidence exists either
+  way until a clean-Mac spike runs.
 - Evidence with unknown or restricted licenses remains non-copyable even when it
   is useful to explain a protocol fact.
 

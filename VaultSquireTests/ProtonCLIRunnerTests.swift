@@ -8,7 +8,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     )
 
     private func makeRunner(
-        executor: FakeProtonCLIExecutor,
+        executor: FakeCLIExecutor,
         supported: Set<String> = ["2.2.4"]
     ) -> ProtonCLIRunner {
         ProtonCLIRunner(
@@ -19,7 +19,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     }
 
     func testProbeVersionParsesAndAdmitsASupportedVersion() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "proton-pass 2.2.4\n")
         let runner = makeRunner(executor: executor)
 
@@ -33,7 +33,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     }
 
     func testProbeVersionRejectsAnUnsupportedVersion() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "proton-pass 2.2.5\n")
         let runner = makeRunner(executor: executor, supported: ["2.2.4"])
 
@@ -43,7 +43,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     }
 
     func testProbeVersionReportsUnparseableOutput() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "no version\n")
         let runner = makeRunner(executor: executor)
 
@@ -53,7 +53,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     }
 
     func testNonZeroExitBecomesCommandFailed() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: Data(), exitCode: 3)
         let runner = makeRunner(executor: executor)
 
@@ -63,7 +63,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     }
 
     func testExecutorErrorIsWrapped() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["vault", "list", "--output", "json"], error: .timedOut)
         let runner = makeRunner(executor: executor)
 
@@ -73,7 +73,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     }
 
     func testItemListRejectsAnInvalidShareIdentifierBeforeRunning() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         let runner = makeRunner(executor: executor)
 
         await XCTAssertThrowsErrorAsync(try await runner.itemListJSON(shareID: "-rf")) { error in
@@ -85,7 +85,7 @@ final class ProtonCLIRunnerTests: XCTestCase {
     }
 
     func testItemViewBuildsTheSelectorFromValidatedIdentifiers() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(
             arguments: ["item", "view", "--share-id", "SHARE1", "--item-id", "ITEM1", "--output", "json"],
             stdout: "{}"

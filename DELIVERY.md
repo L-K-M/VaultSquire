@@ -19,6 +19,7 @@ maps to reviewable pull requests; it does not weaken any exit criterion.
 | 9 | Safe Vaultwarden core writes | Workstream 9 cross-client, conflict, ambiguity, and unknown-field gates pass |
 | 10A | Proton process boundary and read provider | Workstream 10 read, cache, process, sandbox/direct, and leakage gates pass |
 | 10B+ | One PR per safe Proton write operation | Exact command/version protected-input and reconciliation gates pass |
+| 10C | 1Password process boundary and read provider | Fake-executor read, cache, account-scoping, version-gate, and leakage gates pass; the terms question and the TTY-less authorization/sandbox spike in [`ONEPASSWORD_CLI_RESEARCH.md`](ONEPASSWORD_CLI_RESEARCH.md) §1 remain outstanding and gate release, not merge, by [ADR 0007](docs/adr/0007-onepassword-third-provider.md) |
 | 11+ | One PR per advanced feature | Separate threat model and feature-specific phase gate passes |
 
 Each PR is opened only after its predecessor merges. It waits for GitHub review

@@ -20,13 +20,25 @@
 		C0000000000000000000006C /* ProtonSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006F /* ProtonSnapshotCache.swift */; };
 		C0000000000000000000006D /* ProtonReadModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000070 /* ProtonReadModelTests.swift */; };
 		C0000000000000000000006E /* ProtonSnapshotCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000071 /* ProtonSnapshotCacheTests.swift */; };
-		C00000000000000000000064 /* ProtonCLIExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000067 /* ProtonCLIExecutor.swift */; };
+		C00000000000000000000078 /* OnePasswordCLIVersionGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007B /* OnePasswordCLIVersionGate.swift */; };
+		C00000000000000000000079 /* OnePasswordCLIRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007C /* OnePasswordCLIRunner.swift */; };
+		C0000000000000000000007A /* OnePasswordReadModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007D /* OnePasswordReadModel.swift */; };
+		C0000000000000000000007B /* OnePasswordSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007E /* OnePasswordSnapshotCache.swift */; };
+		C0000000000000000000007C /* OnePasswordAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007F /* OnePasswordAccountService.swift */; };
+		C0000000000000000000007D /* OnePasswordConnectModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000080 /* OnePasswordConnectModel.swift */; };
+		C0000000000000000000007E /* OnePasswordCLIVersionGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000081 /* OnePasswordCLIVersionGateTests.swift */; };
+		C0000000000000000000007F /* OnePasswordCLIRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000082 /* OnePasswordCLIRunnerTests.swift */; };
+		C00000000000000000000080 /* OnePasswordReadModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000083 /* OnePasswordReadModelTests.swift */; };
+		C00000000000000000000081 /* OnePasswordAccountServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000084 /* OnePasswordAccountServiceTests.swift */; };
+		C00000000000000000000082 /* OnePasswordSnapshotCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000085 /* OnePasswordSnapshotCacheTests.swift */; };
+		C00000000000000000000083 /* OnePasswordLeakageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000086 /* OnePasswordLeakageTests.swift */; };
+		C00000000000000000000064 /* CLIProcessExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000067 /* CLIProcessExecutor.swift */; };
 		C00000000000000000000065 /* ProtonCLIVersionGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000068 /* ProtonCLIVersionGate.swift */; };
 		C00000000000000000000066 /* ProtonCLIRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000069 /* ProtonCLIRunner.swift */; };
-		C00000000000000000000067 /* FakeProtonCLIExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006A /* FakeProtonCLIExecutor.swift */; };
+		C00000000000000000000067 /* FakeCLIExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006A /* FakeCLIExecutor.swift */; };
 		C00000000000000000000068 /* ProtonCLIVersionGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006B /* ProtonCLIVersionGateTests.swift */; };
 		C00000000000000000000069 /* ProtonCLIRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006C /* ProtonCLIRunnerTests.swift */; };
-		C0000000000000000000006A /* ProtonCLIExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006D /* ProtonCLIExecutorTests.swift */; };
+		C0000000000000000000006A /* CLIProcessExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006D /* CLIProcessExecutorTests.swift */; };
 		C00000000000000000000060 /* VaultItemDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000063 /* VaultItemDraft.swift */; };
 		C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000064 /* VaultwardenWriteService.swift */; };
 		C00000000000000000000062 /* VaultItemEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* VaultItemEditView.swift */; };
@@ -155,13 +167,25 @@
 		B0000000000000000000006F /* ProtonSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonSnapshotCache.swift; path = VaultSquire/Providers/Proton/ProtonSnapshotCache.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000070 /* ProtonReadModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonReadModelTests.swift; path = VaultSquireTests/ProtonReadModelTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000071 /* ProtonSnapshotCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonSnapshotCacheTests.swift; path = VaultSquireTests/ProtonSnapshotCacheTests.swift; sourceTree = SOURCE_ROOT; };
-		B00000000000000000000067 /* ProtonCLIExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIExecutor.swift; path = VaultSquire/Providers/Proton/ProtonCLIExecutor.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000007B /* OnePasswordCLIVersionGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordCLIVersionGate.swift; path = VaultSquire/Providers/OnePassword/OnePasswordCLIVersionGate.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000007C /* OnePasswordCLIRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordCLIRunner.swift; path = VaultSquire/Providers/OnePassword/OnePasswordCLIRunner.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000007D /* OnePasswordReadModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordReadModel.swift; path = VaultSquire/Providers/OnePassword/OnePasswordReadModel.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000007E /* OnePasswordSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordSnapshotCache.swift; path = VaultSquire/Providers/OnePassword/OnePasswordSnapshotCache.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000007F /* OnePasswordAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordAccountService.swift; path = VaultSquire/Providers/OnePassword/OnePasswordAccountService.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000080 /* OnePasswordConnectModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordConnectModel.swift; path = VaultSquire/Features/AddAccount/OnePasswordConnectModel.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000081 /* OnePasswordCLIVersionGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordCLIVersionGateTests.swift; path = VaultSquireTests/OnePasswordCLIVersionGateTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000082 /* OnePasswordCLIRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordCLIRunnerTests.swift; path = VaultSquireTests/OnePasswordCLIRunnerTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000083 /* OnePasswordReadModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordReadModelTests.swift; path = VaultSquireTests/OnePasswordReadModelTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000084 /* OnePasswordAccountServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordAccountServiceTests.swift; path = VaultSquireTests/OnePasswordAccountServiceTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000085 /* OnePasswordSnapshotCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordSnapshotCacheTests.swift; path = VaultSquireTests/OnePasswordSnapshotCacheTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000086 /* OnePasswordLeakageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnePasswordLeakageTests.swift; path = VaultSquireTests/OnePasswordLeakageTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000067 /* CLIProcessExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CLIProcessExecutor.swift; path = VaultSquire/Infrastructure/Process/CLIProcessExecutor.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000068 /* ProtonCLIVersionGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIVersionGate.swift; path = VaultSquire/Providers/Proton/ProtonCLIVersionGate.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000069 /* ProtonCLIRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIRunner.swift; path = VaultSquire/Providers/Proton/ProtonCLIRunner.swift; sourceTree = SOURCE_ROOT; };
-		B0000000000000000000006A /* FakeProtonCLIExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FakeProtonCLIExecutor.swift; path = VaultSquireTests/FakeProtonCLIExecutor.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000006A /* FakeCLIExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FakeCLIExecutor.swift; path = VaultSquireTests/FakeCLIExecutor.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000006B /* ProtonCLIVersionGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIVersionGateTests.swift; path = VaultSquireTests/ProtonCLIVersionGateTests.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000006C /* ProtonCLIRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIRunnerTests.swift; path = VaultSquireTests/ProtonCLIRunnerTests.swift; sourceTree = SOURCE_ROOT; };
-		B0000000000000000000006D /* ProtonCLIExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIExecutorTests.swift; path = VaultSquireTests/ProtonCLIExecutorTests.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000006D /* CLIProcessExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CLIProcessExecutorTests.swift; path = VaultSquireTests/CLIProcessExecutorTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000063 /* VaultItemDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDraft.swift; path = VaultSquire/Domain/VaultItemDraft.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000064 /* VaultwardenWriteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteService.swift; path = VaultSquire/Providers/Vaultwarden/Network/VaultwardenWriteService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000065 /* VaultItemEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemEditView.swift; path = VaultSquire/Features/Vault/VaultItemEditView.swift; sourceTree = SOURCE_ROOT; };
@@ -328,6 +352,7 @@
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000074 /* ProtonConnectModel.swift */,
+				B00000000000000000000080 /* OnePasswordConnectModel.swift */,
 				B00000000000000000000042 /* AddAccountModel.swift */,
 				B00000000000000000000043 /* AddAccountView.swift */,
 				B00000000000000000000044 /* TwoFactorChallengeView.swift */,
@@ -335,13 +360,24 @@
 			path = AddAccount;
 			sourceTree = "<group>";
 		};
-				A00000000000000000000019 /* Proton */ = {
+				A0000000000000000000001A /* OnePassword */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000007B /* OnePasswordCLIVersionGate.swift */,
+				B0000000000000000000007C /* OnePasswordCLIRunner.swift */,
+				B0000000000000000000007D /* OnePasswordReadModel.swift */,
+				B0000000000000000000007E /* OnePasswordSnapshotCache.swift */,
+				B0000000000000000000007F /* OnePasswordAccountService.swift */,
+			);
+			path = OnePassword;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000019 /* Proton */ = {
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000072 /* ProtonAccountService.swift */,
 				B0000000000000000000006E /* ProtonReadModel.swift */,
 				B0000000000000000000006F /* ProtonSnapshotCache.swift */,
-				B00000000000000000000067 /* ProtonCLIExecutor.swift */,
 				B00000000000000000000068 /* ProtonCLIVersionGate.swift */,
 				B00000000000000000000069 /* ProtonCLIRunner.swift */,
 			);
@@ -351,6 +387,7 @@
 		A00000000000000000000011 /* Providers */ = {
 			isa = PBXGroup;
 			children = (
+				A0000000000000000000001A /* OnePassword */,
 				A00000000000000000000019 /* Proton */,
 				A00000000000000000000012 /* Vaultwarden */,
 			);
@@ -529,6 +566,7 @@
 			isa = PBXGroup;
 			children = (
 				B0000000000000000000000E /* ProcessProbe.swift */,
+				B00000000000000000000067 /* CLIProcessExecutor.swift */,
 			);
 			path = Process;
 			sourceTree = "<group>";
@@ -549,13 +587,19 @@
 				B00000000000000000000077 /* FakeBiometricVaultKeyStore.swift */,
 				B00000000000000000000078 /* BiometricUnlockTests.swift */,
 				B00000000000000000000075 /* VaultwardenAccountServiceTests.swift */,
+				B00000000000000000000081 /* OnePasswordCLIVersionGateTests.swift */,
+				B00000000000000000000082 /* OnePasswordCLIRunnerTests.swift */,
+				B00000000000000000000083 /* OnePasswordReadModelTests.swift */,
+				B00000000000000000000084 /* OnePasswordAccountServiceTests.swift */,
+				B00000000000000000000085 /* OnePasswordSnapshotCacheTests.swift */,
+				B00000000000000000000086 /* OnePasswordLeakageTests.swift */,
 				B00000000000000000000073 /* ProtonAccountServiceTests.swift */,
 				B00000000000000000000070 /* ProtonReadModelTests.swift */,
 				B00000000000000000000071 /* ProtonSnapshotCacheTests.swift */,
-				B0000000000000000000006A /* FakeProtonCLIExecutor.swift */,
+				B0000000000000000000006A /* FakeCLIExecutor.swift */,
 				B0000000000000000000006B /* ProtonCLIVersionGateTests.swift */,
 				B0000000000000000000006C /* ProtonCLIRunnerTests.swift */,
-				B0000000000000000000006D /* ProtonCLIExecutorTests.swift */,
+				B0000000000000000000006D /* CLIProcessExecutorTests.swift */,
 				B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */,
 				B00000000000000000000011 /* AppModelTests.swift */,
 				B00000000000000000000012 /* DiagnosticsTests.swift */,
@@ -732,10 +776,16 @@
 				C00000000000000000000077 /* VaultBrowserView.swift in Sources */,
 				C00000000000000000000073 /* BiometricVaultKeyStore.swift in Sources */,
 				C00000000000000000000071 /* ProtonConnectModel.swift in Sources */,
+				C00000000000000000000078 /* OnePasswordCLIVersionGate.swift in Sources */,
+				C00000000000000000000079 /* OnePasswordCLIRunner.swift in Sources */,
+				C0000000000000000000007A /* OnePasswordReadModel.swift in Sources */,
+				C0000000000000000000007B /* OnePasswordSnapshotCache.swift in Sources */,
+				C0000000000000000000007C /* OnePasswordAccountService.swift in Sources */,
+				C0000000000000000000007D /* OnePasswordConnectModel.swift in Sources */,
 				C0000000000000000000006F /* ProtonAccountService.swift in Sources */,
 				C0000000000000000000006B /* ProtonReadModel.swift in Sources */,
 				C0000000000000000000006C /* ProtonSnapshotCache.swift in Sources */,
-				C00000000000000000000064 /* ProtonCLIExecutor.swift in Sources */,
+				C00000000000000000000064 /* CLIProcessExecutor.swift in Sources */,
 				C00000000000000000000065 /* ProtonCLIVersionGate.swift in Sources */,
 				C00000000000000000000066 /* ProtonCLIRunner.swift in Sources */,
 				C00000000000000000000060 /* VaultItemDraft.swift in Sources */,
@@ -806,13 +856,19 @@
 				C00000000000000000000074 /* FakeBiometricVaultKeyStore.swift in Sources */,
 				C00000000000000000000075 /* BiometricUnlockTests.swift in Sources */,
 				C00000000000000000000072 /* VaultwardenAccountServiceTests.swift in Sources */,
+				C0000000000000000000007E /* OnePasswordCLIVersionGateTests.swift in Sources */,
+				C0000000000000000000007F /* OnePasswordCLIRunnerTests.swift in Sources */,
+				C00000000000000000000080 /* OnePasswordReadModelTests.swift in Sources */,
+				C00000000000000000000081 /* OnePasswordAccountServiceTests.swift in Sources */,
+				C00000000000000000000082 /* OnePasswordSnapshotCacheTests.swift in Sources */,
+				C00000000000000000000083 /* OnePasswordLeakageTests.swift in Sources */,
 				C00000000000000000000070 /* ProtonAccountServiceTests.swift in Sources */,
 				C0000000000000000000006D /* ProtonReadModelTests.swift in Sources */,
 				C0000000000000000000006E /* ProtonSnapshotCacheTests.swift in Sources */,
-				C00000000000000000000067 /* FakeProtonCLIExecutor.swift in Sources */,
+				C00000000000000000000067 /* FakeCLIExecutor.swift in Sources */,
 				C00000000000000000000068 /* ProtonCLIVersionGateTests.swift in Sources */,
 				C00000000000000000000069 /* ProtonCLIRunnerTests.swift in Sources */,
-				C0000000000000000000006A /* ProtonCLIExecutorTests.swift in Sources */,
+				C0000000000000000000006A /* CLIProcessExecutorTests.swift in Sources */,
 				C00000000000000000000063 /* VaultwardenWriteServiceTests.swift in Sources */,
 				C00000000000000000000011 /* AppModelTests.swift in Sources */,
 				C00000000000000000000012 /* DiagnosticsTests.swift in Sources */,

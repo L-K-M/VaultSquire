@@ -5,10 +5,10 @@ import Foundation
 /// vector and records every invocation, so the runner's gating, identifier
 /// validation, command construction, and error mapping are exercised without a
 /// real binary. It never leaves the test target.
-actor FakeProtonCLIExecutor: ProtonCLIExecuting {
+actor FakeCLIExecutor: CLIExecuting {
     private var stdoutByArguments: [[String]: Data] = [:]
     private var exitCodeByArguments: [[String]: Int32] = [:]
-    private var errorByArguments: [[String]: ProtonCLIExecutionError] = [:]
+    private var errorByArguments: [[String]: CLIExecutionError] = [:]
 
     private(set) var recordedArguments: [[String]] = []
     private(set) var recordedExecutableURLs: [URL] = []
@@ -22,21 +22,21 @@ actor FakeProtonCLIExecutor: ProtonCLIExecuting {
         stub(arguments: arguments, stdout: Data(stdout.utf8), exitCode: exitCode)
     }
 
-    func stub(arguments: [String], error: ProtonCLIExecutionError) {
+    func stub(arguments: [String], error: CLIExecutionError) {
         errorByArguments[arguments] = error
     }
 
     func execute(
-        _ invocation: ProtonCLIInvocation,
+        _ invocation: CLIInvocation,
         executableURL: URL
-    ) async throws -> ProtonCLIExecution {
+    ) async throws -> CLIExecution {
         recordedArguments.append(invocation.arguments)
         recordedExecutableURLs.append(executableURL)
 
         if let error = errorByArguments[invocation.arguments] {
             throw error
         }
-        return ProtonCLIExecution(
+        return CLIExecution(
             exitCode: exitCodeByArguments[invocation.arguments] ?? 0,
             standardOutput: stdoutByArguments[invocation.arguments] ?? Data(),
             standardErrorByteCount: 0

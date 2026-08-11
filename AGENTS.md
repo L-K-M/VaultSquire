@@ -40,8 +40,9 @@ comparisons in prompts, fixtures, reviews, or build environments.
   architecture, tests, strings, assets, database designs, or distinctive UI.
 - Bitwarden, Vaultwarden, and Proton sources are pinned protocol evidence, not
   implementation source. Do not copy their expression into product code.
-- Proton integration is through the official user-installed CLI only. Do not
-  implement Proton's private API, cryptography, or session model.
+- Proton and 1Password integration is through their official user-installed CLIs
+  only. Do not implement either vendor's private API, cryptography, or session
+  model. VaultSquire never collects a Proton or 1Password credential.
 - Every future dependency needs exact version, origin, checksum, license,
   transitive inventory, owner, update policy, and reason.
 - Use synthetic accounts and secrets only. Never use, commit, upload, or paste
@@ -55,7 +56,9 @@ comparisons in prompts, fixtures, reviews, or build environments.
   temporary files, preferences, logs, diagnostics, restoration, or search indexes.
 - Lock invalidates the session generation before cancellation and cleanup, so
   late asynchronous work cannot republish decrypted state.
-- CLI secrets never travel in argv, environment variables, logs, or plaintext files.
+- CLI secrets never travel in argv, environment variables, logs, or plaintext
+  files. Every provider CLI runs through the one shared no-shell executor,
+  whose environment is an allowlist rather than a filter.
 - Writes remain disabled until their provider-specific conflict and secret-input
   contracts have positive, negative, cancellation, ambiguity, and leakage tests.
 

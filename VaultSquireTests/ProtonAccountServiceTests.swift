@@ -6,7 +6,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     private let approvedPath = "/opt/homebrew/bin/proton-pass"
 
     private func makeService(
-        executor: FakeProtonCLIExecutor,
+        executor: FakeCLIExecutor,
         supported: Set<String> = ["2.2.4"],
         installed: Bool = true
     ) -> ProtonAccountService {
@@ -27,7 +27,7 @@ final class ProtonAccountServiceTests: XCTestCase {
         )
     }
 
-    private func stubHappyPath(_ executor: FakeProtonCLIExecutor) async {
+    private func stubHappyPath(_ executor: FakeCLIExecutor) async {
         await executor.stub(arguments: ["--version"], stdout: "proton-pass 2.2.4\n")
         await executor.stub(
             arguments: ["vault", "list", "--output", "json"],
@@ -44,7 +44,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testRefreshListsAndSealsWithoutFetchingAnySecret() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await stubHappyPath(executor)
         let service = makeService(executor: executor)
 
@@ -80,7 +80,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testContentFetchesOneItemOnDemandAndMergesIntoTheDetail() async throws {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await stubHappyPath(executor)
         let service = makeService(executor: executor)
 
@@ -106,7 +106,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     /// The version gate is a security control, so the on-demand read runs it
     /// too: an unadmitted CLI yields no content rather than parsed output.
     func testContentFailsClosedOnAnUnsupportedVersion() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await stubHappyPath(executor)
         let service = makeService(executor: executor, supported: ["9.9.9"])
         let content = await service.content(shareID: "S1", itemID: "i1")
@@ -114,7 +114,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testRefreshReportsCLINotInstalled() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         let service = makeService(executor: executor, installed: false)
         let result = await service.refresh()
         guard case .failure(let error) = result else { return XCTFail("expected failure") }
@@ -122,7 +122,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testRefreshReportsUnsupportedVersion() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "proton-pass 2.2.5\n")
         let service = makeService(executor: executor, supported: ["2.2.4"])
         let result = await service.refresh()
@@ -131,7 +131,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testRefreshTreatsAVaultListFailureAsNotAuthenticated() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.2.4")
         await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: Data(), exitCode: 1)
         let service = makeService(executor: executor)
@@ -141,7 +141,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testRefreshReportsUnreadableOutput() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.2.4")
         await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: "not json")
         let service = makeService(executor: executor)
@@ -151,7 +151,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testProbeStatusReadyWhenAuthenticated() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await stubHappyPath(executor)
         let service = makeService(executor: executor)
         let status = await service.probeStatus()
@@ -162,13 +162,13 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testProbeStatusNotInstalled() async {
-        let service = makeService(executor: FakeProtonCLIExecutor(), installed: false)
+        let service = makeService(executor: FakeCLIExecutor(), installed: false)
         let status = await service.probeStatus()
         XCTAssertEqual(status, .notInstalled)
     }
 
     func testProbeStatusNotAuthenticated() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.2.4")
         await executor.stub(arguments: ["vault", "list", "--output", "json"], stdout: Data(), exitCode: 1)
         let service = makeService(executor: executor)
@@ -177,7 +177,7 @@ final class ProtonAccountServiceTests: XCTestCase {
     }
 
     func testProbeStatusUnsupportedVersion() async {
-        let executor = FakeProtonCLIExecutor()
+        let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "9.9.9")
         let service = makeService(executor: executor, supported: ["2.2.4"])
         let status = await service.probeStatus()

@@ -43,22 +43,27 @@ final class AppModel: ObservableObject {
     private let queryAccountPresence: () -> AccountPresence
     private let service: VaultwardenAccountService
     private let protonService: ProtonAccountService
+    private let onePasswordService: OnePasswordAccountService
     private let biometricStore: any BiometricVaultKeyStoring
     /// Secret fields fetched on demand for opened Proton items. In memory only
     /// for the life of the session — never sealed into the snapshot — and
     /// dropped when that vault locks.
     @Published private var protonContent: [VaultItemID: ProtonItemContent] = [:]
+    /// The same, for opened 1Password items.
+    @Published private var onePasswordContent: [VaultItemID: OnePasswordItemContent] = [:]
     private var hydratingItems: Set<VaultItemID> = []
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
         service: VaultwardenAccountService = VaultwardenAccountService(),
         protonService: ProtonAccountService = ProtonAccountService(),
+        onePasswordService: OnePasswordAccountService = OnePasswordAccountService(),
         biometricStore: any BiometricVaultKeyStoring = BiometricVaultKeyStore()
     ) {
         self.queryAccountPresence = queryAccountPresence
         self.service = service
         self.protonService = protonService
+        self.onePasswordService = onePasswordService
         self.biometricStore = biometricStore
     }
 
@@ -172,11 +177,23 @@ final class AppModel: ObservableObject {
     }
 
     private static func makeSession(for descriptor: AccountDescriptor) -> VaultSlot {
-        let isProton = descriptor.account.provider == .protonCLI
+        let kind: VaultSlot.Kind
+        let title: String
+        switch descriptor.account.provider {
+        case .protonCLI:
+            kind = .proton
+            title = "Proton Pass"
+        case .onePasswordCLI:
+            kind = .onePassword
+            title = "1Password"
+        default:
+            kind = .vaultwarden
+            title = descriptor.serverDisplay
+        }
         return VaultSlot(
             account: descriptor.account,
-            kind: isProton ? .proton : .vaultwarden,
-            title: isProton ? "Proton Pass" : descriptor.serverDisplay,
+            kind: kind,
+            title: title,
             subtitle: descriptor.email
         )
     }
@@ -212,6 +229,22 @@ final class AppModel: ObservableObject {
         open(ProtonAccountService.accountID)
     }
 
+    /// Registers the 1Password vault so it appears in the sidebar like any
+    /// other, then opens it. Called from the Add Account pane once the CLI
+    /// reports ready. No 1Password credential is collected here or anywhere
+    /// else: the desktop app authorizes the CLI.
+    func addOnePasswordVault() {
+        service.descriptorStore.upsert(AccountDescriptor(
+            account: OnePasswordAccountService.accountID,
+            serverDisplay: "1Password",
+            email: "Official 1Password CLI"
+        ))
+        accountPresence = .present
+        refreshAccountPresence()
+        scope = .vault(OnePasswordAccountService.accountID)
+        open(OnePasswordAccountService.accountID)
+    }
+
     // MARK: - Open / lock
 
     /// Opens a vault. Vaultwarden vaults need a password or Touch ID, so this
@@ -221,6 +254,8 @@ final class AppModel: ObservableObject {
         switch existing.kind {
         case .proton:
             openProton(account)
+        case .onePassword:
+            openOnePassword(account)
         case .vaultwarden:
             // Nothing to do without a credential; the UI shows the prompt.
             break
@@ -317,11 +352,40 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Opens the 1Password vault read-only: a CLI refresh, its projections, and
+    /// a sealed snapshot for offline read. No 1Password credential is ever
+    /// collected — the desktop app prompts the user to authorize the CLI, and a
+    /// declined or unanswered prompt surfaces as a recoverable failure.
+    private func openOnePassword(_ account: AccountID) {
+        guard let current = session(for: account) else { return }
+        let generation = current.generation
+        mutate(account) { $0.state = .opening }
+        unlockError = nil
+
+        Task { [onePasswordService] in
+            let result = await onePasswordService.refresh()
+            guard self.isCurrent(account, generation) else { return }
+            switch result {
+            case .success(let refresh):
+                self.mutate(account) {
+                    $0.state = .open
+                    $0.onePassword = refresh.snapshot
+                    $0.items = refresh.projections
+                    $0.lastSyncedAt = refresh.snapshot.capturedAt
+                    $0.syncError = nil
+                }
+                self.unlockError = nil
+            case .failure(let error):
+                self.failOpen(account, generation: generation, message: Self.message(for: error))
+            }
+        }
+    }
+
     /// Closes one vault, dropping only its decrypted state.
     func lock(_ account: AccountID) {
         guard session(for: account) != nil else { return }
         mutate(account) { $0.close() }
-        dropProtonContent(for: account)
+        dropFetchedContent(for: account)
         unlockError = nil
         refreshBiometricAvailability()
         if !isUnlocked {
@@ -336,6 +400,7 @@ final class AppModel: ObservableObject {
             mutate(account) { $0.close() }
         }
         protonContent = [:]
+        onePasswordContent = [:]
         hydratingItems = []
         unlockError = nil
         refreshBiometricAvailability()
@@ -343,8 +408,12 @@ final class AppModel: ObservableObject {
         AppLog.record(.vaultLocked)
     }
 
-    private func dropProtonContent(for account: AccountID) {
+    /// Drops every on-demand secret fetched for one vault. Both CLI providers
+    /// hold theirs in memory only, so closing a vault must clear its entries
+    /// from each map.
+    private func dropFetchedContent(for account: AccountID) {
         protonContent = protonContent.filter { $0.key.account != account }
+        onePasswordContent = onePasswordContent.filter { $0.key.account != account }
         hydratingItems = hydratingItems.filter { $0.account != account }
     }
 
@@ -482,32 +551,65 @@ final class AppModel: ObservableObject {
             return protonService.detail(
                 for: itemID, snapshot: snapshot, content: protonContent[itemID]
             )
+        case .onePassword:
+            guard let snapshot = owner.onePassword else { return nil }
+            return onePasswordService.detail(
+                for: itemID, snapshot: snapshot, content: onePasswordContent[itemID]
+            )
         case .vaultwarden:
             guard let vault = owner.vaultwarden else { return nil }
             return service.detail(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
         }
     }
 
-    /// Fetches a Proton item's secret fields the first time it is opened.
-    /// Listing a Proton vault deliberately carries no secrets — one CLI call per
-    /// item would make opening a vault take minutes — so the detail view asks
-    /// for them here. A no-op for any other provider or an already-fetched item.
+    /// Fetches a CLI-provider item's secret fields the first time it is opened.
+    /// Listing either CLI vault deliberately carries no secrets — one CLI call
+    /// per item would make opening a vault slow, and for 1Password would burn
+    /// request budget too — so the detail view asks for them here. A no-op for
+    /// Vaultwarden, whose items decrypt locally, and for an already-fetched or
+    /// in-flight item.
     func hydrateIfNeeded(_ itemID: VaultItemID) {
-        guard itemID.provider == .protonCLI,
-              let owner = session(for: itemID.account), owner.isOpen,
-              protonContent[itemID] == nil,
-              !hydratingItems.contains(itemID),
-              let shareID = ProtonAccountService.shareIdentifier(of: itemID) else {
+        guard let owner = session(for: itemID.account), owner.isOpen,
+              !hydratingItems.contains(itemID) else {
             return
         }
         let generation = owner.generation
-        hydratingItems.insert(itemID)
-        Task { [protonService] in
-            let content = await protonService.content(shareID: shareID, itemID: itemID.rawValue)
-            self.hydratingItems.remove(itemID)
-            // Never publish a secret into a vault the user locked meanwhile.
-            guard self.isCurrent(itemID.account, generation), let content else { return }
-            self.protonContent[itemID] = content
+
+        switch owner.kind {
+        case .vaultwarden:
+            return
+        case .proton:
+            guard protonContent[itemID] == nil,
+                  let shareID = ProtonAccountService.shareIdentifier(of: itemID) else {
+                return
+            }
+            hydratingItems.insert(itemID)
+            Task { [protonService] in
+                let content = await protonService.content(shareID: shareID, itemID: itemID.rawValue)
+                self.hydratingItems.remove(itemID)
+                // Never publish a secret into a vault the user locked meanwhile.
+                guard self.isCurrent(itemID.account, generation), let content else { return }
+                self.protonContent[itemID] = content
+            }
+        case .onePassword:
+            guard onePasswordContent[itemID] == nil,
+                  let vaultID = OnePasswordAccountService.vaultIdentifier(of: itemID) else {
+                return
+            }
+            // The account the snapshot was read from, so a second signed-in
+            // account cannot answer this read.
+            let accountIdentifier = owner.onePassword?.accountIdentifier
+            hydratingItems.insert(itemID)
+            Task { [onePasswordService] in
+                let content = await onePasswordService.content(
+                    itemID: itemID.rawValue,
+                    vaultID: vaultID,
+                    accountIdentifier: accountIdentifier
+                )
+                self.hydratingItems.remove(itemID)
+                guard self.isCurrent(itemID.account, generation), let content else { return }
+                self.onePasswordContent[itemID] = content
+            }
         }
     }
 
@@ -672,6 +774,23 @@ final class AppModel: ObservableObject {
                     }
                 }
             }
+        case .onePassword:
+            Task { [onePasswordService] in
+                let result = await onePasswordService.refresh()
+                guard self.isCurrent(account, generation) else { return }
+                self.mutate(account) { session in
+                    session.isSyncing = false
+                    switch result {
+                    case .success(let refresh):
+                        session.onePassword = refresh.snapshot
+                        session.items = refresh.projections
+                        session.lastSyncedAt = refresh.snapshot.capturedAt
+                        session.syncError = nil
+                    case .failure(let error):
+                        session.syncError = Self.message(for: error)
+                    }
+                }
+            }
         }
     }
 
@@ -705,6 +824,26 @@ final class AppModel: ObservableObject {
             return "The Proton Pass CLI returned output VaultSquire couldn't read."
         case .executionFailed:
             return "VaultSquire couldn't run the Proton Pass CLI."
+        }
+    }
+
+    private static func message(for error: OnePasswordServiceError) -> String {
+        switch error {
+        case .cliNotInstalled:
+            return "The 1Password CLI isn't installed where VaultSquire can find it."
+        case .unsupportedVersion(let version):
+            return "The installed 1Password CLI (\(version)) isn't a version VaultSquire has verified yet."
+        case .unparseableVersion:
+            return "VaultSquire couldn't read the 1Password CLI's version."
+        case .notAuthorized:
+            // The CLI reports a locked app, a disabled integration, and a
+            // declined prompt the same way, so name all three rather than
+            // guessing which one happened.
+            return "The 1Password CLI wasn't authorized. Make sure the 1Password app is running with \"Integrate with 1Password CLI\" turned on, then approve its prompt and try again."
+        case .unreadableOutput:
+            return "The 1Password CLI returned output VaultSquire couldn't read."
+        case .executionFailed:
+            return "VaultSquire couldn't run the 1Password CLI."
         }
     }
 

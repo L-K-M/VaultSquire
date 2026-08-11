@@ -3,7 +3,8 @@
 - Status: implementation in progress; Workstream 1
 - Last updated: 2026-07-31
 - Product: clean-room native macOS client named VaultSquire
-- Providers: self-hosted Vaultwarden and Proton Pass through the official CLI
+- Providers: self-hosted Vaultwarden, and Proton Pass and 1Password through
+  their official CLIs
 
 ## 1. Executive Recommendation
 
@@ -44,6 +45,7 @@ plaintext file remains disabled. See
 | Distribution | Developer ID signed, hardened, notarized direct download first |
 | First provider milestone | Vaultwarden read-only preview |
 | Second provider milestone | Proton Pass through user-installed official CLI |
+| Third provider milestone | 1Password through user-installed official CLI, read-only ([ADR 0007](docs/adr/0007-onepassword-third-provider.md)) |
 | Initial server target | Vaultwarden 1.37.1, then an explicit tested support window |
 | Preview capability | Read-only online and offline vault |
 | First general-use capability | Online core item writes with conflict detection |
@@ -51,6 +53,7 @@ plaintext file remains disabled. See
 | Search | Local index over a deliberately limited decrypted projection |
 | Telemetry | None by default; local allowlisted diagnostics only |
 | Proton Pass | Selected CLI adapter; read required, secret-safe writes capability-gated |
+| 1Password | Accepted CLI adapter; read-only through desktop-app authorization, every write disabled, release gated on terms and an authorization spike |
 | Keyguard fork | Permanently rejected; source excluded from implementation |
 | Product identity | `VaultSquire`; canonical artwork at `media-sources/icon.png` |
 
@@ -420,13 +423,23 @@ Measure on a representative Apple Silicon Mac with generated vaults of 1,000,
 settings, and hardware with every result. Any later Intel-support ADR must add
 equivalent native Intel release measurements before changing the manifest.
 
-## 6. Vaultwarden And Proton Provider Boundary
+## 6. Provider Boundary
 
-Provider support is an application boundary, not a claim that both password
-managers have the same model. Implement one small compiled provider facade with
-a `VaultwardenProvider` and a `ProtonCLIProvider`, not six protocols or a runtime
-plug-in framework. Build Vaultwarden first, then add the CLI provider without
-changing shared identity, lock, search, or capability semantics.
+Provider support is an application boundary, not a claim that the password
+managers share a model. Implement one small compiled provider facade with a
+`VaultwardenProvider`, a `ProtonCLIProvider`, and an `OnePasswordCLIProvider`,
+not six protocols or a runtime plug-in framework. Build Vaultwarden first, then
+add each CLI provider without changing shared identity, lock, search, or
+capability semantics.
+
+A third provider was the named revisit trigger of
+[ADR 0002](docs/adr/0002-provider-boundary.md). Adding 1Password required no new
+shared concept, so the narrow facade stands. It did repeat one seam —
+no-shell bounded process execution — which `ARCHITECTURE.md` section 4 already
+models as the provider-independent `ProcessRunner`, so that machinery is shared
+as `CLIProcessExecutor` while each provider keeps its own runner, version gate,
+JSON mapping, and cache wrapping. See
+[ADR 0007](docs/adr/0007-onepassword-third-provider.md).
 
 | Seam | Generic responsibility | Provider-owned detail |
 |---|---|---|
@@ -452,17 +465,23 @@ Use a small canonical projection only for shared UI and search:
 
 Do not make one universal crypto interface. `VaultwardenProvider` owns its
 protocol cryptography, authentication, key rotation, conflicts, and sync state.
-`ProtonCLIProvider` delegates those responsibilities to the official CLI and
-owns only process execution, JSON mapping, app cache encryption, refresh, and
-capability calculation. Do not flatten Vaultwarden native fields for writes. Do
+Each CLI provider delegates those responsibilities to its official CLI and owns
+only command construction, JSON mapping, app cache encryption, refresh, and
+capability calculation; the process boundary itself is shared. Do not flatten Vaultwarden native fields for writes. Do
 not use cached or freshly fetched lossy Proton item fields to synthesize writes;
 submit user-provided content plus only reviewed opaque identifiers/concurrency
 tokens through a documented CLI write command and refresh afterward.
 
-No Proton source code, private API model, or linked Proton library belongs in
-VaultSquire. The integration executes the official user-installed CLI as a
+No Proton or 1Password source code, private API model, or linked library belongs
+in VaultSquire. Each integration executes the official user-installed CLI as a
 separate process. One fake provider facade proves state and capabilities before
-the two production providers are added in sequence.
+the production providers are added in sequence.
+
+1Password is read-only and additionally constrained: desktop-app integration is
+its only supported authentication mode, because manual sign-in and service
+accounts both deliver a credential through argv or the environment. Its snapshot
+carries no secret value at all — not even a note — so opening an item is what
+fetches secrets, and they live in memory for that session only.
 
 ## 7. Detailed Work Breakdown
 

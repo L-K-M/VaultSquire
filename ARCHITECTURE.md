@@ -2,18 +2,18 @@
 
 Status: Proposed
 Last updated: 2026-07-31
-Target: A fast, clean-room native macOS client for Vaultwarden and Proton Pass
-through the official Proton CLI
+Target: A fast, clean-room native macOS client for Vaultwarden, and for Proton
+Pass and 1Password through their official CLIs
 
 ## 1. Purpose
 
 VaultSquire is a completely new, independently implemented native macOS password
 manager client. It interoperates with Vaultwarden through the Bitwarden Client
-API and with Proton Pass by executing the official user-installed CLI. The first
-release is a
-read-first desktop client: sign in through one URL/email/password form, complete
-2FA when challenged, sync an encrypted vault, unlock locally, browse and search
-items, copy credentials, and lock safely.
+API, and with Proton Pass and 1Password by executing their official
+user-installed CLIs. The first release is a read-first desktop client: sign in
+through one URL/email/password form, complete 2FA when challenged, sync an
+encrypted vault, unlock locally, browse and search items, copy credentials, and
+lock safely.
 
 This document records two different kinds of information:
 
@@ -78,6 +78,14 @@ Proton CLI `2.2.4` was published on 2026-07-31 after the pinned source-evidence
 baseline above. It is untested and unsupported until its exact executable and
 command schemas pass the capability gates.
 
+The 1Password CLI has no row in that table and cannot have one: the binary is
+proprietary, there is no public source repository, and its terms prohibit
+reverse engineering. Its evidence is therefore documentation only, captured on
+2026-08-11 from mutable vendor pages and recorded in
+[`ONEPASSWORD_CLI_RESEARCH.md`](ONEPASSWORD_CLI_RESEARCH.md), whose §2 states
+that limitation. The stable releases the version gate admits are listed there;
+every other build, including every beta, is unsupported.
+
 ### Observed baseline
 
 - Vaultwarden describes itself as an alternative implementation of the
@@ -129,6 +137,8 @@ VaultSquire to reproduce upstream implementation choices.
 | D12 | Permanently reject a Keyguard fork and exclude its source. | Its license does not grant the rights needed; VaultSquire must remain untainted and independently expressed. |
 | D13 | Integrate Proton through a user-installed official CLI process. | Delegates private authentication and crypto without copying or reverse engineering Proton code. |
 | D14 | Enable Proton writes per command and tested CLI version only. | A command is unavailable if any private input requires argv, environment variables, logs, or plaintext files. |
+| D15 | Integrate 1Password read-only through the user-installed official CLI under desktop-app authorization only. | VaultSquire never learns a 1Password credential; manual sign-in and service accounts would place a session or bearer token in argv or the environment, and no documented write keeps private values out of argv ([ADR 0007](docs/adr/0007-onepassword-third-provider.md)). |
+| D16 | Run every provider CLI through one shared no-shell process executor. | The no-shell, argv, environment, bounds, timeout, and cancellation rules are one reviewed implementation instead of one per provider; per-provider cache wrapping stays provider-owned. |
 
 ## 4. System Shape
 
@@ -178,7 +188,8 @@ independently sandboxed app extensions or a reusable crypto test harness.
 | `VaultwardenProvider` | Environment discovery, identity, refresh, sync DTOs, mutation, error mapping | Leak wire models into generic views |
 | `VaultwardenCrypto` | KDF, key unwrap, encrypt/decrypt, MAC verification, key zeroization | Perform network or persistence work |
 | `ProtonCLIProvider` | CLI status/login, JSON mapping, full refresh, capability-gated commands, app cache wrapping | Implement Proton crypto/API or synthesize writes from cached JSON |
-| `ProcessRunner` | Absolute-path execution, stdin/stdout streaming, bounds, timeout, cancellation | Invoke a shell or place secrets/item content in argv/environment |
+| `OnePasswordCLIProvider` | CLI status/authorization probe, account resolution, JSON mapping, full refresh, app cache wrapping | Collect a 1Password credential, use manual-session or service-account auth, or produce any write |
+| `ProcessRunner` | Absolute-path execution, stdin/stdout streaming, bounds, timeout, cancellation, shared by every CLI provider as `CLIProcessExecutor` | Invoke a shell or place secrets/item content in argv/environment |
 | `EncryptedStore` | SQLite schema, migrations, atomic encrypted snapshot updates | Store decrypted names, usernames, URIs, notes, or search terms |
 | `PlatformSecurity` | Keychain access control, biometric unlock, secure random bytes | Prompt biometrics separately from secret retrieval |
 | `ClipboardService` | Copy, expiry, compare-before-clear, history-exclusion hints | Keep an unbounded copy history |
@@ -283,8 +294,10 @@ remain part of the later multi-account threat model and test gate.
 | Quick-unlock wrapped user key | Encrypted SQLite | Vaultwarden user key sealed under `QK`; never a plaintext key |
 | Local database key | Keychain | Device-only and never synchronizable |
 | Proton cache-envelope key | Keychain | Separate random device-only key; never synchronizable; access controlled so its post-lock release requires user presence, because it is the only gate on Proton content |
+| 1Password cache-envelope key | Keychain | The same construction and reasoning, under its own label so the two providers' snapshots are never interchangeable |
 | Vaultwarden records and crypto state | Encrypted SQLite | Canonical native ciphertext plus compound IDs/revisions |
 | Proton CLI snapshot | Encrypted SQLite blob | Lossy CLI JSON wrapped with VaultSquire AEAD cache key before persistence |
+| 1Password CLI snapshot | Encrypted blob | The same wrapper, and stricter content: no concealed value, one-time-password seed, or note is ever captured |
 | Last successful snapshot generation/date | SQLite | Updated only in the same committed transaction as the snapshot |
 | Decrypted list/detail projections | Memory | Owned by `VaultSession`; cleared on lock/logout |
 | Search index | Memory | Incremental, rebuilt after unlock, cleared on lock/logout |
@@ -498,7 +511,11 @@ ciphertext.
 - Do not add certificate pinning; it conflicts with self-hosted deployments and
   does not replace correct trust evaluation.
 
-### Proton CLI process boundary
+### CLI process boundary
+
+These rules bind every provider that executes an external CLI. They are enforced
+by the one shared `CLIProcessExecutor` (D16) rather than re-implemented per
+provider.
 
 - Require a user-installed official CLI; do not bundle or link it.
 - Resolve a user-approved absolute path and never invoke a shell.
@@ -518,6 +535,30 @@ ciphertext.
 - Refresh a complete snapshot after every successful or ambiguous write.
 - Test App Sandbox inheritance and CLI session/keyring access. If incompatible,
   use the reviewed direct Developer ID fallback rather than a privileged helper.
+
+The environment given to a child is an allowlist, not a filter of VaultSquire's
+own: `HOME` passes through unchanged so the CLI finds its configuration, and
+nothing else the app happened to inherit can reach the child. A provider may pin
+additional fixed, non-secret mode switches — 1Password pins
+`OP_BIOMETRIC_UNLOCK_ENABLED` to select desktop-app authentication — but never a
+token, session, credential, or user-authored value.
+
+#### 1Password specifics
+
+- Desktop-app integration is the only supported authentication mode. Manual
+  sign-in and service accounts are rejected outright: both deliver a credential
+  through argv or the environment, and a service account cannot reach a built-in
+  personal vault.
+- VaultSquire never collects, proxies, or automates the 1Password authorization
+  ceremony. A declined or unanswered prompt is a recoverable state, not an error.
+- Every account-bearing command names a resolved opaque account identifier,
+  because 1Password's own references disagree on what the default account means.
+  An identifier that fails validation is dropped rather than passed to argv.
+- Snapshots carry no concealed value, one-time-password seed, or note, even if a
+  build's `item list` were to return field values. Secrets are fetched only when
+  an item is opened and are held in memory for that session.
+- Every write is disabled, and the archive is read-only: no documented CLI
+  command unarchives or restores an item, so no such action is offered.
 
 ## 7. Providers And Sync
 

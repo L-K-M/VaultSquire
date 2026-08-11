@@ -6,23 +6,48 @@ import XCTest
 /// utilities. Content capture, byte-count-only standard error, absolute-path
 /// enforcement, the output bound, and the deadline are all covered without a
 /// real CLI. Skips when a required utility is unavailable (non-macOS CI).
-final class ProtonCLIExecutorTests: XCTestCase {
+final class CLIProcessExecutorTests: XCTestCase {
+    /// The base environment is an allowlist, not a filter of VaultSquire's own,
+    /// so nothing the app inherited can reach a child process.
+    func testTheBaseEnvironmentIsAFixedAllowlist() async {
+        let environment = await CLIProcessExecutor().childEnvironment()
+        XCTAssertTrue(
+            Set(environment.keys).isSubset(of: ["LANG", "LC_ALL", "PATH", "HOME"]),
+            "unexpected environment keys: \(Set(environment.keys))"
+        )
+    }
+
+    /// A provider may pin a fixed non-secret mode switch, but the overlay can
+    /// only add or pin an entry — never remove one the boundary depends on.
+    func testAnOverlayAddsToTheAllowlistWithoutRemovingFromIt() async {
+        let base = await CLIProcessExecutor().childEnvironment()
+        let overlaid = await CLIProcessExecutor(
+            environmentOverlay: ["EXAMPLE_MODE": "true", "LANG": "en_US.UTF-8"]
+        ).childEnvironment()
+
+        XCTAssertEqual(overlaid["EXAMPLE_MODE"], "true")
+        XCTAssertEqual(overlaid["LANG"], "en_US.UTF-8", "an overlay entry wins over the base")
+        for key in base.keys where key != "LANG" {
+            XCTAssertEqual(overlaid[key], base[key], "\(key) was lost from the base environment")
+        }
+    }
+
     func testRejectsANonAbsoluteExecutable() async {
-        let executor = ProtonCLIProcessExecutor()
+        let executor = CLIProcessExecutor()
         await XCTAssertThrowsErrorAsync(
             try await executor.execute(
-                ProtonCLIInvocation(arguments: []),
+                CLIInvocation(arguments: []),
                 executableURL: URL(string: "https://invalid.example")!
             )
         ) { error in
-            XCTAssertEqual(error as? ProtonCLIExecutionError, .executableNotAbsolute)
+            XCTAssertEqual(error as? CLIExecutionError, .executableNotAbsolute)
         }
     }
 
     func testCapturesStandardOutputContent() async throws {
-        let executor = ProtonCLIProcessExecutor()
+        let executor = CLIProcessExecutor()
         let result = try await executor.execute(
-            ProtonCLIInvocation(arguments: ["synthetic-output"]),
+            CLIInvocation(arguments: ["synthetic-output"]),
             executableURL: try macOSExecutableURL(at: "/usr/bin/printf")
         )
         XCTAssertEqual(result.exitCode, 0)
@@ -31,11 +56,11 @@ final class ProtonCLIExecutorTests: XCTestCase {
     }
 
     func testCountsStandardErrorWithoutReturningItsContent() async throws {
-        let executor = ProtonCLIProcessExecutor()
+        let executor = CLIProcessExecutor()
         // sh is a fixture here, never a product path: it writes to stderr and
         // exits cleanly so only the byte count is observed.
         let result = try await executor.execute(
-            ProtonCLIInvocation(arguments: ["-c", "printf ERR 1>&2"]),
+            CLIInvocation(arguments: ["-c", "printf ERR 1>&2"]),
             executableURL: try macOSExecutableURL(at: "/bin/sh")
         )
         XCTAssertEqual(result.exitCode, 0)
@@ -44,44 +69,44 @@ final class ProtonCLIExecutorTests: XCTestCase {
     }
 
     func testReportsANonZeroExitCode() async throws {
-        let executor = ProtonCLIProcessExecutor()
+        let executor = CLIProcessExecutor()
         let result = try await executor.execute(
-            ProtonCLIInvocation(arguments: ["-c", "exit 7"]),
+            CLIInvocation(arguments: ["-c", "exit 7"]),
             executableURL: try macOSExecutableURL(at: "/bin/sh")
         )
         XCTAssertEqual(result.exitCode, 7)
     }
 
     func testFailsClosedWhenOutputExceedsTheBound() async throws {
-        let executor = ProtonCLIProcessExecutor()
+        let executor = CLIProcessExecutor()
         await XCTAssertThrowsErrorAsync(
             try await executor.execute(
-                ProtonCLIInvocation(arguments: [], timeout: .seconds(30), outputLimit: 8),
+                CLIInvocation(arguments: [], timeout: .seconds(30), outputLimit: 8),
                 executableURL: try macOSExecutableURL(at: "/usr/bin/yes")
             )
         ) { error in
-            XCTAssertEqual(error as? ProtonCLIExecutionError, .outputLimitExceeded)
+            XCTAssertEqual(error as? CLIExecutionError, .outputLimitExceeded)
         }
     }
 
     func testTimesOutALongRunningChild() async throws {
-        let executor = ProtonCLIProcessExecutor()
+        let executor = CLIProcessExecutor()
         await XCTAssertThrowsErrorAsync(
             try await executor.execute(
-                ProtonCLIInvocation(arguments: ["2"], timeout: .milliseconds(20)),
+                CLIInvocation(arguments: ["2"], timeout: .milliseconds(20)),
                 executableURL: try macOSExecutableURL(at: "/bin/sleep")
             )
         ) { error in
-            XCTAssertEqual(error as? ProtonCLIExecutionError, .timedOut)
+            XCTAssertEqual(error as? CLIExecutionError, .timedOut)
         }
     }
 
     func testCancellationTerminatesTheChildPromptly() async throws {
-        let executor = ProtonCLIProcessExecutor()
+        let executor = CLIProcessExecutor()
         let executableURL = try macOSExecutableURL(at: "/bin/sleep")
         let task = Task {
             try await executor.execute(
-                ProtonCLIInvocation(arguments: ["30"], timeout: .seconds(25)),
+                CLIInvocation(arguments: ["30"], timeout: .seconds(25)),
                 executableURL: executableURL
             )
         }

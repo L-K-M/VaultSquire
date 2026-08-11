@@ -52,14 +52,14 @@ struct ProtonAccountService: Sendable {
     static let maximumVaults = 50
 
     let locator: ProtonCLILocator
-    let executor: any ProtonCLIExecuting
+    let executor: any CLIExecuting
     let versionGate: ProtonCLIVersionGate
     let cache: ProtonSnapshotCache
     private let now: @Sendable () -> Date
 
     init(
         locator: ProtonCLILocator = ProtonCLILocator(),
-        executor: any ProtonCLIExecuting = ProtonCLIProcessExecutor(),
+        executor: any CLIExecuting = CLIProcessExecutor(),
         versionGate: ProtonCLIVersionGate = .production,
         cache: ProtonSnapshotCache = ProtonSnapshotCache(),
         now: @escaping @Sendable () -> Date = { Date() }

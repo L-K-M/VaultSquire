@@ -1,7 +1,7 @@
 # 1Password CLI Provider Research
 
-- Status: candidate third-provider feasibility evidence; not an accepted scope
-  change
+- Status: accepted third-provider evidence; read-only provider implemented,
+  release still gated (see the implementation note below)
 - Research date: 2026-08-11
 - Candidate integration: official user-installed 1Password CLI (`op`, CLI 2)
   executed as an external process
@@ -17,13 +17,29 @@ Proton Pass through `pass-cli`? It records the documented integration surface,
 the safety boundaries such a provider would require, and the gates that are not
 yet passed.
 
-[`PLAN.md`](PLAN.md) currently scopes exactly two providers: Vaultwarden and
-Proton Pass. This research does not change that scope. Adopting a 1Password
-provider requires an explicit `PLAN.md` scope decision, a provider-boundary
-review — a third provider is the named revisit trigger of
-[ADR 0002](docs/adr/0002-provider-boundary.md) — and workstream sequencing
-after the existing Vaultwarden and Proton commitments. Nothing below authorizes
-implementation.
+> Implementation status (added at build time): the scope gate of §1 was
+> accepted by the project owner and recorded in
+> [ADR 0007](docs/adr/0007-onepassword-third-provider.md); `PLAN.md` now scopes
+> three providers. The read-only provider is implemented in
+> `VaultSquire/Providers/OnePassword/` — an allowlisted absolute-path locator
+> with symlink resolution, a fail-closed version gate, a runner that emits only
+> fixed subcommands and validated opaque identifiers, tolerant decoding of the
+> documented `vault`/`item`/`whoami` JSON into the shared read projection, and a
+> device-sealed snapshot that carries no secret at all. The no-shell bounded
+> process executor is now the shared `CLIProcessExecutor` both CLI providers
+> run through. Every write stays disabled.
+>
+> The two remaining gates of §1 are NOT discharged. The terms question (§14) is
+> open and blocks any release presenting 1Password support. The TTY-less
+> authorization and sandbox spike (§12) has not been run: the command and JSON
+> contract follows the documented surface in §5 and §8 and is gated to the
+> stable releases in §1, but it has not been exercised against a live CLI in
+> this environment. On a real machine the version allowlist
+> (`OnePasswordCLIVersionGate.declaredSupportedVersions`), the JSON key
+> spellings in `OnePasswordReadModel`, and the `whoami` payload are the points
+> to confirm against an installed build. Mismatched output fails closed with an
+> honest error, never a false success. All boundary logic is unit-tested over a
+> fake executor.
 
 Unlike the Proton research, no source-derived evidence tier exists here: the
 `op` binary is proprietary and its terms prohibit reverse engineering (§14).
@@ -63,7 +79,9 @@ engineering task:
    terminal. Whether authorization prompts, sessions, or failures result is
    undocumented and must be proven by a standalone spike before any further
    design (§4, §12).
-3. **Scope gate.** A `PLAN.md` decision and ADR, as above.
+3. **Scope gate.** A `PLAN.md` decision and ADR, as above. *Resolved: accepted
+   in [ADR 0007](docs/adr/0007-onepassword-third-provider.md); gates 1 and 2
+   remain open and now bind release rather than implementation.*
 
 Binding integration policy, if the provider is adopted:
 
@@ -739,19 +757,18 @@ ever enters VaultSquire, creation has a documented complete-input stdin
 path, archive is a real state, and the binary has a documented signed
 identity.
 
-But do not begin implementation now. The provider is gated, in order, by:
+The scope gate has since been accepted and the read-only provider built to the
+plan in §12. Two gates remain, and they now bind release rather than
+implementation:
 
 1. written resolution of the API and SDK Terms question — the
    competing-product and functionality-replication clause is the single
    sharpest external risk this project has recorded for any provider;
 2. the TTY-less authorization and sandbox spike, which decides whether the
-   only acceptable authentication mode works at all from a GUI app;
-3. a `PLAN.md` scope decision and ADR review, sequenced after the committed
-   Vaultwarden and Proton work.
+   only acceptable authentication mode works at all from a GUI app.
 
-If all three resolve favorably, the provider plan in §12 applies; if any
-fails, VaultSquire records 1Password as unsupported rather than weakening an
-invariant to force the integration.
+If either fails, VaultSquire records 1Password as unsupported and withdraws the
+provider rather than weakening an invariant to force the integration.
 
 ## References
 
