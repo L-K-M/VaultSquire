@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The main window once at least one vault is configured: a vault sidebar, the
@@ -23,6 +24,11 @@ struct VaultBrowserView: View {
     @State private var passwords: [AccountID: String] = [:]
     /// Which vaults have their container list expanded in the sidebar.
     @State private var expandedVaults: Set<AccountID> = []
+    /// The website awaiting the user's confirmation to open, shown with the
+    /// effective scheme and host the browser will actually visit — the same
+    /// confirmation the detail pane gives before any URI leaves the app.
+    @State private var pendingOpen: URIOpeningDecision?
+    @State private var showOpenConfirmation = false
 
     /// Wraps a draft so it can drive an item-identified sheet.
     private struct EditSession: Identifiable {
@@ -70,6 +76,22 @@ struct VaultBrowserView: View {
             if appModel.canUnlockWithBiometrics,
                appModel.session(for: .vaultwardenPrimary)?.isOpen == false {
                 appModel.unlockWithBiometrics()
+            }
+        }
+        .confirmationDialog(
+            "Open this link?",
+            isPresented: $showOpenConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let decision = pendingOpen {
+                Button("Open \(decision.display)") {
+                    NSWorkspace.shared.open(decision.url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let decision = pendingOpen {
+                Text("VaultSquire will hand \(decision.display) to your default browser. Nothing from this vault is sent with it.")
             }
         }
     }
@@ -323,6 +345,48 @@ struct VaultBrowserView: View {
             }
         }
         .padding(.vertical, 2)
+        .contextMenu { contextMenuContent(item) }
+    }
+
+    /// The right-click menu for one row: the copy actions that would otherwise
+    /// need the detail pane, plus opening the item's first website. Secret
+    /// copies go through the clipboard service, so they expire and clear on
+    /// lock like any detail-pane copy.
+    ///
+    /// A CLI provider's secret fields appear here once the item has been
+    /// opened this session; listing deliberately carries no secrets, and a
+    /// context menu must not fan out one CLI call per hovered row.
+    @ViewBuilder
+    private func contextMenuContent(_ item: VaultItemProjection) -> some View {
+        let detail = appModel.detail(for: item.id)
+        if let username = detail?.fields.first(where: { $0.kind == .plain && $0.label == "Username" })?.value {
+            Button("Copy Username") {
+                ClipboardService.shared.copyPlain(username)
+            }
+            .accessibilityIdentifier("context-copy-username")
+        }
+        if let field = detail?.fields.first(where: { $0.kind == .secret }) {
+            Button("Copy \(field.label)") {
+                ClipboardService.shared.copySecret(field.value)
+            }
+            .accessibilityIdentifier("context-copy-secret")
+        }
+        if let seed = detail?.fields.first(where: { $0.kind == .totpSeed })?.value,
+           let generated = VaultwardenTOTP.generate(seed: seed, at: Date()) {
+            Button("Copy One-Time Code") {
+                ClipboardService.shared.copySecret(generated.code)
+            }
+            .accessibilityIdentifier("context-copy-totp")
+        }
+        if let website = item.websites.first,
+           let decision = URIOpeningPolicy.decision(for: website) {
+            Divider()
+            Button("Open \(decision.display)") {
+                pendingOpen = decision
+                showOpenConfirmation = true
+            }
+            .accessibilityIdentifier("context-open-website")
+        }
     }
 
     // MARK: - Locked vault pane
