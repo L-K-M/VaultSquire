@@ -11,6 +11,11 @@ struct VaultItemEditView: View {
     /// defaulted to the browser's target. An edit never uses it: the item
     /// belongs to the vault it came from.
     @State private var destination: AccountID?
+    /// True once this sheet has submitted a write of its own. The model's
+    /// `isWriting` is app-wide — archiving from the toolbar sets it too — so
+    /// without this the sheet would close on someone else's write and throw
+    /// away whatever had been typed.
+    @State private var didSubmit = false
     let onClose: () -> Void
 
     init(draft: VaultItemDraft, onClose: @escaping () -> Void) {
@@ -87,14 +92,22 @@ struct VaultItemEditView: View {
         }
         .frame(width: 460, height: 560)
         // When a save succeeds the model re-syncs and clears writeError; close
-        // the sheet once a submit completes without error.
+        // the sheet once this sheet's own submit completes without error.
         .onChange(of: appModel.isWriting) { wasWriting, isWriting in
-            if wasWriting && !isWriting && appModel.writeError == nil {
+            guard didSubmit, wasWriting, !isWriting else { return }
+            if appModel.writeError == nil {
                 onClose()
+            } else {
+                // The failure is on screen and the draft is intact, so the
+                // sheet stays open and the next attempt is a fresh submit.
+                didSubmit = false
             }
         }
         .accessibilityIdentifier("vault-item-edit")
         .onAppear {
+            // A failure from a previous, unrelated save must not greet a form
+            // this sheet has not submitted yet.
+            appModel.clearWriteError()
             if destination == nil {
                 destination = appModel.createTarget?.account
                     ?? appModel.writableVaults.first?.account
@@ -125,6 +138,7 @@ struct VaultItemEditView: View {
     }
 
     private func submit() {
+        didSubmit = true
         draft.websites = websitesText
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
