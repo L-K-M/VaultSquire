@@ -113,11 +113,11 @@ struct VaultwardenSyncService: Sendable {
         // rather than the token grant, so the first sync after login seeds it.
         // SECURITY_AND_TESTING.md § "Vaultwarden Authentication": treat
         // re-authentication as the only path that replaces wrapped key material.
-        if current.wrappedUserKey.isEmpty {
-            updated.wrappedUserKey = sync.profile.key ?? current.wrappedUserKey
+        if current.wrappedUserKey.isEmpty, let key = sync.profile.key {
+            updated.wrappedUserKey = key
         }
-        if current.wrappedPrivateKey == nil {
-            updated.wrappedPrivateKey = sync.profile.privateKey ?? current.wrappedPrivateKey
+        if current.wrappedPrivateKey == nil, let privateKey = sync.profile.privateKey {
+            updated.wrappedPrivateKey = privateKey
         }
         updated.organizations = sync.profile.organizations.map {
             .init(id: $0.id, name: $0.name, wrappedKey: $0.key)

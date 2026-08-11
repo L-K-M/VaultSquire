@@ -87,12 +87,13 @@ final class VaultwardenSyncServiceTests: XCTestCase {
         StubServer.shared.on(
             "/api/sync",
             respond: .json(200, """
-            {\"Profile\":{\"Key\":\"2.boot|boot|boot\",\"PrivateKey\":null,\"Organizations\":[]},
+            {\"Profile\":{\"Key\":\"2.boot|boot|boot\",\"PrivateKey\":\"2.boot-pk|p|p\",\"Organizations\":[]},
              \"Folders\":[],\"Ciphers\":[]}
             """)
         )
         var bootstrap = makeCurrentSnapshot()
         bootstrap.wrappedUserKey = ""
+        bootstrap.wrappedPrivateKey = nil
 
         let result = await (try makeService()).sync(
             current: bootstrap,
@@ -107,6 +108,11 @@ final class VaultwardenSyncServiceTests: XCTestCase {
             success.snapshot.wrappedUserKey,
             "2.boot|boot|boot",
             "an empty bootstrap slot must be filled from the sync profile"
+        )
+        XCTAssertEqual(
+            success.snapshot.wrappedPrivateKey,
+            "2.boot-pk|p|p",
+            "an absent bootstrap private key must be filled from the sync profile"
         )
     }
 
