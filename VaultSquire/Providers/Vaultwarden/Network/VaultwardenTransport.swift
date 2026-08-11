@@ -183,8 +183,8 @@ struct VaultwardenTransport: Sendable {
                     }
                 }
             } catch is CancellationError {
-                // The transfer was cancelled by the size bound above; the
-                // responseTooLarge error already propagated.
+                // The transfer was cancelled (externally, or by the size bound
+                // above after its own error propagated).
                 throw VaultwardenTransportError.cancelled
             } catch let error as URLError where error.code == .cancelled {
                 throw VaultwardenTransportError.cancelled
