@@ -185,7 +185,9 @@ final class AppModel: ObservableObject {
             title = "Proton Pass"
         case .onePasswordCLI:
             kind = .onePassword
-            title = "1Password"
+            // The sign-in address, so two 1Password accounts are told apart in
+            // the sidebar rather than both reading "1Password".
+            title = descriptor.serverDisplay
         default:
             kind = .vaultwarden
             title = descriptor.serverDisplay
@@ -229,20 +231,25 @@ final class AppModel: ObservableObject {
         open(ProtonAccountService.accountID)
     }
 
-    /// Registers the 1Password vault so it appears in the sidebar like any
-    /// other, then opens it. Called from the Add Account pane once the CLI
-    /// reports ready. No 1Password credential is collected here or anywhere
-    /// else: the desktop app authorizes the CLI.
-    func addOnePasswordVault() {
+    /// Registers one 1Password account as its own vault in the sidebar, then
+    /// opens it. Called from the Add Account pane for the account the user
+    /// chose. No 1Password credential is collected here or anywhere else: the
+    /// desktop app authorizes the CLI when the vault opens.
+    ///
+    /// Adding a second account adds a second vault rather than replacing the
+    /// first, because the descriptor is keyed by the CLI's own account
+    /// identifier.
+    func addOnePasswordVault(_ account: OnePasswordAccount) {
+        let identity = OnePasswordAccountService.vaultIdentity(for: account.accountUUID)
         service.descriptorStore.upsert(AccountDescriptor(
-            account: OnePasswordAccountService.accountID,
-            serverDisplay: "1Password",
-            email: "Official 1Password CLI"
+            account: identity,
+            serverDisplay: account.url,
+            email: account.email.isEmpty ? "Official 1Password CLI" : account.email
         ))
         accountPresence = .present
         refreshAccountPresence()
-        scope = .vault(OnePasswordAccountService.accountID)
-        open(OnePasswordAccountService.accountID)
+        scope = .vault(identity)
+        open(identity)
     }
 
     // MARK: - Open / lock
@@ -362,8 +369,10 @@ final class AppModel: ObservableObject {
         mutate(account) { $0.state = .opening }
         unlockError = nil
 
+        // The vault's own identity carries the CLI account it was added for.
+        let accountUUID = account.rawValue
         Task { [onePasswordService] in
-            let result = await onePasswordService.refresh()
+            let result = await onePasswordService.refresh(accountUUID: accountUUID)
             guard self.isCurrent(account, generation) else { return }
             switch result {
             case .success(let refresh):
@@ -596,15 +605,15 @@ final class AppModel: ObservableObject {
                   let vaultID = OnePasswordAccountService.vaultIdentifier(of: itemID) else {
                 return
             }
-            // The account the snapshot was read from, so a second signed-in
-            // account cannot answer this read.
-            let accountIdentifier = owner.onePassword?.accountIdentifier
+            // The vault's identity is the CLI account it was added for, so a
+            // second signed-in account cannot answer this read.
+            let accountUUID = itemID.account.rawValue
             hydratingItems.insert(itemID)
             Task { [onePasswordService] in
                 let content = await onePasswordService.content(
                     itemID: itemID.rawValue,
                     vaultID: vaultID,
-                    accountIdentifier: accountIdentifier
+                    accountUUID: accountUUID
                 )
                 self.hydratingItems.remove(itemID)
                 guard self.isCurrent(itemID.account, generation), let content else { return }
@@ -775,8 +784,9 @@ final class AppModel: ObservableObject {
                 }
             }
         case .onePassword:
+            let accountUUID = account.rawValue
             Task { [onePasswordService] in
-                let result = await onePasswordService.refresh()
+                let result = await onePasswordService.refresh(accountUUID: accountUUID)
                 guard self.isCurrent(account, generation) else { return }
                 self.mutate(account) { session in
                     session.isSyncing = false
@@ -839,7 +849,9 @@ final class AppModel: ObservableObject {
             // The CLI reports a locked app, a disabled integration, and a
             // declined prompt the same way, so name all three rather than
             // guessing which one happened.
-            return "The 1Password CLI wasn't authorized. Make sure the 1Password app is running with \"Integrate with 1Password CLI\" turned on, then approve its prompt and try again."
+            return "1Password didn't authorize the read. Make sure the 1Password app is running and unlocked with \"Integrate with 1Password CLI\" turned on in Settings › Developer, then try again and approve its prompt."
+        case .unusableAccount:
+            return "This vault's 1Password account is no longer one the CLI will accept. Remove the vault and add it again."
         case .unreadableOutput:
             return "The 1Password CLI returned output VaultSquire couldn't read."
         case .executionFailed:

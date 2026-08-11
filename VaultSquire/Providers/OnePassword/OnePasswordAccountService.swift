@@ -11,16 +11,25 @@ enum OnePasswordConnectionStatus: Equatable, Sendable {
     case unsupportedVersion(String)
     /// The binary produced no recognizable version token.
     case unparseableVersion
-    /// The binary is supported but could not obtain authorization from the
-    /// 1Password desktop app. The app may not be running, CLI integration may
-    /// be off, or the user may have declined or not answered the prompt — the
-    /// CLI reports these the same way, and its standard error is treated as
-    /// secret-bearing, so VaultSquire does not guess between them.
-    case notAuthorized
-    /// The binary is supported and authorized; reads are available.
-    case ready(version: String, approvedPath: String, resolvedRealPath: String)
+    /// The binary is supported but no 1Password account is set up on this
+    /// device, so there is nothing to open.
+    case noAccounts
+    /// The binary is supported and at least one account is configured. Each
+    /// account can be opened as its own vault.
+    ///
+    /// Detection deliberately stops here rather than proving authorization:
+    /// confirming it would mean running a real read, which raises the desktop
+    /// app's biometric prompt. Prompting merely because the user opened the Add
+    /// Account sheet would be rude, so authorization happens when a vault is
+    /// actually opened.
+    case ready(
+        version: String,
+        accounts: [OnePasswordAccount],
+        approvedPath: String,
+        resolvedRealPath: String
+    )
     /// The binary produced output VaultSquire could not read, or a command
-    /// failed for a reason other than missing authorization.
+    /// failed for a reason other than a missing account.
     case error
 }
 
@@ -28,7 +37,14 @@ enum OnePasswordServiceError: Error, Equatable, Sendable {
     case cliNotInstalled
     case unsupportedVersion(String)
     case unparseableVersion
+    /// The desktop app did not authorize the read: it may be locked, CLI
+    /// integration may be off, or the prompt may have been declined or left
+    /// unanswered. The CLI reports these the same way, and its standard error
+    /// is treated as secret-bearing, so VaultSquire does not guess between them.
     case notAuthorized
+    /// The account identifier this vault was configured with is no longer one
+    /// the CLI will accept, so no command can be safely addressed to it.
+    case unusableAccount
     case unreadableOutput
     case executionFailed
 }
@@ -50,8 +66,17 @@ struct OnePasswordRefreshResult: Sendable {
 /// Key, or one-time code: authorization is the desktop app's biometric prompt.
 /// The other providers are unaffected; this is a self-contained vertical.
 struct OnePasswordAccountService: Sendable {
-    /// The single local 1Password account identity for this installation.
-    static let accountID = AccountID(provider: .onePasswordCLI, rawValue: "onepassword-cli-primary")
+    /// The local identity for one 1Password account, keyed by the CLI's own
+    /// opaque account identifier.
+    ///
+    /// A person can have several 1Password accounts signed in at once — a
+    /// personal one and a work one is ordinary — so each becomes its own vault
+    /// rather than one of them being silently chosen. The account is part of
+    /// the compound identity, which is what keeps two accounts' items distinct
+    /// even when they share vault names.
+    static func vaultIdentity(for accountUUID: String) -> AccountID {
+        AccountID(provider: .onePasswordCLI, rawValue: accountUUID)
+    }
 
     /// Read-only, matching the read model's capability set.
     static let capabilities = OnePasswordReadModel.capabilities
@@ -98,9 +123,18 @@ struct OnePasswordAccountService: Sendable {
 
     // MARK: - Detection
 
-    /// Probes the CLI for the connection pane without a full refresh: locate,
-    /// gate the version, then confirm the desktop app authorizes it. Returns an
-    /// honest status for every failure mode.
+    /// Probes the CLI for the connection pane: locate it, gate its version, and
+    /// enumerate the accounts configured on this device.
+    ///
+    /// It deliberately does NOT prove authorization. Proving it means running a
+    /// real read, which raises the 1Password app's biometric prompt, and
+    /// prompting merely because someone opened the Add Account sheet would be
+    /// rude. Authorization is established when a vault is actually opened.
+    ///
+    /// `op whoami` is not used here or anywhere. It is a status query: with no
+    /// established session it reports "account is not signed in" instead of
+    /// starting the ceremony, so probing with it fails on every fresh session
+    /// however the machine is configured.
     func probeStatus() async -> OnePasswordConnectionStatus {
         guard let binary = locator.locate() else { return .notInstalled }
         let runner = makeRunner(binary)
@@ -116,18 +150,23 @@ struct OnePasswordAccountService: Sendable {
             return .error
         }
 
+        let accounts: [OnePasswordAccount]
         do {
-            _ = try await runner.whoAmIJSON()
-        } catch OnePasswordCLIRunnerError.commandFailed {
-            // A non-zero exit on a supported binary means the CLI could not get
-            // authorization from the desktop app.
-            return .notAuthorized
+            accounts = try OnePasswordReadModel.decodeAccounts(try await runner.accountListJSON())
+        } catch is OnePasswordReadModelError {
+            return .error
         } catch {
+            // `account list` reads local configuration and needs no
+            // authorization, so a failure here is a broken install or an
+            // unreadable config, not a refused prompt.
             return .error
         }
 
+        guard !accounts.isEmpty else { return .noAccounts }
+
         return .ready(
             version: version.raw,
+            accounts: accounts,
             approvedPath: binary.approvedPath,
             resolvedRealPath: binary.resolvedRealPath
         )
@@ -135,17 +174,23 @@ struct OnePasswordAccountService: Sendable {
 
     // MARK: - Refresh
 
-    /// Runs a full authoritative read: version gate, authorization probe, vault
+    /// Runs a full authoritative read for one account: version gate, vault
     /// list, and one item list per vault, then seals the snapshot and returns
     /// projections. A cache write failure is non-fatal to the in-memory result.
     ///
-    /// Secret fields are deliberately NOT fetched here. `op item get` is one
-    /// child process — and, per 1Password's own request accounting, several
-    /// server reads — per item, so hydrating a whole vault up front would make
-    /// opening it slow and burn request budget. Secrets are fetched on demand
-    /// by `content(itemID:vaultID:accountIdentifier:)` when an item is actually
-    /// opened, which also keeps them out of the at-rest snapshot entirely.
-    func refresh() async -> Result<OnePasswordRefreshResult, OnePasswordServiceError> {
+    /// The vault list is also what establishes authorization — a real read is
+    /// what makes the 1Password app raise its prompt — so a refusal surfaces
+    /// here rather than during detection.
+    ///
+    /// Secret fields are deliberately NOT fetched. `op item get` is one child
+    /// process — and, per 1Password's own request accounting, several server
+    /// reads — per item, so hydrating a whole vault up front would make opening
+    /// it slow and burn request budget. Secrets are fetched on demand by
+    /// `content(itemID:vaultID:accountUUID:)` when an item is actually opened,
+    /// which also keeps them out of the at-rest snapshot entirely.
+    func refresh(
+        accountUUID: String
+    ) async -> Result<OnePasswordRefreshResult, OnePasswordServiceError> {
         guard let binary = locator.locate() else { return .failure(.cliNotInstalled) }
         let unscoped = makeRunner(binary)
 
@@ -160,22 +205,17 @@ struct OnePasswordAccountService: Sendable {
             return .failure(.executionFailed)
         }
 
-        // Resolve the account first, then address every later command to it, so
-        // a second signed-in account cannot answer a command meant for this one.
-        let accountIdentifier: String?
-        do {
-            accountIdentifier = OnePasswordReadModel.decodeAccountID(try await unscoped.whoAmIJSON())
-        } catch OnePasswordCLIRunnerError.commandFailed {
-            return .failure(.notAuthorized)
-        } catch {
-            return .failure(.executionFailed)
-        }
-        let runner = unscoped.scoped(toAccount: accountIdentifier)
+        // Every account-bearing command names this account explicitly, so a
+        // second signed-in account can never answer one meant for this vault.
+        let runner = unscoped.scoped(toAccount: accountUUID)
+        guard runner.accountID != nil else { return .failure(.unusableAccount) }
 
         let vaults: [OnePasswordVault]
         do {
             vaults = try OnePasswordReadModel.decodeVaults(try await runner.vaultListJSON())
         } catch OnePasswordCLIRunnerError.commandFailed {
+            // The first real read is where authorization is decided, so a
+            // non-zero exit here means the desktop app did not grant it.
             return .failure(.notAuthorized)
         } catch is OnePasswordReadModelError {
             return .failure(.unreadableOutput)
@@ -210,7 +250,7 @@ struct OnePasswordAccountService: Sendable {
 
         let snapshot = OnePasswordSnapshot(
             cliVersion: version.raw,
-            accountIdentifier: runner.accountID,
+            accountIdentifier: accountUUID,
             capturedAt: now(),
             vaults: vaults,
             items: items
@@ -218,26 +258,32 @@ struct OnePasswordAccountService: Sendable {
         // Best-effort: a host without the device Keychain key still returns the
         // in-memory result; offline read simply won't be available until it can
         // seal.
-        try? cache.save(snapshot, for: Self.accountID)
+        try? cache.save(snapshot, for: Self.vaultIdentity(for: accountUUID))
 
         return .success(OnePasswordRefreshResult(
-            snapshot: snapshot, projections: projections(from: snapshot)
+            snapshot: snapshot,
+            projections: projections(from: snapshot, accountUUID: accountUUID)
         ))
     }
 
     // MARK: - Offline read
 
-    /// The last sealed snapshot, if any, for offline listing without invoking
-    /// the CLI. Returns nil when none exists or the seal cannot be opened.
-    func cachedSnapshot() -> OnePasswordSnapshot? {
-        try? cache.load(for: Self.accountID)
+    /// The last sealed snapshot for one account, if any, for offline listing
+    /// without invoking the CLI. Returns nil when none exists or the seal
+    /// cannot be opened.
+    func cachedSnapshot(accountUUID: String) -> OnePasswordSnapshot? {
+        try? cache.load(for: Self.vaultIdentity(for: accountUUID))
     }
 
-    func projections(from snapshot: OnePasswordSnapshot) -> [VaultItemProjection] {
+    func projections(
+        from snapshot: OnePasswordSnapshot,
+        accountUUID: String
+    ) -> [VaultItemProjection] {
         let generation = Self.generation(for: snapshot)
+        let identity = Self.vaultIdentity(for: accountUUID)
         return snapshot.items.map {
             OnePasswordReadModel.projection(
-                for: $0, account: Self.accountID, captureGeneration: generation
+                for: $0, account: identity, captureGeneration: generation
             )
         }
     }
@@ -256,7 +302,9 @@ struct OnePasswordAccountService: Sendable {
         }) else {
             return nil
         }
-        return OnePasswordReadModel.detail(for: item, account: Self.accountID, content: content)
+        // The item's own compound identity names the account, so a detail is
+        // always built for the vault the item was actually listed in.
+        return OnePasswordReadModel.detail(for: item, account: itemID.account, content: content)
     }
 
     /// The vault identifier for an item, for the on-demand content fetch.
@@ -272,18 +320,19 @@ struct OnePasswordAccountService: Sendable {
     /// The version gate runs on this path too: it is the control that keeps
     /// VaultSquire from parsing an untested CLI's output, so a read never
     /// bypasses it. `--version` is answered locally with no round trip and no
-    /// authorization prompt. The account identifier comes from the snapshot the
-    /// item was listed in, so the read cannot be answered by a different
-    /// signed-in account.
+    /// authorization prompt. The account comes from the vault the item was
+    /// listed in, so the read cannot be answered by a different signed-in
+    /// account.
     func content(
         itemID: String,
         vaultID: String,
-        accountIdentifier: String?
+        accountUUID: String
     ) async -> OnePasswordItemContent? {
         guard let binary = locator.locate() else { return nil }
         let runner = makeRunner(binary)
         guard (try? await runner.probeVersion()) != nil else { return nil }
-        let scoped = runner.scoped(toAccount: accountIdentifier)
+        let scoped = runner.scoped(toAccount: accountUUID)
+        guard scoped.accountID != nil else { return nil }
         guard let data = try? await scoped.itemGetJSON(itemID: itemID, vaultID: vaultID) else {
             return nil
         }

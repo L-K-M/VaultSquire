@@ -24,8 +24,10 @@ final class OnePasswordConnectModel: ObservableObject {
     /// Probes the CLI status off the main actor and publishes the result. Any
     /// prior probe is cancelled so a stale result cannot overwrite a newer one.
     ///
-    /// The probe can take a moment: its authorization step may raise the
-    /// 1Password app's prompt and wait for the user's fingerprint.
+    /// The probe only locates the CLI, gates its version, and enumerates the
+    /// accounts configured on this device. It never raises the 1Password app's
+    /// prompt: authorization is established when a vault is actually opened,
+    /// not because someone opened this sheet.
     func probe() {
         task?.cancel()
         stage = .probing
@@ -39,11 +41,5 @@ final class OnePasswordConnectModel: ObservableObject {
     func cancel() {
         task?.cancel()
         task = nil
-    }
-
-    /// True when a supported, authorized CLI is ready to read.
-    var isReady: Bool {
-        if case .status(.ready) = stage { return true }
-        return false
     }
 }

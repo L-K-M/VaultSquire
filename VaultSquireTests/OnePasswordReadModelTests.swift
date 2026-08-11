@@ -4,7 +4,7 @@ import XCTest
 /// All fixtures are synthetic. Secret-looking values are prefixed `VSQ-` so a
 /// leakage assertion can search for them unambiguously.
 final class OnePasswordReadModelTests: XCTestCase {
-    private let account = OnePasswordAccountService.accountID
+    private let account = OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")
 
     private let itemJSON = """
     {
@@ -237,13 +237,56 @@ final class OnePasswordReadModelTests: XCTestCase {
 
     // MARK: - Account resolution
 
-    func testDecodesAnAccountIdentifierWhenOneIsPresent() {
-        let data = Data(#"{"url":"my.1password.com","account_uuid":"ACCOUNT1"}"#.utf8)
-        XCTAssertEqual(OnePasswordReadModel.decodeAccountID(data), "ACCOUNT1")
+    /// The shape `op account list --format json` emits.
+    func testDecodesTheAccountsConfiguredOnThisDevice() throws {
+        let json = #"""
+        [
+          {"url":"my.1password.com","email":"squire@example.com",
+           "user_uuid":"USERA","account_uuid":"ACCOUNTA"},
+          {"url":"work.1password.com","email":"squire@work.example",
+           "user_uuid":"USERB","account_uuid":"ACCOUNTB"}
+        ]
+        """#
+        XCTAssertEqual(try OnePasswordReadModel.decodeAccounts(Data(json.utf8)), [
+            OnePasswordAccount(
+                accountUUID: "ACCOUNTA", url: "my.1password.com", email: "squire@example.com"
+            ),
+            OnePasswordAccount(
+                accountUUID: "ACCOUNTB", url: "work.1password.com", email: "squire@work.example"
+            )
+        ])
     }
 
-    func testReportsNoAccountIdentifierForAnUnrecognizedPayload() {
-        XCTAssertNil(OnePasswordReadModel.decodeAccountID(Data(#"{"url":"x"}"#.utf8)))
-        XCTAssertNil(OnePasswordReadModel.decodeAccountID(Data("not json".utf8)))
+    /// The account identifier goes into argv, so one that fails validation is
+    /// dropped rather than offered as something the user could open.
+    func testAnAccountWithAnUnusableIdentifierIsDropped() throws {
+        let json = #"[{"url":"bad","account_uuid":"--oops"},{"url":"ok","account_uuid":"ACCOUNTA"}]"#
+        let accounts = try OnePasswordReadModel.decodeAccounts(Data(json.utf8))
+        XCTAssertEqual(accounts.map(\.accountUUID), ["ACCOUNTA"])
+    }
+
+    func testDecodesNoAccountsFromAnEmptyList() throws {
+        XCTAssertTrue(try OnePasswordReadModel.decodeAccounts(Data("[]".utf8)).isEmpty)
+    }
+
+    func testMalformedAccountJSONThrows() {
+        XCTAssertThrowsError(try OnePasswordReadModel.decodeAccounts(Data("nope".utf8)))
+    }
+
+    /// Two accounts must produce distinct compound identities even for
+    /// identically named vaults and identically titled items.
+    func testTwoAccountsProduceDistinctItemIdentities() throws {
+        let json = #"[{"id":"ITEM1","title":"Shared Name","category":"LOGIN"}]"#
+        let items = try OnePasswordReadModel.decodeItems(
+            Data(json.utf8), vaultID: "VAULT1", vaultName: "Private"
+        )
+        let item = try XCTUnwrap(items.first)
+        let first = OnePasswordReadModel.itemID(
+            for: item, account: OnePasswordAccountService.vaultIdentity(for: "ACCOUNTA")
+        )
+        let second = OnePasswordReadModel.itemID(
+            for: item, account: OnePasswordAccountService.vaultIdentity(for: "ACCOUNTB")
+        )
+        XCTAssertNotEqual(first, second)
     }
 }
