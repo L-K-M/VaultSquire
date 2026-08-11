@@ -119,9 +119,10 @@ final class ItemIconTests: XCTestCase {
 final class SiteIconStoreTests: XCTestCase {
     private func makeDefaults() -> UserDefaults {
         let suite = "VSQ-icons-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
-        return defaults
+        // The teardown captures the suite name rather than the instance, so it
+        // carries nothing across isolation but a string.
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        return UserDefaults(suiteName: suite)!
     }
 
     /// A tiny real PNG, so `NSImage` has something that actually decodes.
@@ -208,8 +209,11 @@ final class SiteIconStoreTests: XCTestCase {
     /// An oversized body is refused before it is decoded, so a hostile host
     /// cannot hand back an image bomb.
     func testOversizedBodyIsRefused() async {
+        // Read on the main actor: the fetch closure is nonisolated, and the
+        // store's limits belong to it.
+        let overLimit = SiteIconStore.maximumIconBytes + 1
         let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
-            Data(repeating: 0, count: SiteIconStore.maximumIconBytes + 1)
+            Data(repeating: 0, count: overLimit)
         })
         store.isEnabled = true
         await store.load("example.com")

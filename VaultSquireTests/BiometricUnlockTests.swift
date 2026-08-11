@@ -119,6 +119,10 @@ final class BiometricUnlockTests: XCTestCase {
         )
     }
 
+    /// Stays on the caller's actor. As a nonisolated `async` method it would be
+    /// sent `self` from the main-actor tests that call it, which Swift 6 reads
+    /// as a data race on a non-Sendable `XCTestCase`.
+    @MainActor
     private func stubSignedInCLI(_ executor: FakeCLIExecutor) async {
         await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
         await executor.stub(
