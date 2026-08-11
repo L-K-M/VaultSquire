@@ -243,9 +243,15 @@ struct VaultBrowserView: View {
 
     private var scopeTitle: String {
         switch appModel.scope {
-        case .allVaults: return "All Vaults"
-        case .vault(let account): return appModel.session(for: account)?.title ?? "Vault"
-        case .group(_, let group): return group
+        case .allVaults:
+            return "All Vaults"
+        case .vault(let account):
+            return appModel.session(for: account)?.title ?? "Vault"
+        case .group(let account, let group):
+            // The scope carries the container's identifier, which for Proton is
+            // a share id, so the name is resolved rather than displayed raw.
+            return appModel.session(for: account)?
+                .groups.first { $0.id == group }?.name ?? "Vault"
         }
     }
 

@@ -255,12 +255,14 @@ final class AppModelTests: XCTestCase {
 
         let groups = try XCTUnwrap(model.session(for: account)?.groups)
         XCTAssertEqual(groups.map(\.name), ["Personal", "Work"])
+        // A Proton container is keyed by its share, not its display name.
+        XCTAssertEqual(groups.map(\.id), ["S1", "S2"])
         XCTAssertEqual(groups.first { $0.name == "Work" }?.count, 2)
 
-        model.scope = .group(account, "Work")
+        model.scope = .group(account, "S2")
         XCTAssertEqual(model.items.map(\.displayTitle), ["Intranet", "Payroll"])
 
-        model.scope = .group(account, "Personal")
+        model.scope = .group(account, "S1")
         XCTAssertEqual(model.items.map(\.displayTitle), ["GitHub"])
 
         // Locking the vault empties its containers rather than leaving a stale
@@ -268,6 +270,51 @@ final class AppModelTests: XCTestCase {
         model.lock(account)
         XCTAssertTrue(model.session(for: account)?.groups.isEmpty == true)
         XCTAssertTrue(model.items.isEmpty)
+    }
+
+    /// Two Proton vaults may carry the same name. They must stay separate rows
+    /// holding separate items, which keying on the display name would break.
+    @MainActor
+    func testSameNamedProtonVaultsStaySeparateContainers() async throws {
+        let executor = FakeProtonCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"},{"shareId":"S2","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"First"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S2", "--output", "json"],
+            stdout: #"{"items":[{"id":"i2","type":"login","title":"Second"}]}"#
+        )
+
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let groups = try XCTUnwrap(model.session(for: account)?.groups)
+        XCTAssertEqual(groups.count, 2, "same-named vaults must not merge")
+        XCTAssertEqual(groups.map(\.name), ["Personal", "Personal"])
+        XCTAssertEqual(groups.map(\.id), ["S1", "S2"])
+        XCTAssertEqual(groups.map(\.count), [1, 1])
+
+        model.scope = .group(account, "S1")
+        XCTAssertEqual(model.items.map(\.displayTitle), ["First"])
+        model.scope = .group(account, "S2")
+        XCTAssertEqual(model.items.map(\.displayTitle), ["Second"])
     }
 
     /// A read-only vault is never offered as a destination for a new item.

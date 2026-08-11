@@ -19,17 +19,17 @@ enum VaultScope: Hashable, Sendable {
     }
 }
 
-/// One container inside a vault, as the sidebar lists it. Both providers
-/// already publish a non-secret grouping label per item — Proton the vault
-/// (share) name, Vaultwarden the folder name — so the hierarchy is derived
-/// from projections rather than from provider-specific plumbing.
+/// One container inside a vault, as the sidebar lists it.
 ///
-/// Two containers in one account that share a name collapse into one row.
-/// They are indistinguishable in the UI anyway, and the label is all the
-/// projection carries.
+/// `id` is the container's stable identity, which is deliberately not its
+/// display name: a Proton account can hold two vaults called the same thing,
+/// and keying on the name would merge them into one row holding both vaults'
+/// items. Proton containers are keyed by the share identifier already carried
+/// in every item's compound id; Vaultwarden folders are keyed by their label,
+/// which is the only folder identity a projection carries.
 struct VaultGroup: Identifiable, Hashable, Sendable {
     let id: String
-    var name: String { id }
+    let name: String
     let count: Int
 }
 
@@ -108,19 +108,49 @@ struct VaultSlot: Identifiable, Sendable {
     /// the open projections.
     var groups: [VaultGroup] {
         var counts: [String: Int] = [:]
+        var names: [String: String] = [:]
         for item in items {
-            for label in item.groupingLabels where !label.isEmpty {
-                counts[label, default: 0] += 1
+            for key in Self.groupKeys(of: item, kind: kind) {
+                counts[key.id, default: 0] += 1
+                names[key.id] = key.name
             }
         }
         return counts
-            .map { VaultGroup(id: $0.key, count: $0.value) }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .map { VaultGroup(id: $0.key, name: names[$0.key] ?? $0.key, count: $0.value) }
+            .sorted { lhs, rhs in
+                // Two containers can legitimately share a name; the identifier
+                // keeps that order stable rather than arbitrary.
+                let byName = lhs.name.localizedStandardCompare(rhs.name)
+                return byName == .orderedSame ? lhs.id < rhs.id : byName == .orderedAscending
+            }
     }
 
-    /// The items in one container of this vault.
+    /// The items in one container of this vault, matched on the same identity
+    /// the sidebar row carries.
     func items(inGroup group: String) -> [VaultItemProjection] {
-        items.filter { $0.groupingLabels.contains(group) }
+        items.filter { item in
+            Self.groupKeys(of: item, kind: kind).contains { $0.id == group }
+        }
+    }
+
+    /// The containers an item belongs to, as (identity, display name).
+    ///
+    /// A Proton item's container is its share, whose identifier is already part
+    /// of the item's compound id — so two vaults sharing a name stay distinct.
+    /// A Vaultwarden item's container is its folder, and the folder's name is
+    /// the only identity the projection carries.
+    private static func groupKeys(
+        of item: VaultItemProjection,
+        kind: Kind
+    ) -> [(id: String, name: String)] {
+        switch kind {
+        case .proton:
+            guard case .providerSpace(let shareID) = item.id.space.scope else { return [] }
+            let name = item.groupingLabels.first { !$0.isEmpty } ?? shareID
+            return [(shareID, name)]
+        case .vaultwarden:
+            return item.groupingLabels.filter { !$0.isEmpty }.map { ($0, $0) }
+        }
     }
 
     /// Drops every decrypted value and advances the generation so in-flight
