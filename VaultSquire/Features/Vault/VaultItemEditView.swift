@@ -11,6 +11,10 @@ struct VaultItemEditView: View {
     /// defaulted to the browser's target. An edit never uses it: the item
     /// belongs to the vault it came from.
     @State private var destination: AccountID?
+    /// Whether the password field shows its text, toggled by the eye button.
+    @State private var showsPassword = false
+    /// The shape of the next generated password, kept for the sheet's life.
+    @State private var generatorOptions = PasswordGenerator.Options()
     let onClose: () -> Void
 
     init(draft: VaultItemDraft, onClose: @escaping () -> Void) {
@@ -36,8 +40,7 @@ struct VaultItemEditView: View {
                 Section("Login") {
                     TextField("Username", text: $draft.username)
                         .accessibilityIdentifier("edit-username")
-                    SecureField("Password", text: $draft.password)
-                        .accessibilityIdentifier("edit-password")
+                    passwordRow
                     TextField("One-time code (otpauth:// or Base32)", text: $draft.totp)
                         .accessibilityIdentifier("edit-totp")
                 }
@@ -99,6 +102,52 @@ struct VaultItemEditView: View {
                 destination = appModel.createTarget?.account
                     ?? appModel.writableVaults.first?.account
             }
+        }
+    }
+
+    /// The password field with its reveal toggle and generator. Generating
+    /// reveals the result: a password the user never sees is a password they
+    /// cannot trust, and the draft stays local until it is saved.
+    private var passwordRow: some View {
+        HStack(spacing: 8) {
+            if showsPassword {
+                TextField("Password", text: $draft.password)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("edit-password")
+            } else {
+                SecureField("Password", text: $draft.password)
+                    .accessibilityIdentifier("edit-password")
+            }
+            Button {
+                showsPassword.toggle()
+            } label: {
+                Image(systemName: showsPassword ? "eye.slash" : "eye")
+            }
+            .buttonStyle(.borderless)
+            .help(showsPassword ? "Hide password" : "Show password")
+            .accessibilityIdentifier("edit-password-reveal")
+            Menu {
+                Toggle("Uppercase (A-Z)", isOn: $generatorOptions.includeUppercase)
+                Toggle("Lowercase (a-z)", isOn: $generatorOptions.includeLowercase)
+                Toggle("Digits (0-9)", isOn: $generatorOptions.includeDigits)
+                Toggle("Symbols", isOn: $generatorOptions.includeSymbols)
+                Divider()
+                Picker("Length", selection: $generatorOptions.length) {
+                    ForEach([12, 16, 20, 24, 32, 48, 64], id: \.self) { length in
+                        Text("\(length) characters").tag(length)
+                    }
+                }
+            } label: {
+                Image(systemName: "dice")
+            } primaryAction: {
+                draft.password = PasswordGenerator.generate(options: generatorOptions)
+                showsPassword = true
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Generate a password")
+            .accessibilityIdentifier("edit-password-generate")
         }
     }
 
