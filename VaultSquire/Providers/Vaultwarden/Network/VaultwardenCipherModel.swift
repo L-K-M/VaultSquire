@@ -246,6 +246,12 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
     // Wire keys are PascalCase from the API and lowerCamel from some proxies;
     // both are accepted. Persisted snapshots use the explicit lowerCamel form
     // this type encodes to, so a reload round-trips through the same keys.
+    /// The identifier keys need three spellings, not two. A `CodingKey` derived
+    /// from a Swift property spells these `organizationID` / `folderID` with a
+    /// capital D, which is neither wire form: the server sends PascalCase
+    /// `FolderId` or lowerCamel `folderId`. Accepting only the first two
+    /// silently dropped folder and organization membership on a camelCase
+    /// server — items still decrypted, but every one of them looked unfiled.
     enum CodingKeys: String, CodingKey {
         case id, type, organizationID, folderID, favorite, revisionDate
         case name, notes, login, card, identity, fields
@@ -253,6 +259,7 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         case folderIDP = "FolderId", favoriteP = "Favorite", revisionDateP = "RevisionDate"
         case nameP = "Name", notesP = "Notes", loginP = "Login", cardP = "Card", identityP = "Identity"
         case fieldsP = "Fields"
+        case organizationIDWire = "organizationId", folderIDWire = "folderId"
     }
 
     init(from decoder: Decoder) throws {
@@ -275,7 +282,9 @@ struct VaultwardenCipherModel: Sendable, Codable, Hashable {
         self.type = rawType.flatMap(ItemType.init(rawValue:)) ?? .secureNote
 
         self.organizationID = try str(.organizationID, .organizationIDP)
+            ?? c.decodeIfPresent(String.self, forKey: .organizationIDWire)
         self.folderID = try str(.folderID, .folderIDP)
+            ?? c.decodeIfPresent(String.self, forKey: .folderIDWire)
         self.favorite = try c.decodeIfPresent(Bool.self, forKey: .favorite)
             ?? c.decodeIfPresent(Bool.self, forKey: .favoriteP) ?? false
 

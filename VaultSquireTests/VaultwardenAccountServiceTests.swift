@@ -130,6 +130,34 @@ final class VaultwardenAccountServiceTests: XCTestCase {
         XCTAssertEqual(reDecoded.fields, model.fields)
     }
 
+    /// Folder and organization membership must survive every spelling the
+    /// server uses. A CodingKey derived from the Swift property spells these
+    /// with a capital D (`folderID`), which is not a wire form at all: the
+    /// server sends `FolderId` or `folderId`. Missing the lowerCamel spelling
+    /// left every item looking unfiled, so no folder ever reached the sidebar.
+    func testCipherAcceptsEveryFolderAndOrganizationSpelling() throws {
+        let pascal = try JSONDecoder().decode(
+            VaultwardenCipherModel.self,
+            from: Data(#"{"Id":"c1","Type":1,"RevisionDate":"2026-01-02T03:04:05Z","Name":"2.n|n|n","FolderId":"f1","OrganizationId":"o1"}"#.utf8)
+        )
+        XCTAssertEqual(pascal.folderID, "f1")
+        XCTAssertEqual(pascal.organizationID, "o1")
+
+        let camel = try JSONDecoder().decode(
+            VaultwardenCipherModel.self,
+            from: Data(#"{"id":"c2","type":1,"revisionDate":"2026-01-02T03:04:05Z","name":"2.n|n|n","folderId":"f2","organizationId":"o2"}"#.utf8)
+        )
+        XCTAssertEqual(camel.folderID, "f2")
+        XCTAssertEqual(camel.organizationID, "o2")
+
+        // The form the sealed cache round-trips through still decodes.
+        let reDecoded = try JSONDecoder().decode(
+            VaultwardenCipherModel.self, from: try JSONEncoder().encode(camel)
+        )
+        XCTAssertEqual(reDecoded.folderID, "f2")
+        XCTAssertEqual(reDecoded.organizationID, "o2")
+    }
+
     /// The token grant is snake_case, but the wrapped key material is PascalCase
     /// on most servers and lowerCamel on some. Both must decode so a login never
     /// silently loses the key.

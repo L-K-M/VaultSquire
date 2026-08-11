@@ -109,6 +109,12 @@ struct VaultSlot: Identifiable, Sendable {
     var groups: [VaultGroup] {
         var counts: [String: Int] = [:]
         var names: [String: String] = [:]
+        // Seed with every folder the account has, so one holding no items still
+        // appears rather than being invisible until something is filed in it.
+        for folder in (vaultwarden?.folderNames ?? [:]).values where !folder.isEmpty {
+            counts[folder] = 0
+            names[folder] = folder
+        }
         for item in items {
             for key in Self.groupKeys(of: item, kind: kind) {
                 counts[key.id, default: 0] += 1

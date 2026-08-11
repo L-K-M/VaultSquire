@@ -22,6 +22,10 @@ struct VaultwardenUnlockedVault: Sendable {
     let keyring: VaultwardenKeyring
     var snapshot: VaultwardenVaultSnapshot
     var items: [VaultItemProjection]
+    /// Folder id to decrypted folder name. Held so the sidebar can list every
+    /// folder the account has, including one holding no items, which a list
+    /// derived only from the items themselves would never show.
+    var folderNames: [String: String] = [:]
 }
 
 /// Orchestrates one Vaultwarden account across the credential store, the sealed
@@ -126,7 +130,8 @@ struct VaultwardenAccountService: Sendable {
         return VaultwardenUnlockedVault(
             keyring: keyring,
             snapshot: snapshot,
-            items: projections(keyring: keyring, snapshot: snapshot)
+            items: projections(keyring: keyring, snapshot: snapshot),
+            folderNames: decryptFolderNames(keyring: keyring, snapshot: snapshot)
         )
     }
 
@@ -145,7 +150,8 @@ struct VaultwardenAccountService: Sendable {
         return VaultwardenUnlockedVault(
             keyring: keyring,
             snapshot: snapshot,
-            items: projections(keyring: keyring, snapshot: snapshot)
+            items: projections(keyring: keyring, snapshot: snapshot),
+            folderNames: decryptFolderNames(keyring: keyring, snapshot: snapshot)
         )
     }
 
@@ -214,7 +220,7 @@ struct VaultwardenAccountService: Sendable {
         )
     }
 
-    private func decryptFolderNames(
+    func decryptFolderNames(
         keyring: VaultwardenKeyring,
         snapshot: VaultwardenVaultSnapshot
     ) -> [String: String] {

@@ -642,6 +642,11 @@ final class AppModel: ObservableObject {
                         if var vault = session.vaultwarden {
                             vault.snapshot = snapshot
                             vault.items = service.projections(keyring: vault.keyring, snapshot: snapshot)
+                            // A sync can add or rename folders, so the sidebar's
+                            // list is refreshed with the items it groups.
+                            vault.folderNames = service.decryptFolderNames(
+                                keyring: vault.keyring, snapshot: snapshot
+                            )
                             session.vaultwarden = vault
                             session.items = vault.items
                         }
