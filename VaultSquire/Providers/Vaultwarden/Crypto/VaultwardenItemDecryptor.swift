@@ -137,7 +137,7 @@ enum VaultwardenItemDecryptor {
     ) -> VaultItemDetail? {
         guard !cipher.isTrashed, !cipher.isArchived else { return nil }
         let key = decryptionKey(for: cipher, keyring: keyring)
-        func decrypt(_ value: String?) -> String? { decrypt(value, with: key) }
+        func dec(_ value: String?) -> String? { decrypt(value, with: key) }
 
         // A cipher the server marks viewPassword: false (a hide-passwords
         // collection, for example) must not reveal or copy its concealed
@@ -157,45 +157,45 @@ enum VaultwardenItemDecryptor {
 
         switch cipher.type {
         case .login:
-            add("Username", decrypt(cipher.login?.username), .plain)
-            add("Password", decrypt(cipher.login?.password), .secret)
-            add("One-time code", decrypt(cipher.login?.totp), .totpSeed)
+            add("Username", dec(cipher.login?.username), .plain)
+            add("Password", dec(cipher.login?.password), .secret)
+            add("One-time code", dec(cipher.login?.totp), .totpSeed)
             for uri in cipher.login?.uris ?? [] {
-                add("Website", decrypt(uri.uri), .uri)
+                add("Website", dec(uri.uri), .uri)
             }
         case .card:
-            add("Cardholder", decrypt(cipher.card?.cardholderName), .plain)
-            add("Brand", decrypt(cipher.card?.brand), .plain)
-            add("Number", decrypt(cipher.card?.number), .secret)
-            if let month = decrypt(cipher.card?.expMonth), let year = decrypt(cipher.card?.expYear) {
+            add("Cardholder", dec(cipher.card?.cardholderName), .plain)
+            add("Brand", dec(cipher.card?.brand), .plain)
+            add("Number", dec(cipher.card?.number), .secret)
+            if let month = dec(cipher.card?.expMonth), let year = dec(cipher.card?.expYear) {
                 add("Expires", "\(month)/\(year)", .plain)
             }
-            add("Security code", decrypt(cipher.card?.code), .secret)
+            add("Security code", dec(cipher.card?.code), .secret)
         case .identity:
-            let name = [decrypt(cipher.identity?.firstName), decrypt(cipher.identity?.lastName)]
+            let name = [dec(cipher.identity?.firstName), dec(cipher.identity?.lastName)]
                 .compactMap { $0 }.joined(separator: " ")
             add("Name", name.isEmpty ? nil : name, .plain)
-            add("Email", decrypt(cipher.identity?.email), .plain)
-            add("Phone", decrypt(cipher.identity?.phone), .plain)
+            add("Email", dec(cipher.identity?.email), .plain)
+            add("Phone", dec(cipher.identity?.phone), .plain)
         default:
             // Secure notes carry their content in Notes below; SSH keys and
             // unrecognized types present their notes and custom fields only.
             break
         }
-        add("Notes", decrypt(cipher.notes), .plain)
+        add("Notes", dec(cipher.notes), .plain)
 
         // Custom fields carry much of an imported item's real content (serial
         // numbers, license keys). Hidden fields stay concealed like passwords;
         // linked fields are references with no value of their own and are not
         // rendered.
         for field in cipher.fields where field.type != 3 {
-            let label = decrypt(field.name) ?? "Field"
-            add(label, decrypt(field.value), field.type == 1 ? .secret : .plain)
+            let label = dec(field.name) ?? "Field"
+            add(label, dec(field.value), field.type == 1 ? .secret : .plain)
         }
 
         return VaultItemDetail(
             id: itemID(for: cipher, account: account),
-            title: decrypt(cipher.name) ?? "Unnamed item",
+            title: dec(cipher.name) ?? "Unnamed item",
             category: category(for: cipher.type),
             fields: fields
         )

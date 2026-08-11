@@ -12,6 +12,7 @@ struct VaultItemDetailView: View {
     /// The URI awaiting the user's confirmation to open, shown with the
     /// effective scheme and host the system browser will actually visit.
     @State private var pendingOpen: URIOpeningDecision?
+    @State private var showOpenConfirmation = false
 
     var body: some View {
         ScrollView {
@@ -28,15 +29,19 @@ struct VaultItemDetailView: View {
         .accessibilityIdentifier("vault-item-detail")
         .confirmationDialog(
             "Open this link?",
-            presenting: $pendingOpen,
+            isPresented: $showOpenConfirmation,
             titleVisibility: .visible
-        ) { decision in
-            Button("Open \(decision.display)") {
-                NSWorkspace.shared.open(decision.url)
+        ) {
+            if let decision = pendingOpen {
+                Button("Open \(decision.display)") {
+                    NSWorkspace.shared.open(decision.url)
+                }
             }
             Button("Cancel", role: .cancel) {}
-        } message: { decision in
-            Text("VaultSquire will hand \(decision.display) to your default browser. Nothing from this vault is sent with it.")
+        } message: {
+            if let decision = pendingOpen {
+                Text("VaultSquire will hand \(decision.display) to your default browser. Nothing from this vault is sent with it.")
+            }
         }
     }
 
@@ -100,6 +105,7 @@ struct VaultItemDetailView: View {
             if let decision = URIOpeningPolicy.decision(for: field.value) {
                 Button {
                     pendingOpen = decision
+                    showOpenConfirmation = true
                 } label: {
                     Image(systemName: "arrow.up.forward.square")
                 }
