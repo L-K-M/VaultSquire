@@ -247,8 +247,10 @@ final class AppModel: ObservableObject {
 
     // MARK: - Open / lock
 
-    /// Opens a vault. Vaultwarden vaults need a password or Touch ID, so this
-    /// only starts the Proton read; the password path is `unlock(_:password:)`.
+    /// Opens a vault that can be opened without collecting anything: both CLI
+    /// providers read through a session the user already established. Vaultwarden
+    /// needs a password or Touch ID, so it is a no-op here and the UI shows the
+    /// prompt; its path is `unlock(_:password:)` or `unlockWithBiometrics()`.
     func open(_ account: AccountID) {
         guard let existing = session(for: account), !existing.isOpening, !existing.isOpen else { return }
         switch existing.kind {
@@ -317,6 +319,26 @@ final class AppModel: ObservableObject {
         unlockError = nil
         refreshBiometricAvailability()
         syncNow(account)
+        // One unlock gesture opens the app, not just this vault.
+        openCredentialFreeVaults()
+    }
+
+    /// Opens every configured vault that needs no credential of its own.
+    ///
+    /// Having authenticated to VaultSquire — by master password or by Touch ID —
+    /// the user has already given the only secret the app can ask them for, so
+    /// leaving the CLI vaults behind a second "Open Vault" press just makes them
+    /// press a button that collects nothing. Vaults already open or opening are
+    /// left alone, and a vault whose CLI is missing or signed out fails onto its
+    /// own row without disturbing the vault the user did unlock.
+    ///
+    /// This is deliberately not run on launch: a CLI vault opening with no
+    /// gesture at all would put vault contents on screen for whoever opened the
+    /// window. The unlock is the gate.
+    func openCredentialFreeVaults() {
+        for account in sessions.filter({ !$0.needsCredentialToOpen }).map(\.account) {
+            open(account)
+        }
     }
 
     private func failOpen(_ account: AccountID, generation: UInt64, message: String) {
@@ -325,13 +347,21 @@ final class AppModel: ObservableObject {
         unlockError = message
     }
 
+    /// Records a failed open on that vault's row alone. `unlockError` drives the
+    /// master-password prompt, and a Proton CLI that is signed out says nothing
+    /// about the Vaultwarden password — so a vault opened alongside another must
+    /// not be able to put its message on that prompt.
+    private func failOpenLocally(_ account: AccountID, generation: UInt64, message: String) {
+        guard isCurrent(account, generation) else { return }
+        mutate(account) { $0.state = .failed(message) }
+    }
+
     /// Opens the Proton vault read-only: a CLI refresh, its projections, and a
     /// sealed snapshot for offline read. No Proton credential is ever collected.
     private func openProton(_ account: AccountID) {
         guard let current = session(for: account) else { return }
         let generation = current.generation
         mutate(account) { $0.state = .opening }
-        unlockError = nil
 
         Task { [protonService] in
             let result = await protonService.refresh()
@@ -345,9 +375,10 @@ final class AppModel: ObservableObject {
                     $0.lastSyncedAt = refresh.snapshot.capturedAt
                     $0.syncError = nil
                 }
-                self.unlockError = nil
             case .failure(let error):
-                self.failOpen(account, generation: generation, message: Self.message(for: error))
+                self.failOpenLocally(
+                    account, generation: generation, message: Self.message(for: error)
+                )
             }
         }
     }
@@ -360,7 +391,6 @@ final class AppModel: ObservableObject {
         guard let current = session(for: account) else { return }
         let generation = current.generation
         mutate(account) { $0.state = .opening }
-        unlockError = nil
 
         Task { [onePasswordService] in
             let result = await onePasswordService.refresh()
@@ -374,9 +404,10 @@ final class AppModel: ObservableObject {
                     $0.lastSyncedAt = refresh.snapshot.capturedAt
                     $0.syncError = nil
                 }
-                self.unlockError = nil
             case .failure(let error):
-                self.failOpen(account, generation: generation, message: Self.message(for: error))
+                self.failOpenLocally(
+                    account, generation: generation, message: Self.message(for: error)
+                )
             }
         }
     }

@@ -92,6 +92,14 @@ security boundaries:
   stored, and what is stored decrypts vault content only: it cannot authenticate
   to the server. Changing the enrolled fingerprints or rotating the vault key
   invalidates it, and every failure falls back to the password prompt.
+- **One unlock opens the app.** Unlocking — by master password or by Touch ID —
+  also opens every configured vault that has no credential of its own to
+  collect, which is both CLI providers: their sessions live in the official CLI
+  or the 1Password app, so a second "Open Vault" press would collect nothing.
+  Those vaults are not opened on launch, though: the unlock is the gate, and a
+  CLI vault appearing with no gesture at all would put vault contents on screen
+  for whoever opened the window. A CLI that is missing or signed out fails onto
+  its own sidebar row and never touches the vault that was unlocked.
 - **1Password — read only, through your own CLI.** VaultSquire never asks for a
   1Password credential: the account password and Secret Key stay with
   1Password's own desktop app, which authorizes the CLI with a biometric prompt.
