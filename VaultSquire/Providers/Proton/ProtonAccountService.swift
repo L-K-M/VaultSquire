@@ -152,8 +152,12 @@ struct ProtonAccountService: Sendable {
             return .failure(.executionFailed)
         }
 
+        let usableVaults = Array(vaults.prefix(Self.maximumVaults).filter {
+            ProtonCLIRunner.isValidOpaqueIdentifier($0.shareID)
+                && $0.vaultID.map(ProtonCLIRunner.isValidOpaqueIdentifier) != false
+        })
         var items: [ProtonItem] = []
-        for vault in vaults.prefix(Self.maximumVaults) {
+        for vault in usableVaults {
             guard !Task.isCancelled else { return .failure(.executionFailed) }
             do {
                 var data = try await runner.itemListJSON(shareID: vault.shareID)
@@ -177,7 +181,7 @@ struct ProtonAccountService: Sendable {
         let snapshot = ProtonSnapshot(
             cliVersion: version.raw,
             capturedAt: now(),
-            vaults: Array(vaults.prefix(Self.maximumVaults)),
+            vaults: usableVaults,
             items: items
         )
         // A capture is published only after its complete sealed generation is

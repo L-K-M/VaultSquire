@@ -420,7 +420,7 @@ struct VaultwardenAccountService: Sendable {
         let snapshot: VaultwardenVaultSnapshot
         do {
             guard let loaded = try vaultCache.load(for: account) else {
-                return .failure(.sessionExpired)
+                return .failure(.localStorageFailed)
             }
             snapshot = loaded
         } catch {
@@ -433,7 +433,7 @@ struct VaultwardenAccountService: Sendable {
         let refreshToken: String
         do {
             guard let stored = try credentialStore.load(for: .primary) else {
-                return .failure(.sessionExpired)
+                return .failure(.localStorageFailed)
             }
             refreshToken = stored.refreshToken
         } catch {

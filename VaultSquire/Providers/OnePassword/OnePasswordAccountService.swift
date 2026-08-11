@@ -228,8 +228,11 @@ struct OnePasswordAccountService: Sendable {
             return .failure(.executionFailed)
         }
 
+        let usableVaults = Array(vaults.prefix(Self.maximumVaults).filter {
+            OnePasswordCLIRunner.isValidOpaqueIdentifier($0.vaultID)
+        })
         var items: [OnePasswordItem] = []
-        for vault in vaults.prefix(Self.maximumVaults) {
+        for vault in usableVaults {
             guard !Task.isCancelled else { return .failure(.executionFailed) }
             do {
                 var data = try await runner.itemListJSON(vaultID: vault.vaultID)
@@ -261,7 +264,7 @@ struct OnePasswordAccountService: Sendable {
             cliVersion: version.raw,
             accountIdentifier: accountUUID,
             capturedAt: now(),
-            vaults: Array(vaults.prefix(Self.maximumVaults)),
+            vaults: usableVaults,
             items: items
         )
         // Publish only a complete generation that has already been sealed and

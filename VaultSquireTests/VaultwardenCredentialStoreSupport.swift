@@ -61,7 +61,7 @@ struct FailingCredentialStore: VaultwardenCredentialStore {
     }
 
     func load(for account: VaultwardenAccountKey) throws -> VaultwardenStoredCredentials? {
-        throw VaultwardenCredentialStoreError.storeUnavailable(errSecMissingEntitlement)
+        nil
     }
 
     func replaceRefreshToken(_ token: String, for account: VaultwardenAccountKey) throws {
