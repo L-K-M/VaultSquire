@@ -551,9 +551,18 @@ token, session, credential, or user-authored value.
   personal vault.
 - VaultSquire never collects, proxies, or automates the 1Password authorization
   ceremony. A declined or unanswered prompt is a recoverable state, not an error.
-- Every account-bearing command names a resolved opaque account identifier,
-  because 1Password's own references disagree on what the default account means.
-  An identifier that fails validation is dropped rather than passed to argv.
+- Every account-bearing command names an opaque account identifier. This is not
+  a precaution: with two accounts signed in, no default resolves and an unscoped
+  command fails outright. Accounts are discovered with `op account list`, which
+  reads local configuration and needs no authorization; `op whoami` is never
+  used, because it reports status rather than starting the authorization
+  ceremony and so fails on every fresh session. An identifier that fails
+  validation is dropped rather than passed to argv.
+- Each 1Password account is its own vault, keyed by its account identifier, so
+  two signed-in accounts never merge into one list.
+- Detection enumerates accounts and stops. Authorization is established by the
+  first real read, so opening the Add Account sheet never raises a biometric
+  prompt.
 - Snapshots carry no concealed value, one-time-password seed, or note, even if a
   build's `item list` were to return field values. Secrets are fetched only when
   an item is opened and are held in memory for that session.

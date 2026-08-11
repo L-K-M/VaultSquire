@@ -448,6 +448,17 @@ final class AppModelTests: XCTestCase {
         )
     }
 
+    /// The descriptor `addOnePasswordVault` would write for the stubbed
+    /// account: keyed by the CLI's account identifier, so a second account adds
+    /// a second vault rather than replacing this one.
+    private func onePasswordDescriptor() -> AccountDescriptor {
+        AccountDescriptor(
+            account: OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1"),
+            serverDisplay: "my.1password.com",
+            email: "a@example.com"
+        )
+    }
+
     @MainActor
     private func makeOnePasswordService(executor: FakeCLIExecutor) -> OnePasswordAccountService {
         let directory = FileManager.default.temporaryDirectory
@@ -471,8 +482,8 @@ final class AppModelTests: XCTestCase {
     private func stubOnePassword(_ executor: FakeCLIExecutor) async {
         await executor.stub(arguments: ["--version"], stdout: "2.38.1\n")
         await executor.stub(
-            arguments: ["whoami", "--format", "json"],
-            stdout: #"{"account_uuid":"ACCOUNT1"}"#
+            arguments: ["account", "list", "--format", "json"],
+            stdout: #"[{"url":"my.1password.com","email":"a@example.com","account_uuid":"ACCOUNT1"}]"#
         )
         await executor.stub(
             arguments: ["vault", "list", "--format", "json", "--account", "ACCOUNT1"],
@@ -506,18 +517,16 @@ final class AppModelTests: XCTestCase {
         let executor = FakeCLIExecutor()
         await stubOnePassword(executor)
 
-        let account = OnePasswordAccountService.accountID
+        let account = OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")
         let (model, _) = makeModel(
             presence: { .present },
-            descriptors: [
-                AccountDescriptor(
-                    account: account, serverDisplay: "1Password", email: "Official 1Password CLI"
-                )
-            ],
+            descriptors: [onePasswordDescriptor()],
             onePasswordService: makeOnePasswordService(executor: executor)
         )
         model.refreshAccountPresence()
         XCTAssertEqual(model.session(for: account)?.kind, .onePassword)
+        // The sidebar names the account, not the brand, so two are distinct.
+        XCTAssertEqual(model.session(for: account)?.title, "my.1password.com")
 
         model.open(account)
         try await pollUntil { model.session(for: account)?.isOpen == true }
@@ -558,14 +567,10 @@ final class AppModelTests: XCTestCase {
         let executor = FakeCLIExecutor()
         await stubOnePassword(executor)
 
-        let account = OnePasswordAccountService.accountID
+        let account = OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")
         let (model, _) = makeModel(
             presence: { .present },
-            descriptors: [
-                AccountDescriptor(
-                    account: account, serverDisplay: "1Password", email: "Official 1Password CLI"
-                )
-            ],
+            descriptors: [onePasswordDescriptor()],
             onePasswordService: makeOnePasswordService(executor: executor)
         )
         model.refreshAccountPresence()
@@ -592,7 +597,7 @@ final class AppModelTests: XCTestCase {
         let executor = FakeCLIExecutor()
         await stubOnePassword(executor)
 
-        let onePassword = OnePasswordAccountService.accountID
+        let onePassword = OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")
         let (model, _) = makeModel(
             presence: { .present },
             descriptors: [
@@ -601,11 +606,7 @@ final class AppModelTests: XCTestCase {
                     serverDisplay: "vault.example.com",
                     email: "user@example.com"
                 ),
-                AccountDescriptor(
-                    account: onePassword,
-                    serverDisplay: "1Password",
-                    email: "Official 1Password CLI"
-                ),
+                onePasswordDescriptor(),
             ],
             onePasswordService: makeOnePasswordService(executor: executor)
         )
@@ -632,14 +633,10 @@ final class AppModelTests: XCTestCase {
         let executor = FakeCLIExecutor()
         await stubOnePassword(executor)
 
-        let account = OnePasswordAccountService.accountID
+        let account = OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")
         let (model, _) = makeModel(
             presence: { .present },
-            descriptors: [
-                AccountDescriptor(
-                    account: account, serverDisplay: "1Password", email: "Official 1Password CLI"
-                )
-            ],
+            descriptors: [onePasswordDescriptor()],
             onePasswordService: makeOnePasswordService(executor: executor)
         )
         model.refreshAccountPresence()
@@ -653,6 +650,52 @@ final class AppModelTests: XCTestCase {
 
         model.scope = .group(account, "VAULT1")
         XCTAssertEqual(model.items.count, 1)
+    }
+
+    /// Two signed-in 1Password accounts become two vaults, not one. Adding the
+    /// second must not replace the first, and their items must stay separable.
+    @MainActor
+    func testTwoOnePasswordAccountsBecomeTwoVaults() async throws {
+        let executor = FakeCLIExecutor()
+        await stubOnePassword(executor)
+
+        let (model, store) = makeModel(
+            presence: { .present },
+            onePasswordService: makeOnePasswordService(executor: executor)
+        )
+        model.addOnePasswordVault(OnePasswordAccount(
+            accountUUID: "ACCOUNT1", url: "my.1password.com", email: "a@example.com"
+        ))
+        model.addOnePasswordVault(OnePasswordAccount(
+            accountUUID: "ACCOUNT2", url: "work.1password.com", email: "b@example.com"
+        ))
+
+        let identities = store.all().map(\.account)
+        XCTAssertEqual(identities.count, 2)
+        XCTAssertTrue(identities.contains(OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")))
+        XCTAssertTrue(identities.contains(OnePasswordAccountService.vaultIdentity(for: "ACCOUNT2")))
+        XCTAssertEqual(model.sessions.count, 2)
+        XCTAssertEqual(
+            Set(model.sessions.map(\.title)), ["my.1password.com", "work.1password.com"]
+        )
+    }
+
+    /// Re-adding the same account updates its vault instead of duplicating it.
+    @MainActor
+    func testReaddingTheSameOnePasswordAccountDoesNotDuplicateTheVault() async throws {
+        let executor = FakeCLIExecutor()
+        await stubOnePassword(executor)
+        let (model, store) = makeModel(
+            presence: { .present },
+            onePasswordService: makeOnePasswordService(executor: executor)
+        )
+        let account = OnePasswordAccount(
+            accountUUID: "ACCOUNT1", url: "my.1password.com", email: "a@example.com"
+        )
+        model.addOnePasswordVault(account)
+        model.addOnePasswordVault(account)
+        XCTAssertEqual(store.all().count, 1)
+        XCTAssertEqual(model.sessions.count, 1)
     }
 
     @MainActor

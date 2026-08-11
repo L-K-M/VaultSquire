@@ -1,5 +1,21 @@
 import Foundation
 
+/// One 1Password account the CLI knows about on this device, as reported by
+/// `op account list`. That command reads local configuration and needs no
+/// authorization, which is what lets VaultSquire enumerate accounts without
+/// raising the desktop app's biometric prompt.
+///
+/// `accountUUID` is the opaque selector every later command is scoped to. The
+/// sign-in address and email are display values the user already sees in their
+/// own 1Password app; neither is ever passed to the CLI.
+struct OnePasswordAccount: Equatable, Sendable, Codable, Identifiable {
+    let accountUUID: String
+    let url: String
+    let email: String
+
+    var id: String { accountUUID }
+}
+
 /// A vault the CLI reports the account can read. `vaultID` is the opaque
 /// identifier used to scope item reads; `name` is a non-secret label.
 struct OnePasswordVault: Equatable, Sendable, Codable {
@@ -276,15 +292,28 @@ enum OnePasswordReadModel {
         )
     }
 
-    /// Extracts an opaque account identifier from `op whoami` output, when one
-    /// is present. Used to address every later command to a named account
-    /// instead of relying on the CLI's default-account rule. A payload with no
-    /// recognizable identifier yields nil and the commands stay unscoped.
-    static func decodeAccountID(_ data: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+    /// Decodes `op account list --format json` into the accounts configured on
+    /// this device. Every later command is scoped to one of these, so the CLI's
+    /// own default-account rule — whose meaning 1Password's reference pages
+    /// describe inconsistently — is never relied on.
+    ///
+    /// An entry whose account identifier fails opaque-token validation is
+    /// dropped rather than offered, because it could never be safely passed to
+    /// `--account`.
+    static func decodeAccounts(_ data: Data) throws -> [OnePasswordAccount] {
+        let objects = try objectArray(data, wrapperKeys: ["accounts", "data"])
+        return objects.compactMap { object in
+            guard let accountUUID = string(
+                object, ["account_uuid", "accountUuid", "account_id", "accountId", "id"]
+            ), OnePasswordCLIRunner.isValidOpaqueIdentifier(accountUUID) else {
+                return nil
+            }
+            return OnePasswordAccount(
+                accountUUID: accountUUID,
+                url: string(object, ["url", "sign_in_address", "shorthand"]) ?? "1Password",
+                email: string(object, ["email", "user_email"]) ?? ""
+            )
         }
-        return string(object, ["account_uuid", "accountUuid", "account_id", "accountId", "id"])
     }
 
     // MARK: - Field decoding

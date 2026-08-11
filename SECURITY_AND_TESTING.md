@@ -428,8 +428,13 @@ below have a single reviewable implementation.
 - Capture no secret into a snapshot at all — no concealed value, one-time-password
   seed, or note — even if a build's `item list` were to return field values.
   Secrets are fetched only when an item is opened.
-- Address every account-bearing command to a resolved opaque account identifier,
-  and drop an identifier that fails validation rather than placing it in argv.
+- Address every account-bearing command to an opaque account identifier, and
+  drop one that fails validation rather than placing it in argv. Discover
+  accounts with `op account list` (local, unauthenticated); never probe with
+  `op whoami`, which reports status instead of starting authorization and so
+  fails on every fresh session. Treat each account as its own vault.
+- Do not raise the vendor's biometric prompt during detection. Enumerate during
+  detection and authorize only when a vault is actually opened.
 - Keep every write disabled. No documented command unarchives or restores an
   item, so no such action may be offered.
 - Do not present 1Password support in any release until the API and SDK Terms

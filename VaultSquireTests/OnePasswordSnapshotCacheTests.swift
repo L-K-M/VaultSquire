@@ -3,7 +3,7 @@ import XCTest
 @testable import VaultSquire
 
 final class OnePasswordSnapshotCacheTests: XCTestCase {
-    private let account = OnePasswordAccountService.accountID
+    private let account = OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1")
     private let key = SymmetricKey(size: .bits256)
 
     private func makeCache() -> OnePasswordSnapshotCache {
@@ -130,7 +130,7 @@ final class OnePasswordSnapshotCacheTests: XCTestCase {
         XCTAssertFalse(text.contains("squire@example.com"))
         XCTAssertFalse(text.contains("example.com"))
         // The filename is a hash of the account identity, leaking nothing.
-        XCTAssertFalse(file.lastPathComponent.contains("onepassword-cli-primary"))
+        XCTAssertFalse(file.lastPathComponent.contains("ACCOUNT1"))
     }
 
     func testWipeRemovesTheSnapshot() throws {

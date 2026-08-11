@@ -59,11 +59,11 @@ final class OnePasswordLeakageTests: XCTestCase {
         await stubHappyPath(executor)
         let service = makeService(executor: executor)
 
-        guard case .success = await service.refresh() else {
+        guard case .success = await service.refresh(accountUUID: "ACCOUNT1") else {
             return XCTFail("expected success")
         }
         let content = await service.content(
-            itemID: "ITEM1", vaultID: "VAULT1", accountIdentifier: "ACCOUNT1"
+            itemID: "ITEM1", vaultID: "VAULT1", accountUUID: "ACCOUNT1"
         )
         XCTAssertEqual(try XCTUnwrap(content).password, "VSQ-password")
 
@@ -89,15 +89,15 @@ final class OnePasswordLeakageTests: XCTestCase {
         await stubHappyPath(executor)
         let service = makeService(executor: executor)
 
-        guard case .success = await service.refresh() else {
+        guard case .success = await service.refresh(accountUUID: "ACCOUNT1") else {
             return XCTFail("expected success")
         }
         _ = await service.content(
-            itemID: "ITEM1", vaultID: "VAULT1", accountIdentifier: "ACCOUNT1"
+            itemID: "ITEM1", vaultID: "VAULT1", accountUUID: "ACCOUNT1"
         )
 
         let fixedTokens: Set<String> = [
-            "--version", "whoami", "vault", "list", "item", "get",
+            "--version", "account", "vault", "list", "item", "get",
             "--vault", "--format", "json", "--reveal", "--account"
         ]
         let identifiers: Set<String> = ["ACCOUNT1", "VAULT1", "ITEM1"]
@@ -122,7 +122,7 @@ final class OnePasswordLeakageTests: XCTestCase {
         await stubHappyPath(executor)
         let service = makeService(executor: executor)
 
-        guard case .success(let refresh) = await service.refresh() else {
+        guard case .success(let refresh) = await service.refresh(accountUUID: "ACCOUNT1") else {
             return XCTFail("expected success")
         }
         XCTAssertEqual(refresh.projections.first?.displayTitle, "Example Service")
@@ -148,16 +148,18 @@ final class OnePasswordLeakageTests: XCTestCase {
         await stubHappyPath(executor)
         let service = makeService(executor: executor, cache: cache)
 
-        guard case .success(let refresh) = await service.refresh() else {
+        guard case .success(let refresh) = await service.refresh(accountUUID: "ACCOUNT1") else {
             return XCTFail("expected success")
         }
 
         // Opening an item must not change what rests: content is in-memory only.
         _ = await service.content(
-            itemID: "ITEM1", vaultID: "VAULT1", accountIdentifier: "ACCOUNT1"
+            itemID: "ITEM1", vaultID: "VAULT1", accountUUID: "ACCOUNT1"
         )
 
-        let reloaded = try XCTUnwrap(cache.load(for: OnePasswordAccountService.accountID))
+        let reloaded = try XCTUnwrap(
+            cache.load(for: OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1"))
+        )
         XCTAssertEqual(reloaded, refresh.snapshot)
         let decoded = String(decoding: try JSONEncoder().encode(reloaded), as: UTF8.self)
         for secret in Self.secrets {
@@ -208,8 +210,8 @@ final class OnePasswordLeakageTests: XCTestCase {
     private func stubHappyPath(_ executor: FakeCLIExecutor) async {
         await executor.stub(arguments: ["--version"], stdout: "2.38.1\n")
         await executor.stub(
-            arguments: ["whoami", "--format", "json"],
-            stdout: #"{"account_uuid":"ACCOUNT1"}"#
+            arguments: ["account", "list", "--format", "json"],
+            stdout: #"[{"url":"my.1password.com","account_uuid":"ACCOUNT1"}]"#
         )
         await executor.stub(
             arguments: ["vault", "list", "--format", "json", "--account", "ACCOUNT1"],

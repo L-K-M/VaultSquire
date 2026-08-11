@@ -23,9 +23,9 @@ struct LockedShellView: View {
                     addAccountModel = nil
                     appModel.addProtonVault()
                 },
-                onOpenOnePasswordVault: {
+                onOpenOnePasswordVault: { account in
                     addAccountModel = nil
-                    appModel.addOnePasswordVault()
+                    appModel.addOnePasswordVault(account)
                 }
             )
         }

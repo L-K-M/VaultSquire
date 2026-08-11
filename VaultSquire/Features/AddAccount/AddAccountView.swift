@@ -21,8 +21,10 @@ struct AddAccountView: View {
     /// Invoked when the user opens their Proton vault from the detection pane.
     /// The shell wires this to the read-only open flow and dismisses the sheet.
     var onOpenProtonVault: () -> Void = {}
-    /// The same, for the 1Password detection pane.
-    var onOpenOnePasswordVault: () -> Void = {}
+    /// The same, for the 1Password detection pane. It carries the account the
+    /// user chose, because a person can have several signed in at once and
+    /// each becomes its own vault.
+    var onOpenOnePasswordVault: (OnePasswordAccount) -> Void = { _ in }
 
     @StateObject private var protonConnect = ProtonConnectModel()
     @StateObject private var onePasswordConnect = OnePasswordConnectModel()
@@ -238,11 +240,6 @@ struct AddAccountView: View {
                 Spacer()
                 Button("Recheck") { onePasswordConnect.probe() }
                     .accessibilityIdentifier("add-account-onepassword-recheck")
-                if onePasswordConnect.isReady {
-                    Button("Open Vault") { onOpenOnePasswordVault() }
-                        .keyboardShortcut(.defaultAction)
-                        .accessibilityIdentifier("add-account-onepassword-open")
-                }
             }
         }
         .onAppear { onePasswordConnect.probe() }
@@ -279,11 +276,11 @@ struct AddAccountView: View {
         case .unparseableVersion:
             Text("VaultSquire couldn't read the 1Password CLI's version, so reads stay disabled.")
                 .foregroundStyle(.secondary)
-        case .notAuthorized:
-            Text("The 1Password CLI isn't authorized. Open the 1Password app, turn on \"Integrate with 1Password CLI\" in Settings › Developer, then recheck and approve the prompt.")
+        case .noAccounts:
+            Text("The 1Password CLI is installed, but no 1Password account is set up on this Mac. Add one in the 1Password app, then recheck.")
                 .foregroundStyle(.secondary)
-        case .ready(let version, let approvedPath, let resolvedRealPath):
-            VStack(alignment: .leading, spacing: 4) {
+        case .ready(let version, let accounts, let approvedPath, let resolvedRealPath):
+            VStack(alignment: .leading, spacing: 8) {
                 Label("1Password CLI \(version) is ready.", systemImage: "checkmark.seal")
                     .foregroundStyle(.green)
                 Text(approvedPath)
@@ -296,6 +293,31 @@ struct AddAccountView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
+
+                Divider()
+                Text(accounts.count == 1 ? "Account" : "Accounts")
+                    .font(.callout.weight(.medium))
+                // Each account opens as its own vault, so two signed-in
+                // accounts never merge into one list.
+                ForEach(accounts) { account in
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(account.url)
+                            if !account.email.isEmpty {
+                                Text(account.email)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button("Open") { onOpenOnePasswordVault(account) }
+                            .accessibilityIdentifier("add-account-onepassword-open")
+                    }
+                }
+                Text("1Password will ask you to authorize VaultSquire when a vault opens.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         case .error:
             Text("VaultSquire couldn't read the 1Password CLI's output, so reads stay disabled.")

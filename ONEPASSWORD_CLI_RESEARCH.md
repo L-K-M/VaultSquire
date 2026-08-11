@@ -249,9 +249,20 @@ Every documented description of app-integration scope assumes a terminal:
 per-window authorization, tty-derived session credentials, sub-shell
 inheritance. VaultSquire executes CLI processes through `Foundation.Process`
 with pipes and standard input bound to the null device — no controlling
-terminal exists. The documentation is silent on what happens then. The spike
-in §12 must establish which of the following actually occurs on a tested
-version, and the provider must fail closed on all of them until proven:
+terminal exists. The documentation is silent on what happens then.
+
+**Partially answered on 2026-08-11.** Against CLI 2.38.1 with app integration
+enabled, an account-scoped read succeeded from a fully cleared environment
+(`env -i` with only `HOME`, `LANG`, `LC_ALL`, `PATH`, and
+`OP_BIOMETRIC_UNLOCK_ENABLED`) with standard input bound to `/dev/null`, and
+raised the biometric prompt normally. So the environment allowlist and the
+null-device stdin — the two things VaultSquire controls — are not obstacles.
+What remains untested is the last step: that observation came from a shell that
+still owned a tty, so a process with *no* controlling terminal at all is still
+unproven. The spike below is narrowed to that question rather than closed.
+
+The spike must establish which of the following occurs, and the provider must
+fail closed on all of them until proven:
 
 - each invocation (or some grouping of invocations) triggers an authorization
   prompt naming VaultSquire, and succeeds;
@@ -496,9 +507,17 @@ tested CLI version before use:
   stores and where is otherwise undocumented; the provider disables or
   reviews it per tested version rather than inheriting defaults [OP-REFERENCE].
 - The global `--session` flag exists and must never be used (§4).
-- `op whoami` and `op account list` are the status-probe candidates; their
-  exact contracts, and the version-report invocation the gate parses, are
-  fixture questions for the tested build.
+- **Corrected against a live CLI 2.38.1 on 2026-08-11.** `op whoami` is a
+  *status query*: with no established session it prints
+  `[ERROR] account is not signed in` and exits 1 rather than starting the
+  authorization ceremony. It is therefore useless as a probe — a client that
+  gates on it fails on every fresh session regardless of how the machine is
+  configured. `op account list --format json` is the correct discovery call:
+  it reads local configuration, needs no authorization, raises no prompt, and
+  returns `url`, `email`, `user_uuid`, and `account_uuid` per account.
+  Authorization is established by the first *real* read; an account-scoped
+  `op vault list --format json --account ACCOUNT_UUID` raises the biometric
+  prompt and then succeeds.
 - Config resolution is documented: `--config` flag, then `OP_CONFIG_DIR`,
   then legacy `~/.op`-style paths, then `~/.config/op` [OP-CONFIG-DIRS].
   VaultSquire passes `HOME` through unchanged and never relocates the CLI's
@@ -623,6 +642,10 @@ Do not encode these assumptions in the core:
    JSON with and without `--reveal`, `item list` output, stderr on failure)
    before any output-handling code is written, so bounds and redaction are
    designed against observed behavior.
+4. **Multiple accounts.** A person may have several 1Password accounts signed
+   in at once. Confirmed on 2026-08-11: with two configured, no default
+   resolves, so an unscoped command fails. Every account-bearing command must
+   name its account, and each account is its own VaultSquire vault.
 
 ### Process Boundary
 

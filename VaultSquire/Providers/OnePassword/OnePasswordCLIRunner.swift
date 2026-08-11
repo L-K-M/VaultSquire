@@ -158,17 +158,30 @@ struct OnePasswordCLIRunner: Sendable {
         return version
     }
 
-    /// Fetches the raw JSON describing the signed-in account
-    /// (`op whoami --format json`). A non-zero exit is the documented signal
-    /// that no account is authorized, which the service maps to "not signed
-    /// in" rather than to an error.
-    func whoAmIJSON() async throws -> Data {
-        try await run(["whoami", "--format", "json"]).standardOutput
+    /// Fetches the raw JSON of the accounts configured on this device
+    /// (`op account list --format json`).
+    ///
+    /// This reads local configuration and needs no authorization, so it never
+    /// raises the desktop app's prompt. It is deliberately unscoped: it is the
+    /// call that *discovers* which accounts exist, so it cannot be addressed to
+    /// one of them.
+    ///
+    /// `op whoami` is not used for this. It is a status query that reports
+    /// "account is not signed in" rather than starting the authorization
+    /// ceremony, so probing with it fails on every fresh session no matter how
+    /// the machine is configured.
+    func accountListJSON() async throws -> Data {
+        try await run(["account", "list", "--format", "json"], scoped: false).standardOutput
     }
 
     /// Fetches the raw JSON of the vaults the account can read
-    /// (`op vault list --format json`). Parsing belongs to the read model; the
-    /// runner only guarantees safe invocation and bounded output.
+    /// (`op vault list --account ID --format json`). Parsing belongs to the
+    /// read model; the runner only guarantees safe invocation and bounded
+    /// output.
+    ///
+    /// This is also the call that triggers authorization: unlike a status
+    /// query, a real read makes the 1Password app raise its biometric prompt
+    /// when the terminal session is not already authorized.
     func vaultListJSON() async throws -> Data {
         try await run(["vault", "list", "--format", "json"]).standardOutput
     }

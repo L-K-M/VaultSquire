@@ -68,23 +68,48 @@ final class OnePasswordCLIRunnerTests: XCTestCase {
 
     func testReadCommandsCarryTheDocumentedJSONSwitch() async throws {
         let executor = FakeCLIExecutor()
-        await executor.stub(arguments: ["whoami", "--format", "json"], stdout: "{}")
+        await executor.stub(arguments: ["account", "list", "--format", "json"], stdout: "[]")
         await executor.stub(arguments: ["vault", "list", "--format", "json"], stdout: "[]")
         await executor.stub(
             arguments: ["item", "list", "--vault", "VAULT1", "--format", "json"], stdout: "[]"
         )
         let runner = makeRunner(executor: executor)
 
-        _ = try await runner.whoAmIJSON()
+        _ = try await runner.accountListJSON()
         _ = try await runner.vaultListJSON()
         _ = try await runner.itemListJSON(vaultID: "VAULT1")
 
         let recorded = await executor.recordedArguments
         XCTAssertEqual(recorded, [
-            ["whoami", "--format", "json"],
+            ["account", "list", "--format", "json"],
             ["vault", "list", "--format", "json"],
             ["item", "list", "--vault", "VAULT1", "--format", "json"]
         ])
+    }
+
+    /// `account list` is what discovers which accounts exist, so it is the one
+    /// read that must never be scoped to one of them.
+    func testAccountListIsNeverAccountScoped() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["account", "list", "--format", "json"], stdout: "[]")
+        let runner = makeRunner(executor: executor, account: "ACCOUNT1")
+
+        _ = try await runner.accountListJSON()
+        let recorded = await executor.recordedArguments
+        XCTAssertEqual(recorded.first, ["account", "list", "--format", "json"])
+    }
+
+    /// `op whoami` is a status query: it reports "not signed in" instead of
+    /// starting the authorization ceremony, so it must not exist as a probe.
+    /// A real read is what raises the prompt.
+    func testTheRunnerExposesNoWhoAmIProbe() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["vault", "list", "--format", "json"], stdout: "[]")
+        let runner = makeRunner(executor: executor)
+
+        _ = try await runner.vaultListJSON()
+        let recorded = await executor.recordedArguments
+        XCTAssertFalse(recorded.contains { $0.contains("whoami") })
     }
 
     /// Concealed fields are masked by default and the docs never state whether
@@ -116,7 +141,7 @@ final class OnePasswordCLIRunnerTests: XCTestCase {
         XCTAssertEqual(recorded.first, expected)
     }
 
-    /// `whoami`'s payload is undocumented, so a surprising value must not reach
+    /// An account identifier from CLI output must not reach argv unvetted.
     /// argv. An identifier that fails validation is dropped and the command
     /// falls back to unscoped rather than passing an unvetted string.
     func testAnUnvettedAccountIdentifierIsDroppedRatherThanPassed() async throws {
@@ -132,10 +157,12 @@ final class OnePasswordCLIRunnerTests: XCTestCase {
 
     func testNonZeroExitBecomesCommandFailed() async {
         let executor = FakeCLIExecutor()
-        await executor.stub(arguments: ["whoami", "--format", "json"], stdout: Data(), exitCode: 1)
+        await executor.stub(
+            arguments: ["account", "list", "--format", "json"], stdout: Data(), exitCode: 1
+        )
         let runner = makeRunner(executor: executor)
 
-        await XCTAssertThrowsErrorAsync(try await runner.whoAmIJSON()) { error in
+        await XCTAssertThrowsErrorAsync(try await runner.accountListJSON()) { error in
             XCTAssertEqual(error as? OnePasswordCLIRunnerError, .commandFailed(1))
         }
     }
