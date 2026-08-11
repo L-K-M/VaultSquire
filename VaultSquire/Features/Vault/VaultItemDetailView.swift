@@ -6,6 +6,10 @@ import SwiftUI
 struct VaultItemDetailView: View {
     let detail: VaultItemDetail
     @State private var revealed: Set<String> = []
+    /// A website the user asked to open, awaiting their confirmation. The
+    /// effective scheme and host are shown before VaultSquire hands off, per
+    /// SECURITY_AND_TESTING.md § "URI Opening".
+    @State private var pendingOpenDestination: SafeURI.Destination?
 
     var body: some View {
         ScrollView {
@@ -20,6 +24,26 @@ struct VaultItemDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("vault-item-detail")
+        .confirmationDialog(
+            "Open this website?",
+            isPresented: openConfirmation,
+            presenting: pendingOpenDestination
+        ) { destination in
+            Button("Open \(destination.scheme)://\(destination.host)") {
+                NSWorkspace.shared.open(destination.url)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { destination in
+            Text("VaultSquire will leave the app and open \(destination.scheme)://\(destination.host) in your default browser. Only open sites you recognize.")
+        }
+    }
+
+    /// True while a website open is awaiting confirmation.
+    private var openConfirmation: Binding<Bool> {
+        Binding(
+            get: { pendingOpenDestination != nil },
+            set: { newValue in if !newValue { pendingOpenDestination = nil } }
+        )
     }
 
     private var header: some View {
@@ -78,9 +102,18 @@ struct VaultItemDetailView: View {
 
     private func uriRow(_ field: VaultItemDetail.DetailField) -> some View {
         HStack {
-            if let url = normalizedURL(field.value) {
-                Link(field.value, destination: url)
+            if let destination = SafeURI.destination(for: field.value) {
+                Button {
+                    pendingOpenDestination = destination
+                } label: {
+                    Text(field.value).underline()
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("open-uri-\(field.label)")
             } else {
+                // Not an openable http(s) destination: a custom/file/javascript/
+                // data scheme, a URL carrying credentials, or unparseable input.
+                // Render as inert text so it can never leave the app from here.
                 Text(field.value).textSelection(.enabled)
             }
             Spacer()
@@ -149,11 +182,6 @@ struct VaultItemDetailView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(value, forType: .string)
-    }
-
-    private func normalizedURL(_ raw: String) -> URL? {
-        if let url = URL(string: raw), url.scheme != nil { return url }
-        return URL(string: "https://\(raw)")
     }
 
     private func spacedCode(_ code: String) -> String {
