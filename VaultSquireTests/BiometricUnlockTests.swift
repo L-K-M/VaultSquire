@@ -8,7 +8,9 @@ final class BiometricUnlockTests: XCTestCase {
     private let userKeyData = Data((0..<64).map { UInt8($0) })
     private let wrappedUserKey = "2.wrapped|iv|mac"
 
-    private func makeService() throws -> (VaultwardenAccountService, VaultwardenVaultCache) {
+    private func makeService(
+        alsoConfiguring extra: [AccountDescriptor] = []
+    ) throws -> (VaultwardenAccountService, VaultwardenVaultCache) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VSQ-bio-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -20,6 +22,9 @@ final class BiometricUnlockTests: XCTestCase {
         descriptors.upsert(AccountDescriptor(
             account: account, serverDisplay: "vault.example.com", email: "user@example.com"
         ))
+        for descriptor in extra {
+            descriptors.upsert(descriptor)
+        }
         let service = VaultwardenAccountService(
             account: account,
             credentialStore: InMemoryCredentialStore(),
@@ -73,13 +78,56 @@ final class BiometricUnlockTests: XCTestCase {
 
     @MainActor
     private func makeModel(
-        store: FakeBiometricVaultKeyStore
+        store: FakeBiometricVaultKeyStore,
+        protonExecutor: FakeCLIExecutor? = nil
     ) throws -> AppModel {
-        let (service, _) = try makeService()
+        // Proton is configured only when a test drives its CLI, so the vaults
+        // the other tests see stay exactly what they were.
+        let (service, _) = try makeService(
+            alsoConfiguring: protonExecutor == nil ? [] : [Self.protonDescriptor]
+        )
         return AppModel(
             queryAccountPresence: { .present },
             service: service,
+            protonService: makeProtonService(executor: protonExecutor ?? FakeCLIExecutor()),
             biometricStore: store
+        )
+    }
+
+    private static let protonDescriptor = AccountDescriptor(
+        account: ProtonAccountService.accountID,
+        serverDisplay: "Proton Pass",
+        email: "Official Proton Pass CLI"
+    )
+
+    /// A Proton service whose CLI is always "installed" and whose every command
+    /// is answered by the supplied fake, so no child process is ever spawned.
+    private func makeProtonService(executor: FakeCLIExecutor) -> ProtonAccountService {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VSQ-bio-proton-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let key = SymmetricKey(size: .bits256)
+        return ProtonAccountService(
+            locator: ProtonCLILocator(
+                candidatePaths: ["/opt/homebrew/bin/pass-cli"],
+                isExecutable: { _ in true },
+                resolveRealPath: { $0 }
+            ),
+            executor: executor,
+            versionGate: ProtonCLIVersionGate(supportedVersions: ["2.2.4"]),
+            cache: ProtonSnapshotCache(keyProvider: { key }, directory: directory)
+        )
+    }
+
+    private func stubSignedInCLI(_ executor: FakeCLIExecutor) async {
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub","content":{"username":"octocat"}}]}"#
         )
     }
 
@@ -215,6 +263,88 @@ final class BiometricUnlockTests: XCTestCase {
 
         XCTAssertNotNil(model.biometricError)
         XCTAssertFalse(store.hasKey(for: account))
+    }
+
+    // MARK: - Opening the rest of the app
+
+    /// One gesture opens the app. Touch ID releases the Vaultwarden key, and the
+    /// vaults that have no credential of their own to collect — here Proton,
+    /// read through the CLI session the user already established — come up with
+    /// it instead of waiting behind a second button press.
+    @MainActor
+    func testUnlockAlsoOpensTheVaultsThatNeedNoCredential() async throws {
+        let store = FakeBiometricVaultKeyStore()
+        try store.store(userKey: userKeyData, boundTo: wrappedUserKey, for: account)
+        let executor = FakeCLIExecutor()
+        await stubSignedInCLI(executor)
+        let model = try makeModel(store: store, protonExecutor: executor)
+        model.refreshAccountPresence()
+        XCTAssertEqual(model.sessions.count, 2)
+
+        model.unlockWithBiometrics()
+        try await pollUntil {
+            model.session(for: ProtonAccountService.accountID)?.isOpen == true
+        }
+        XCTAssertEqual(model.session(for: account)?.isOpen, true)
+        XCTAssertTrue(
+            model.allOpenItems.contains { $0.displayTitle == "GitHub" },
+            "the Proton item is in All Vaults without a second press"
+        )
+        XCTAssertNil(model.unlockError)
+    }
+
+    /// A vault opened alongside the unlocked one keeps its failure to its own
+    /// row: a signed-out Proton CLI says nothing about the master password, so
+    /// its message must never reach the password prompt.
+    @MainActor
+    func testACredentialFreeVaultsFailureStaysOnItsOwnRow() async throws {
+        let store = FakeBiometricVaultKeyStore()
+        try store.store(userKey: userKeyData, boundTo: wrappedUserKey, for: account)
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"], stdout: Data(), exitCode: 1
+        )
+        let model = try makeModel(store: store, protonExecutor: executor)
+        model.refreshAccountPresence()
+
+        model.unlockWithBiometrics()
+        try await pollUntil {
+            guard let state = model.session(for: ProtonAccountService.accountID)?.state,
+                  case .failed = state else {
+                return false
+            }
+            return true
+        }
+        XCTAssertEqual(model.session(for: account)?.isOpen, true, "the unlocked vault stays open")
+        XCTAssertNil(model.unlockError, "and the password prompt is not handed Proton's message")
+    }
+
+    /// Locking everything and unlocking again brings the whole set back, so the
+    /// convenience is not a one-shot at launch.
+    @MainActor
+    func testLockingEverythingAndUnlockingAgainReopensBoth() async throws {
+        let store = FakeBiometricVaultKeyStore()
+        try store.store(userKey: userKeyData, boundTo: wrappedUserKey, for: account)
+        let executor = FakeCLIExecutor()
+        await stubSignedInCLI(executor)
+        let model = try makeModel(store: store, protonExecutor: executor)
+        model.refreshAccountPresence()
+
+        model.unlockWithBiometrics()
+        try await pollUntil {
+            model.session(for: ProtonAccountService.accountID)?.isOpen == true
+        }
+
+        model.lock()
+        XCTAssertTrue(model.isLocked)
+        XCTAssertEqual(model.session(for: ProtonAccountService.accountID)?.isOpen, false)
+
+        model.unlockWithBiometrics()
+        try await pollUntil {
+            model.session(for: ProtonAccountService.accountID)?.isOpen == true
+        }
+        XCTAssertEqual(model.session(for: account)?.isOpen, true)
     }
 
     @MainActor

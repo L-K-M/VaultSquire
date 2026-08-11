@@ -100,6 +100,16 @@ struct VaultSlot: Identifiable, Sendable {
     /// write surface exists for them.
     var isWritable: Bool { kind == .vaultwarden }
 
+    /// Whether opening this vault needs a credential VaultSquire has to collect.
+    ///
+    /// Only Vaultwarden does: its key comes from the master password, or from
+    /// the key Touch ID releases. Both CLI providers need nothing from
+    /// VaultSquire — the official CLI holds its own session, which the user
+    /// established in their terminal or their 1Password app — so once the user
+    /// has authenticated to VaultSquire there is no second secret to ask for,
+    /// and these vaults can come up alongside the one that unlock opened.
+    var needsCredentialToOpen: Bool { kind == .vaultwarden }
+
     /// The exact capabilities this vault's items carry, which the UI gates
     /// every action on. A read-only provider never gains a write capability by
     /// sitting next to a writable one in a merged list.
