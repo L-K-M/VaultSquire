@@ -297,6 +297,52 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertNil(store.record(for: .primary)?.rememberedTwoFactorToken)
     }
 
+    /// Tapping Verify and then Back before the verification request is even
+    /// dispatched must leave the form exactly where returnToForm() put it: no
+    /// stale "Something went wrong" message, no request sent, and — the
+    /// destructive half of this bug — no credentials stored and no jump to
+    /// "Account Added" once the abandoned task is allowed to run.
+    func testBackImmediatelyAfterVerifyCancelsRatherThanCompletingOrErroring() async {
+        let store = InMemoryCredentialStore()
+        let model = makeModel(store: store)
+        StubServer.shared.on("/api/config", respond: .json(200, "{}"))
+        StubServer.shared.on(
+            "/accounts/prelogin/password",
+            respond: .json(200, "{\"Kdf\":0,\"KdfIterations\":100000}")
+        )
+        StubServer.shared.on(
+            "/connect/token",
+            respond: .json(400, "{\"TwoFactorProviders2\":{\"0\":{}}}")
+        )
+
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        await model.signIn()
+        XCTAssertEqual(model.phase, .challenged)
+        let requestCountAfterChallenge = StubServer.shared.requests.count
+
+        model.twoFactorCode = "123456"
+        // No `await` between these two calls: beginSubmitTwoFactor() only
+        // schedules its Task, so returnToForm() runs before that task's body
+        // starts, cancelling it before it reads any state.
+        model.beginSubmitTwoFactor()
+        model.returnToForm()
+
+        // Give the now-cancelled task a chance to actually run and hit its
+        // cancellation guard, so this proves the guard works rather than
+        // merely that the task never got scheduled.
+        for _ in 0..<5 { await Task.yield() }
+
+        XCTAssertEqual(model.phase, .editing, "Back must win, not the abandoned verify")
+        XCTAssertNil(model.failureMessage, "no stale error from the cancelled task")
+        XCTAssertEqual(
+            StubServer.shared.requests.count, requestCountAfterChallenge,
+            "a cancelled submit must never reach the network"
+        )
+        XCTAssertNil(store.record(for: .primary), "a cancelled submit must never persist credentials")
+    }
+
     func testUnsupportedOnlyChallengeIsFlagged() async {
         let store = InMemoryCredentialStore()
         let model = makeModel(store: store)
