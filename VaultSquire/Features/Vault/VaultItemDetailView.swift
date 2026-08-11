@@ -23,14 +23,27 @@ struct VaultItemDetailView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(detail.title)
-                .font(.largeTitle.weight(.semibold))
-                .textSelection(.enabled)
-            Text(categoryLabel)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .center, spacing: 14) {
+            ItemIconView(identity: iconIdentity, category: detail.category, size: 46)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(detail.title)
+                    .font(.largeTitle.weight(.semibold))
+                    .textSelection(.enabled)
+                Text(categoryLabel)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    /// The detail carries its websites as `.uri` fields rather than a list, so
+    /// the identity is built from those — the same host the row upstream
+    /// resolved, and therefore the same icon and colour.
+    private var iconIdentity: ItemIconIdentity {
+        ItemIconIdentity(
+            title: detail.title,
+            websites: detail.fields.filter { $0.kind == .uri }.map(\.value)
+        )
     }
 
     @ViewBuilder

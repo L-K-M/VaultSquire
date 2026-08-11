@@ -14,6 +14,7 @@ struct VaultBrowserView: View {
     var onAddAccount: () -> Void = {}
 
     @EnvironmentObject private var appModel: AppModel
+    @EnvironmentObject private var siteIcons: SiteIconStore
     @State private var selection: VaultItemID?
     @State private var query = ""
     @State private var editSession: EditSession?
@@ -261,10 +262,7 @@ struct VaultBrowserView: View {
 
     private func itemRow(_ item: VaultItemProjection) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: Self.icon(for: item.category))
-                .foregroundStyle(.secondary)
-                .frame(width: 22)
-                .accessibilityHidden(true)
+            ItemIconView(identity: item.iconIdentity, category: item.category)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayTitle)
                     .fontWeight(.medium)
@@ -495,6 +493,9 @@ struct VaultBrowserView: View {
 
             Button {
                 appModel.lock()
+                // The icons on screen name the sites in the vault, so locking
+                // everything takes them down with the items.
+                siteIcons.clear()
             } label: {
                 Label("Lock All", systemImage: "lock")
             }
@@ -508,15 +509,5 @@ struct VaultBrowserView: View {
         let haystacks = [item.displayTitle, item.displaySubtitle ?? item.username ?? ""]
             + item.websites + item.groupingLabels
         return haystacks.contains { $0.localizedCaseInsensitiveContains(query) }
-    }
-
-    private static func icon(for category: VaultItemCategory) -> String {
-        switch category {
-        case .login: return "person.crop.circle"
-        case .secureNote: return "note.text"
-        case .card: return "creditcard"
-        case .identity: return "person.text.rectangle"
-        case .unsupported: return "questionmark.square.dashed"
-        }
     }
 }
