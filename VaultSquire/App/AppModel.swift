@@ -1,6 +1,22 @@
 import Combine
 import Foundation
 
+/// What a requested copy actually did. The browser's context menu can ignore
+/// this — the window it was invoked from is still on screen if nothing
+/// happens. Quick Search cannot: it dismisses and hands focus to another
+/// application, and the user's next keystroke is Command-V.
+enum SecretCopyOutcome: Hashable, Sendable {
+    case copied
+    /// The item has no such field: a login stored without a password.
+    case noSuchValue
+    /// The vault is closed, or its provider does not permit copying secrets.
+    case notPermitted
+    /// The provider was asked and produced nothing before its own timeout.
+    case fetchFailed
+    /// The user gave up before the value arrived.
+    case cancelled
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     /// Whether any account credentials exist on this installation. `unknown`
@@ -70,7 +86,14 @@ final class AppModel: ObservableObject {
     /// value. The fetch is started and the copy completes when it lands, so the
     /// gesture behaves the same whether the provider decrypts locally or shells
     /// out for every item.
-    private var pendingCopies: [VaultItemID: CopyableSecret] = [:]
+    /// A copy asked for before the provider had fetched the value: what to
+    /// copy, and who is waiting to be told how it ended.
+    private struct PendingCopy {
+        var kind: CopyableSecret
+        var observers: [@MainActor (SecretCopyOutcome) -> Void] = []
+    }
+
+    private var pendingCopies: [VaultItemID: PendingCopy] = [:]
     /// Bumped whenever fetched secrets are discarded. The detail pane keys its
     /// hydration on this as well as on the selection, so a sync that drops the
     /// secrets of the item currently open re-reads them instead of leaving the
@@ -609,7 +632,7 @@ final class AppModel: ObservableObject {
         protonContent = [:]
         onePasswordContent = [:]
         hydratingItems = []
-        pendingCopies = [:]
+        resolvePendingCopies(.notPermitted, where: { _ in true })
         unlockError = nil
         refreshBiometricAvailability()
         clipboard.clearIfOwned()
@@ -634,7 +657,10 @@ final class AppModel: ObservableObject {
         onePasswordContent = onePasswordContent.filter { $0.key.account != account }
         // A copy still waiting on a fetch must not land after the vault it came
         // from has been closed.
-        pendingCopies = pendingCopies.filter { $0.key.account != account }
+        // A copy still waiting on a fetch must not land after the vault it came
+        // from has been closed — and whoever is waiting on it has to be told,
+        // or a panel holding the wait never comes down.
+        resolvePendingCopies(.notPermitted, where: { $0.account == account })
     }
 
     // MARK: - Touch ID
@@ -808,7 +834,17 @@ final class AppModel: ObservableObject {
                 let content = await self.protonService.content(shareID: shareID, itemID: itemID.rawValue)
                 self.hydratingItems.remove(itemID)
                 // Never publish a secret into a vault the user locked meanwhile.
-                guard self.isCurrent(itemID.account, generation), let content else { return }
+                guard self.isCurrent(itemID.account, generation) else {
+                    self.resolvePendingCopy(itemID, .notPermitted)
+                    return
+                }
+                guard let content else {
+                    // The CLI failed or hit its timeout. A copy waiting on this
+                    // fetch has to be told, or its caller waits for a value
+                    // that is never coming.
+                    self.resolvePendingCopy(itemID, .fetchFailed)
+                    return
+                }
                 self.protonContent[itemID] = content
                 self.completePendingCopy(itemID)
             }
@@ -828,7 +864,18 @@ final class AppModel: ObservableObject {
                     accountUUID: accountUUID
                 )
                 self.hydratingItems.remove(itemID)
-                guard self.isCurrent(itemID.account, generation), let content else { return }
+                // Never publish a secret into a vault the user locked meanwhile.
+                guard self.isCurrent(itemID.account, generation) else {
+                    self.resolvePendingCopy(itemID, .notPermitted)
+                    return
+                }
+                guard let content else {
+                    // The CLI failed or hit its timeout. A copy waiting on this
+                    // fetch has to be told, or its caller waits for a value
+                    // that is never coming.
+                    self.resolvePendingCopy(itemID, .fetchFailed)
+                    return
+                }
                 self.onePasswordContent[itemID] = content
                 self.completePendingCopy(itemID)
             }
@@ -866,13 +913,15 @@ final class AppModel: ObservableObject {
 
     /// The username shown on the row, which is never a secret and is always
     /// present without a fetch.
-    func copyUsername(_ itemID: VaultItemID) {
+    @discardableResult
+    func copyUsername(_ itemID: VaultItemID) -> Bool {
         guard let owner = session(for: itemID.account), owner.isOpen,
               let username = owner.items.first(where: { $0.id == itemID })?.username,
               !username.isEmpty else {
-            return
+            return false
         }
         clipboard.copyPlain(username)
+        return true
     }
 
     /// Copies a secret straight from a row, so the most common thing anyone
@@ -892,8 +941,82 @@ final class AppModel: ObservableObject {
         // A Vaultwarden item's secrets are already decrypted, so a missing
         // value means the item has none — there is nothing to wait for.
         guard session(for: itemID.account)?.kind != .vaultwarden else { return }
-        pendingCopies[itemID] = kind
+        pendingCopies[itemID] = PendingCopy(kind: kind)
         hydrateIfNeeded(itemID)
+    }
+
+    /// Copies a secret and reports what happened, waiting out a CLI provider's
+    /// fetch first when the value is not in memory yet.
+    ///
+    /// The fire-and-forget `copySecret(_:of:)` stays as it is for the browser's
+    /// context menu. This variant exists for Quick Search, which must not take
+    /// itself down and hand focus to another application until the clipboard
+    /// really holds the value — there is no window left afterwards to explain a
+    /// copy that quietly did nothing, and a value that lands twenty seconds
+    /// late would overwrite whatever the user copied in the meantime.
+    func copySecretAwaitingFetch(
+        _ kind: CopyableSecret,
+        of itemID: VaultItemID
+    ) async -> SecretCopyOutcome {
+        guard canCopySecret(itemID) else { return .notPermitted }
+        if let value = secretValue(kind, of: itemID) {
+            clipboard.copySecret(value)
+            return .copied
+        }
+        // A Vaultwarden item is decrypted already, so a missing value means the
+        // item has no such field. There is nothing to wait for.
+        guard session(for: itemID.account)?.kind != .vaultwarden else { return .noSuchValue }
+
+        return await withCheckedContinuation { continuation in
+            var pending = pendingCopies[itemID] ?? PendingCopy(kind: kind)
+            // A second request for the same item replaces the kind: the value
+            // asked for most recently is the one the user wants.
+            pending.kind = kind
+            pending.observers.append { continuation.resume(returning: $0) }
+            pendingCopies[itemID] = pending
+
+            hydrateIfNeeded(itemID)
+            // `hydrateIfNeeded` is a no-op when the content is already here,
+            // when the provider identifier cannot be parsed, or when the vault
+            // closed between these two lines. Nothing would ever complete the
+            // copy in those cases, so resolve it now rather than leave the
+            // panel waiting on a fetch that is not running.
+            if !hydratingItems.contains(itemID) {
+                resolvePendingCopy(itemID, .noSuchValue)
+            }
+        }
+    }
+
+    /// Abandons a copy the user escaped out of, so a value that arrives
+    /// afterwards cannot overwrite whatever they have copied since.
+    func cancelPendingCopy(of itemID: VaultItemID) {
+        resolvePendingCopy(itemID, .cancelled)
+    }
+
+    /// Tells whoever is waiting on a copy how it ended and forgets it. Every
+    /// path that drops a pending copy goes through here, so an awaiting caller
+    /// can never be left on a fetch that will not answer.
+    @discardableResult
+    private func resolvePendingCopy(
+        _ itemID: VaultItemID,
+        _ outcome: SecretCopyOutcome
+    ) -> Bool {
+        guard let pending = pendingCopies.removeValue(forKey: itemID) else { return false }
+        for observer in pending.observers {
+            observer(outcome)
+        }
+        return true
+    }
+
+    /// The keys are snapshotted: `resolvePendingCopy` mutates the dictionary
+    /// the lazy `keys` view is reading.
+    private func resolvePendingCopies(
+        _ outcome: SecretCopyOutcome,
+        where predicate: (VaultItemID) -> Bool
+    ) {
+        for itemID in Array(pendingCopies.keys) where predicate(itemID) {
+            resolvePendingCopy(itemID, outcome)
+        }
     }
 
     /// The value a copy would put on the clipboard, or nil when it is not
@@ -914,13 +1037,22 @@ final class AppModel: ObservableObject {
     /// Completes a copy that was waiting on a provider fetch. Nothing is copied
     /// when the fetch produced no such field, so a request for a password an
     /// item does not have leaves the clipboard alone.
+    /// Completes a copy that was waiting on a provider fetch, and tells the
+    /// caller either way. Nothing is copied when the fetch produced no such
+    /// field, so a request for a password an item does not have leaves the
+    /// clipboard alone — but the waiter still learns that, instead of hanging.
     private func completePendingCopy(_ itemID: VaultItemID) {
-        guard let kind = pendingCopies.removeValue(forKey: itemID),
-              canCopySecret(itemID),
-              let value = secretValue(kind, of: itemID) else {
+        guard let pending = pendingCopies[itemID] else { return }
+        guard canCopySecret(itemID) else {
+            resolvePendingCopy(itemID, .notPermitted)
+            return
+        }
+        guard let value = secretValue(pending.kind, of: itemID) else {
+            resolvePendingCopy(itemID, .noSuchValue)
             return
         }
         clipboard.copySecret(value)
+        resolvePendingCopy(itemID, .copied)
     }
 
     // MARK: - Writes
@@ -1275,6 +1407,7 @@ extension AppModel: QuickSearchDataSource {
     /// Quick Search always spans every open vault, whatever the browser is
     /// scoped to; a locked vault contributes nothing.
     var quickSearchItems: [VaultItemProjection] { allOpenItems }
+
     var quickSearchIsUnlocked: Bool { isUnlocked }
 
     /// One title per configured vault, so a merged result names its source.
@@ -1288,6 +1421,28 @@ extension AppModel: QuickSearchDataSource {
 
     func openFromQuickSearch(_ id: VaultItemID) {
         quickSearchSelection = id
+    }
+
+    func copyFromQuickSearch(
+        _ value: QuickSearchCopy,
+        of id: VaultItemID
+    ) async -> SecretCopyOutcome {
+        switch value {
+        case .password:
+            return await copySecretAwaitingFetch(.password, of: id)
+        case .oneTimeCode:
+            return await copySecretAwaitingFetch(.oneTimeCode, of: id)
+        case .username:
+            // Deliberately not through `copySecret`: a username is not a secret,
+            // it is already legible on the panel row, and expiring it thirty
+            // seconds later would destroy a value the user still wants for no
+            // security gain.
+            return copyUsername(id) ? .copied : .noSuchValue
+        }
+    }
+
+    func cancelQuickSearchCopy(of id: VaultItemID) {
+        cancelPendingCopy(of: id)
     }
 
     func clearQuickSearchSelection() {

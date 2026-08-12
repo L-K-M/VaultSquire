@@ -18,8 +18,10 @@ struct QuickSearchView: View {
             Divider()
 
             content
+
+            footer
         }
-        .frame(width: 620, height: 330)
+        .frame(width: 620, height: 366)
         .background(.regularMaterial)
         .onAppear(perform: focusSearchField)
         .onChange(of: model.presentationID) { _, _ in
@@ -44,7 +46,10 @@ struct QuickSearchView: View {
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .focused($searchFocused)
-                .onSubmit(openSelection)
+                // A safety net only: the key monitor swallows plain Return
+                // first, and `perform` ignores a second call while one is
+                // running, so the two cannot both fire.
+                .onSubmit(performPrimary)
                 .accessibilityIdentifier("quick-search-field")
 
             if model.isUnlocked, !model.results.isEmpty {
@@ -146,10 +151,16 @@ struct QuickSearchView: View {
                     .foregroundStyle(isSelected ? selectedForeground : Color.secondary)
             }
             if isSelected {
-                Image(systemName: "return")
-                    .font(.caption)
-                    .foregroundStyle(selectedForeground.opacity(0.8))
-                    .accessibilityHidden(true)
+                // The primary action is not the same for every item, so the row
+                // has to say which one Return will run.
+                let action = QuickSearchPanelModel.primaryAction(for: item)
+                HStack(spacing: 4) {
+                    Text(action.title)
+                    Image(systemName: "return")
+                }
+                .font(.caption)
+                .foregroundStyle(selectedForeground.opacity(0.8))
+                .accessibilityLabel("Return: \(action.title)")
             }
         }
         .foregroundStyle(isSelected ? selectedForeground : Color.primary)
@@ -190,15 +201,59 @@ struct QuickSearchView: View {
         .accessibilityHidden(true)
     }
 
-    private func openSelection() {
-        guard model.isUnlocked, model.selection != nil else { return }
-        model.openSelection()
-        onDismiss()
+    private func performPrimary() {
+        model.perform(.primary)
     }
 
     private func open(_ id: VaultItemID) {
-        model.open(id)
-        onDismiss()
+        model.select(id)
+        model.perform(.primary)
+    }
+
+    /// Says what Return will do, and reports a copy that could not happen.
+    /// Never shows a value — only these fixed labels.
+    @ViewBuilder
+    private var footer: some View {
+        Divider()
+        HStack(spacing: 14) {
+            switch model.actionState {
+            case .fetching(_, let value):
+                ProgressView().controlSize(.small)
+                Text("Fetching \(value.name.lowercased())…")
+            case .failed(let value, let outcome):
+                Image(systemName: "exclamationmark.triangle")
+                Text(Self.message(for: value, outcome))
+            case .idle:
+                hint("⇧↩", "Username")
+                hint("⌥↩", "One-time code")
+                hint("⌘↩", "Show in VaultSquire")
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 22)
+        .frame(height: 30)
+        .accessibilityIdentifier("quick-search-footer")
+    }
+
+    private func hint(_ keys: String, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(keys).font(.caption.monospaced())
+            Text(label)
+        }
+    }
+
+    private static func message(
+        for value: QuickSearchCopy,
+        _ outcome: SecretCopyOutcome
+    ) -> String {
+        switch outcome {
+        case .noSuchValue: return "This item has no \(value.name.lowercased())."
+        case .notPermitted: return "That vault is no longer open."
+        case .fetchFailed: return "\(value.name) could not be read from the provider."
+        case .copied, .cancelled: return ""
+        }
     }
 
     /// Claims keyboard focus for the search field.
