@@ -185,6 +185,20 @@ final class AppModel: ObservableObject {
     /// which is the only time the answer can differ.
     @Published private(set) var items: [VaultItemProjection] = []
 
+    /// Every open vault's items, for Quick Search — it always searches
+    /// everything that is open, regardless of the browser's scope.
+    /// Sorted by title, not left in vault-by-vault blocks. Quick Search ranks
+    /// these and breaks ties by the order it was given them, so an unsorted
+    /// merge would make two equally good matches from different vaults arrive
+    /// grouped by provider rather than alphabetically.
+    ///
+    /// Cached for the same reason `items` is: the sidebar's open summary reads
+    /// this on every body pass, so as a computed property it re-sorted the
+    /// entire open corpus — a localized comparison per element — on every
+    /// keystroke in the search field and every model publish. Rebuilt beside
+    /// `items` in `rebuildItems`, which is the only time the answer can differ.
+    @Published private(set) var allOpenItems: [VaultItemProjection] = []
+
     private func rebuildItems() {
         let scoped: [VaultItemProjection]
         if case .group(_, let group) = scope {
@@ -195,18 +209,12 @@ final class AppModel: ObservableObject {
         items = scoped.sorted { lhs, rhs in
             lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
         }
-    }
-
-    /// Every open vault's items, for Quick Search — it always searches
-    /// everything that is open, regardless of the browser's scope.
-    /// Sorted by title, not left in vault-by-vault blocks. Quick Search ranks
-    /// these and breaks ties by the order it was given them, so an unsorted
-    /// merge would make two equally good matches from different vaults arrive
-    /// grouped by provider rather than alphabetically.
-    var allOpenItems: [VaultItemProjection] {
-        sessions.filter(\.isOpen).flatMap(\.items).sorted { lhs, rhs in
-            lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
-        }
+        allOpenItems = sessions
+            .filter(\.isOpen)
+            .flatMap(\.items)
+            .sorted { lhs, rhs in
+                lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            }
     }
 
     /// The sync timestamp shown for the current scope: the oldest across the
@@ -786,6 +794,29 @@ final class AppModel: ObservableObject {
 
     // MARK: - Item detail
 
+    /// The last Vaultwarden item whose detail and draft were decrypted, with
+    /// the snapshot generation they were decrypted from.
+    ///
+    /// The detail pane reads `detail(for:)` from its body and the toolbar
+    /// reads `draft(for:)` through `canEdit` on every redraw — each call runs
+    /// an AES-CBC decrypt plus HMAC verify per field and a linear cipher scan.
+    /// Memoizing the selected item's answers turns both redraw reads into a
+    /// dictionary-sized comparison. The key includes the snapshot generation,
+    /// so a sync that re-seals the snapshot invalidates the memo the moment
+    /// its content can have changed; a lock drops it with the session.
+    ///
+    /// One item's plaintext is retained this way for the life of the session,
+    /// which matches how the app already treats fetched CLI content: in
+    /// memory, session-scoped, never persisted.
+    private struct DecryptedItemMemo {
+        let itemID: VaultItemID
+        let snapshotGeneration: UInt64
+        let detail: VaultItemDetail?
+        let draft: VaultItemDraft?
+    }
+
+    private var decryptedItemMemo: DecryptedItemMemo?
+
     /// The decrypted detail for an item, routed to the vault that owns it.
     /// Returns nil when that vault is closed, so a locked vault's items can
     /// never be read out of a stale list.
@@ -804,7 +835,25 @@ final class AppModel: ObservableObject {
             )
         case .vaultwarden:
             guard let vault = owner.vaultwarden else { return nil }
-            return service.detail(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+            if let memo = decryptedItemMemo,
+               memo.itemID == itemID,
+               memo.snapshotGeneration == vault.snapshot.generation {
+                return memo.detail
+            }
+            guard let detail = service.detail(
+                for: itemID, keyring: vault.keyring, snapshot: vault.snapshot
+            ) else {
+                return nil
+            }
+            // Computed together so the next body pass (detail pane and toolbar
+            // alike) pays no decrypt at all for this item.
+            decryptedItemMemo = DecryptedItemMemo(
+                itemID: itemID,
+                snapshotGeneration: vault.snapshot.generation,
+                detail: detail,
+                draft: service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+            )
+            return detail
         }
     }
 
@@ -1093,7 +1142,26 @@ final class AppModel: ObservableObject {
               let vault = owner.vaultwarden else {
             return nil
         }
-        return service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+        if let memo = decryptedItemMemo,
+           memo.itemID == itemID,
+           memo.snapshotGeneration == vault.snapshot.generation {
+            return memo.draft
+        }
+        let draft = service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+        if let draft {
+            // Both answers memoized together, so a later `detail(for:)` for
+            // the same item and snapshot pays no decrypt either. `draft`
+            // succeeded, so the cipher is live; its detail resolves under the
+            // same guard (an undecryptable field never aborts the detail —
+            // individual fields fail independently).
+            decryptedItemMemo = DecryptedItemMemo(
+                itemID: itemID,
+                snapshotGeneration: vault.snapshot.generation,
+                detail: service.detail(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot),
+                draft: draft
+            )
+        }
+        return draft
     }
 
     /// Whether a given item can be edited. Builds the draft, so it decrypts.
@@ -1279,13 +1347,34 @@ final class AppModel: ObservableObject {
 
     /// The one funnel every session change goes through, which is also where
     /// the two derived collections are refreshed: the vault's container list
-    /// and the scoped item list. Rebuilding them here costs one pass per
-    /// mutation instead of several passes per redraw.
+    /// and the scoped item list.
+    ///
+    /// Rebuilding costs a pass over the vault plus a localized sort each, so
+    /// the rebuilds are gated on the values they actually derive from: groups
+    /// on the item set and the folder names, the item lists on the item set
+    /// and the open state. A mutation that only toggles `isSyncing` or clears
+    /// a `syncError` now costs a few equality comparisons instead of two
+    /// full passes — which matters when every mutation republishes and the
+    /// whole window redraws once per change.
     private func mutate(_ account: AccountID, _ body: (inout VaultSlot) -> Void) {
         guard let index = sessions.firstIndex(where: { $0.account == account }) else { return }
+        let before = sessions[index]
         body(&sessions[index])
-        sessions[index].refreshGroups()
-        rebuildItems()
+        let after = sessions[index]
+        if before.isOpen && !after.isOpen,
+           decryptedItemMemo?.itemID.account == account {
+            // The memo's plaintext belongs to the session that just ended.
+            // Done here rather than in the lock callers so every close path —
+            // including a future one — drops it.
+            decryptedItemMemo = nil
+        }
+        let itemsChanged = before.items != after.items
+        if itemsChanged || before.vaultwarden?.folderNames != after.vaultwarden?.folderNames {
+            sessions[index].refreshGroups()
+        }
+        if itemsChanged || before.isOpen != after.isOpen {
+            rebuildItems()
+        }
     }
 
     /// Whether a vault is still on the generation an async task started under.
