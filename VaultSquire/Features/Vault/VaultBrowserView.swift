@@ -31,9 +31,12 @@ struct VaultBrowserView: View {
     }
 
     private var filteredItems: [VaultItemProjection] {
+        // `appModel.items` sorts on every access, so bind it once per
+        // evaluation rather than paying for a second sort in the filter path.
+        let items = appModel.items
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return appModel.items }
-        return appModel.items.filter { Self.matches($0, query: trimmed) }
+        guard !trimmed.isEmpty else { return items }
+        return items.filter { Self.matches($0, query: trimmed) }
     }
 
     var body: some View {
@@ -52,16 +55,35 @@ struct VaultBrowserView: View {
         }
         .onChange(of: appModel.quickSearchSelection) { _, newValue in
             guard let newValue else { return }
-            // Quick Search spans every open vault, so jump the browser to the
-            // scope that actually contains the chosen item.
-            if case .vault(let account) = appModel.scope, account != newValue.account {
-                appModel.scope = .allVaults
+            // Quick Search spans every open vault, so jump the browser to a
+            // scope that actually contains the chosen item: a group or
+            // single-vault scope that excludes it would swallow the selection.
+            // The owning vault's scope is preferred over All Vaults so the
+            // user's context narrows rather than resets.
+            if !scopeContains(newValue) {
+                appModel.scope = .vault(newValue.account)
             }
             selection = newValue
             appModel.clearQuickSearchSelection()
         }
         .onChange(of: appModel.scope) { _, _ in
-            selection = nil
+            // A new scope is a fresh list, so the filter typed for the old one
+            // does not carry into it — the same thing Finder and Mail do when
+            // the sidebar selection changes.
+            query = ""
+            // Clear the selection only when it is not visible in the new
+            // scope. This handler also fires for the Quick Search jump above,
+            // where clearing would undo the navigation it just performed.
+            if let selection, !scopeContains(selection) {
+                self.selection = nil
+            }
+        }
+        .onChange(of: query) { _, _ in
+            // A narrower filter can hide the selected row; drop the selection
+            // so the detail pane never disagrees with the visible list.
+            if let selection, !filteredItems.contains(where: { $0.id == selection }) {
+                self.selection = nil
+            }
         }
         .task {
             // Offer Touch ID as soon as the browser appears when it is set up,
@@ -269,14 +291,45 @@ struct VaultBrowserView: View {
         }
     }
 
+    @ViewBuilder
     private var itemList: some View {
-        List(filteredItems, selection: $selection) { item in
-            itemRow(item)
-                .tag(item.id)
+        let items = filteredItems
+        Group {
+            if items.isEmpty {
+                emptyItemList
+            } else {
+                List(items, selection: $selection) { item in
+                    itemRow(item)
+                        .tag(item.id)
+                }
+            }
         }
         .searchable(text: $query, prompt: searchPrompt)
         .navigationTitle(scopeTitle)
+        // On the Group rather than the List, so the identifier is present in
+        // both states and a test for it does not fail on an empty vault.
         .accessibilityIdentifier("vault-item-list")
+    }
+
+    /// The empty state for the item list: "no matches" when a filter excludes
+    /// everything, and "no items" when the scope itself is empty. A blank list
+    /// said neither.
+    @ViewBuilder
+    private var emptyItemList: some View {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        ContentUnavailableView {
+            Label(
+                trimmed.isEmpty ? "No items" : "No matches",
+                systemImage: trimmed.isEmpty ? "tray" : "magnifyingglass"
+            )
+        } description: {
+            if trimmed.isEmpty {
+                Text("This scope has no items to show.")
+            } else {
+                Text("No items match “\(trimmed)”.")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var scopeTitle: String {
@@ -295,6 +348,41 @@ struct VaultBrowserView: View {
 
     private var searchPrompt: String {
         appModel.scope == .allVaults ? "Search every open vault" : "Search this vault"
+    }
+
+    /// Whether the current scope's item list contains the item. Group scopes
+    /// consult the owning vault's group contents; the other scopes follow the
+    /// scope's account.
+    private func scopeContains(_ itemID: VaultItemID) -> Bool {
+        Self.scope(appModel.scope, shows: itemID) { account, group in
+            appModel.session(for: account)?
+                .items(inGroup: group)
+                .contains(where: { $0.id == itemID }) ?? false
+        }
+    }
+
+    /// The pure rule behind `scopeContains`, extracted so it can be tested
+    /// without standing up a view and an environment.
+    ///
+    /// A group scope is not satisfied merely by belonging to the same vault:
+    /// an item in another folder of that same vault is not in this list, and
+    /// treating it as visible leaves a selection the user cannot see.
+    /// `groupContainsItem` is consulted only for a group scope, so the
+    /// non-group cases stay a comparison.
+    static func scope(
+        _ scope: VaultScope,
+        shows itemID: VaultItemID,
+        groupContainsItem: (AccountID, String) -> Bool
+    ) -> Bool {
+        switch scope {
+        case .allVaults:
+            return true
+        case .vault(let account):
+            return account == itemID.account
+        case .group(let account, let group):
+            guard account == itemID.account else { return false }
+            return groupContainsItem(account, group)
+        }
     }
 
     private func itemRow(_ item: VaultItemProjection) -> some View {
@@ -480,12 +568,16 @@ struct VaultBrowserView: View {
                     // The toolbar draws a fixed-size background behind this
                     // item; without fixedSize the label is compressed and its
                     // text clips against the edges of that bubble. The
-                    // abbreviated form ("2 min ago") also keeps it short.
-                    Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help("Last synced \(date.formatted(.relative(presentation: .named)))")
+                    // abbreviated form ("2 min ago") also keeps it short. The
+                    // timeline re-evaluates the relative wording, so it cannot
+                    // sit at "2 min ago" for the rest of the session.
+                    TimelineView(.periodic(from: .now, by: 30)) { _ in
+                        Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .help("Last synced \(date.formatted(.relative(presentation: .named)))")
+                    }
                 }
             }
             // The toolbar draws a capsule that hugs this content. Without the

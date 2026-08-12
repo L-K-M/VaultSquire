@@ -769,4 +769,61 @@ final class AppModelTests: XCTestCase {
         }
         XCTFail("condition did not hold within the timeout", file: file, line: line)
     }
+
+    // MARK: - Browser scope hand-off
+
+    private static func itemID(vault: String, provider: ProviderID = .vaultwarden) -> VaultItemID {
+        VaultItemID(
+            space: VaultSpaceID(
+                account: AccountID(provider: provider, rawValue: vault), scope: .personal
+            ),
+            rawValue: "item"
+        )
+    }
+
+    /// A Quick Search hand-off lands on an item from any open vault, so the
+    /// browser has to recognise when its current scope cannot show that item —
+    /// otherwise the jump selects something invisible.
+    @MainActor
+    func testAllVaultsShowsEveryItem() {
+        let id = Self.itemID(vault: "a")
+        XCTAssertTrue(VaultBrowserView.scope(.allVaults, shows: id) { _, _ in false })
+    }
+
+    @MainActor
+    func testVaultScopeShowsOnlyItsOwnVault() {
+        let a = Self.itemID(vault: "a")
+        let ownScope = VaultScope.vault(a.account)
+        let otherScope = VaultScope.vault(AccountID(provider: .protonCLI, rawValue: "b"))
+        XCTAssertTrue(VaultBrowserView.scope(ownScope, shows: a) { _, _ in false })
+        XCTAssertFalse(VaultBrowserView.scope(otherScope, shows: a) { _, _ in true })
+    }
+
+    /// The case the account-only check gets wrong: a group scope of the item's
+    /// own vault still cannot show an item that lives in a different folder of
+    /// that vault, so membership has to be consulted rather than assumed.
+    @MainActor
+    func testGroupScopeConsultsGroupMembershipNotJustTheVault() {
+        let a = Self.itemID(vault: "a")
+        let sameVaultGroup = VaultScope.group(a.account, "Folder")
+        XCTAssertTrue(VaultBrowserView.scope(sameVaultGroup, shows: a) { _, _ in true })
+        XCTAssertFalse(
+            VaultBrowserView.scope(sameVaultGroup, shows: a) { _, _ in false },
+            "an item in another folder of the same vault is not in this list"
+        )
+    }
+
+    /// A group scope belonging to a different vault short-circuits without
+    /// consulting membership at all.
+    @MainActor
+    func testGroupScopeOfAnotherVaultNeverShowsTheItem() {
+        let a = Self.itemID(vault: "a")
+        let otherVaultGroup = VaultScope.group(
+            AccountID(provider: .protonCLI, rawValue: "b"), "Folder"
+        )
+        XCTAssertFalse(VaultBrowserView.scope(otherVaultGroup, shows: a) { _, _ in
+            XCTFail("membership must not be consulted for another vault's group")
+            return true
+        })
+    }
 }
