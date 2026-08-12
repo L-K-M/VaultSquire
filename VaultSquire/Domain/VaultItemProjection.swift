@@ -34,4 +34,14 @@ struct VaultItemProjection: Hashable, Sendable, Identifiable {
     let groupingLabels: [String]
     let capabilities: Set<ProviderCapability>
     let cacheReference: ProviderCacheReference
+    /// Whether the item is marked as a favorite. Defaults to false so Proton
+    /// and 1Password — whose CLIs expose no such concept — need no change at
+    /// their construction sites; only Vaultwarden, which already decodes and
+    /// round-trips `favorite` on write, passes a real value.
+    ///
+    /// A `var` rather than a `let`: a `let` with a default value is excluded
+    /// from the memberwise initializer entirely, so the decryptor could not
+    /// pass the cipher's real value. A `var` with a default appears as a
+    /// defaulted parameter, which is what the rest of this comment describes.
+    var favorite: Bool = false
 }

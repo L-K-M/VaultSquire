@@ -413,6 +413,13 @@ struct VaultBrowserView: View {
                     }
                 }
             }
+            if item.favorite {
+                Spacer(minLength: 4)
+                Image(systemName: "star.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.vertical, 2)
     }
