@@ -299,6 +299,11 @@ final class AddAccountModel: ObservableObject, Identifiable {
             }
         } catch AddAccountError.missingRefreshToken {
             fail(with: "The server did not return the tokens needed to stay signed in.")
+        } catch VaultwardenAccountError.accountListUnreadable {
+            // Authentication succeeded and was then rolled back, because the
+            // stored account list could not be read and writing over it would
+            // have discarded the other accounts it holds.
+            fail(with: Self.accountListUnreadableMessage)
         } catch is VaultwardenCredentialStoreError {
             // Authentication succeeded; only the local save failed. Say so
             // rather than implying the password was wrong.
@@ -361,6 +366,9 @@ final class AddAccountModel: ObservableObject, Identifiable {
         } catch AddAccountError.missingRefreshToken {
             phase = .challenged
             self.failureMessage = "The server did not return the tokens needed to stay signed in."
+        } catch VaultwardenAccountError.accountListUnreadable {
+            phase = .challenged
+            self.failureMessage = Self.accountListUnreadableMessage
         } catch is VaultwardenCredentialStoreError {
             // The code was accepted; only the local save failed. Do not claim
             // the code was rejected.
@@ -418,13 +426,31 @@ final class AddAccountModel: ObservableObject, Identifiable {
         // it from the profile — the account is never stranded in a promptless
         // locked state.
         if let environment {
-            accountService.persistAfterLogin(
-                session: session,
-                serverBaseURL: environment.base,
-                email: email
-            )
+            do {
+                try accountService.persistAfterLogin(
+                    session: session,
+                    serverBaseURL: environment.base,
+                    email: email
+                )
+            } catch {
+                // The credential above is durable and the descriptor is not,
+                // which is the promptless locked state itself: the shell reads
+                // the descriptor list to decide there is anything to unlock,
+                // and reads the Keychain to decide an account exists. Take the
+                // credential back out so the two agree and the next attempt
+                // starts from nothing rather than from half an account.
+                try? credentialStore.delete(for: .primary)
+                throw error
+            }
         }
     }
+
+    /// Says which of the two is wrong — the stored list, not the sign-in — and
+    /// does not suggest adding the account again, which is what the shell's own
+    /// locked-state copy suggests and which would fail identically every time.
+    static let accountListUnreadableMessage = """
+        Signed in, but the saved account list on this Mac could not be read, so         the account was not added. It was left untouched rather than replaced,         because replacing it would remove any other accounts it holds.
+        """
 
     private func fail(with message: String) {
         // A cancelled flow (dismissed sheet, restarted sign-in) must not

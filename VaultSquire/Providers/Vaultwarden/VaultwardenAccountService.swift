@@ -14,6 +14,11 @@ enum VaultwardenAccountError: Error, Equatable, Sendable {
     /// The server did not return the wrapped user key at login, so nothing can
     /// be unlocked.
     case missingKeyMaterial
+    /// The stored account list could not be read, so it could not be added to
+    /// without discarding what it holds. A login cannot be completed on top of
+    /// that: the descriptor is what makes the shell offer an unlock prompt, so
+    /// an account with no descriptor is locked with no way to unlock it.
+    case accountListUnreadable
 }
 
 /// The unlocked material and derived items for one account, held only while the
@@ -75,10 +80,12 @@ struct VaultwardenAccountService: Sendable {
     /// Persists the just-authenticated account so the shell can offer an unlock
     /// prompt and the first unlock can open the vault.
     ///
-    /// The non-secret descriptor is written first and unconditionally: a login
-    /// that authenticated must always produce an unlock prompt, never the dead
-    /// "locked with no prompt" state, even if sealing the cache is momentarily
-    /// unavailable. The sealed cache is then seeded from the login. Some servers
+    /// The non-secret descriptor is written first, and the login fails if it
+    /// cannot be: a login that authenticated must always produce an unlock
+    /// prompt, never the dead "locked with no prompt" state. Sealing the cache
+    /// can fail afterwards without that being true, because the first unlock's
+    /// sync rebuilds it — a missing descriptor is not recoverable that way.
+    /// The sealed cache is then seeded from the login. Some servers
     /// return the wrapped user key only from the sync profile, not the token
     /// grant; in that case the seed carries an empty key and the first unlock's
     /// sync populates it before deriving any keyring.
@@ -86,12 +93,20 @@ struct VaultwardenAccountService: Sendable {
         session: VaultwardenAuthSession,
         serverBaseURL: URL,
         email: String
-    ) {
-        descriptorStore.upsert(AccountDescriptor(
+    ) throws {
+        // Throwing rather than continuing, because the descriptor is the only
+        // record that this account exists. The store refuses to write over a
+        // list it cannot read — which is what stops one added account from
+        // destroying the others — and the cost of that refusal is that a login
+        // completed on top of it would be exactly the promptless locked state
+        // this method exists to prevent, with no way back.
+        guard descriptorStore.upsert(AccountDescriptor(
             account: account,
             serverDisplay: serverBaseURL.host ?? serverBaseURL.absoluteString,
             email: VaultwardenKeyDerivation.normalizedEmail(email)
-        ))
+        )) else {
+            throw VaultwardenAccountError.accountListUnreadable
+        }
         let snapshot = VaultwardenVaultSnapshot(
             version: VaultwardenVaultSnapshot.currentVersion,
             serverBaseURL: serverBaseURL.absoluteString,
