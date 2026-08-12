@@ -187,6 +187,30 @@ final class VaultwardenCipherFidelityTests: XCTestCase {
         XCTAssertEqual(projection.websites, ["https://github.com"])
     }
 
+    /// `favorite` decodes and round-trips already (`testPreservationFieldsDecodeAndRoundTrip`
+    /// covers the wire model); this is the read side, which previously had no
+    /// field on `VaultItemProjection` at all to carry it into.
+    func testFavoriteSurfacesOnTheProjection() throws {
+        let favorited = VaultwardenCipherModel(
+            id: "c1", type: .login, favorite: true,
+            revisionDate: Date(timeIntervalSince1970: 1_700_000_000), name: try enc("GitHub")
+        )
+        let notFavorited = VaultwardenCipherModel(
+            id: "c2", type: .login, favorite: false,
+            revisionDate: Date(timeIntervalSince1970: 1_700_000_000), name: try enc("GitLab")
+        )
+
+        let favoritedProjection = try XCTUnwrap(VaultwardenItemDecryptor.projection(
+            for: favorited, keyring: keyring, account: account, folderNames: [:], generation: 1
+        ))
+        let notFavoritedProjection = try XCTUnwrap(VaultwardenItemDecryptor.projection(
+            for: notFavorited, keyring: keyring, account: account, folderNames: [:], generation: 1
+        ))
+
+        XCTAssertTrue(favoritedProjection.favorite)
+        XCTAssertFalse(notFavoritedProjection.favorite)
+    }
+
     func testACipherKeyFromAnotherCipherDecryptsNothingRatherThanGarbage() throws {
         let (cipher, _) = try makeItemKeyedCipher()
         // Rewrap the same item key under a DIFFERENT account key: the unwrap

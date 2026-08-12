@@ -26,6 +26,7 @@ enum ProtonServiceError: Error, Equatable, Sendable {
     case unsupportedVersion(String)
     case unparseableVersion
     case notAuthenticated
+    case incompleteVaultRead
     case unreadableOutput
     case executionFailed
 }
@@ -155,9 +156,9 @@ struct ProtonAccountService: Sendable {
                     shareID: vault.shareID,
                     vaultName: vault.name
                 ))
-            } catch ProtonCLIRunnerError.commandFailed {
-                // A single unreadable vault is skipped, not fatal to the refresh.
-                continue
+            } catch ProtonCLIRunnerError.commandFailed,
+                    ProtonCLIRunnerError.invalidIdentifier {
+                return .failure(.incompleteVaultRead)
             } catch is ProtonReadModelError {
                 return .failure(.unreadableOutput)
             } catch {

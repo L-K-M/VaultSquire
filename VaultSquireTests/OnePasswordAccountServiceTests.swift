@@ -190,9 +190,7 @@ final class OnePasswordAccountServiceTests: XCTestCase {
         XCTAssertEqual(error, .unreadableOutput)
     }
 
-    /// One vault the build will not list should not cost the user every other
-    /// vault, so it is skipped rather than failing the whole refresh.
-    func testAnUnreadableVaultIsSkippedRatherThanFailingTheRefresh() async throws {
+    func testRefreshFailsWhenAnyVaultCannotBeListedAndKeepsThePriorCachedSnapshot() async throws {
         let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.38.1")
         await executor.stub(
@@ -216,17 +214,34 @@ final class OnePasswordAccountServiceTests: XCTestCase {
             stdout: #"[{"id":"ITEM2","title":"Kept","category":"LOGIN"}]"#
         )
         let service = makeService(executor: executor)
+        let prior = OnePasswordSnapshot(
+            cliVersion: "2.38.1",
+            accountIdentifier: "ACCOUNT1",
+            capturedAt: Date(timeIntervalSince1970: 1_600_000_000),
+            vaults: [OnePasswordVault(vaultID: "PRIOR", name: "Prior")],
+            items: [
+                OnePasswordItem(
+                    itemID: "PRIOR-ITEM",
+                    vaultID: "PRIOR",
+                    vaultName: "Prior",
+                    category: .login,
+                    title: "Prior Snapshot",
+                    username: "prior@example.com",
+                    additionalInformation: nil,
+                    urls: []
+                )
+            ]
+        )
+        try service.cache.save(prior, for: OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1"))
 
-        guard case .success(let refresh) = await service.refresh(accountUUID: "ACCOUNT1") else {
-            return XCTFail("expected success")
+        guard case .failure(let error) = await service.refresh(accountUUID: "ACCOUNT1") else {
+            return XCTFail("expected failure")
         }
-        XCTAssertEqual(refresh.projections.map(\.displayTitle), ["Kept"])
+        XCTAssertEqual(error, .incompleteVaultRead)
+        XCTAssertEqual(service.cachedSnapshot(accountUUID: "ACCOUNT1"), prior)
     }
 
-    /// A vault whose identifier fails validation never reaches a command, and
-    /// must be skipped for the same reason an unlistable one is — not allowed
-    /// to fail the whole refresh.
-    func testAVaultWithAnUnusableIdentifierIsSkipped() async throws {
+    func testRefreshFailsOnAnInvalidVaultIdentifierAndKeepsThePriorCachedSnapshot() async throws {
         let executor = FakeCLIExecutor()
         await executor.stub(arguments: ["--version"], stdout: "2.38.1")
         await executor.stub(
@@ -244,15 +259,20 @@ final class OnePasswordAccountServiceTests: XCTestCase {
             stdout: #"[{"id":"ITEM2","title":"Kept","category":"LOGIN"}]"#
         )
         let service = makeService(executor: executor)
+        let prior = OnePasswordSnapshot(
+            cliVersion: "2.38.1",
+            accountIdentifier: "ACCOUNT1",
+            capturedAt: Date(timeIntervalSince1970: 1_600_000_001),
+            vaults: [OnePasswordVault(vaultID: "PRIOR", name: "Prior")],
+            items: []
+        )
+        try service.cache.save(prior, for: OnePasswordAccountService.vaultIdentity(for: "ACCOUNT1"))
 
-        guard case .success(let refresh) = await service.refresh(accountUUID: "ACCOUNT1") else {
-            return XCTFail("expected success")
+        guard case .failure(let error) = await service.refresh(accountUUID: "ACCOUNT1") else {
+            return XCTFail("expected failure")
         }
-        XCTAssertEqual(refresh.projections.map(\.displayTitle), ["Kept"])
-
-        // The rejected identifier never became a command.
-        let recorded = await executor.recordedArguments
-        XCTAssertFalse(recorded.contains { $0.contains("--oops") })
+        XCTAssertEqual(error, .incompleteVaultRead)
+        XCTAssertEqual(service.cachedSnapshot(accountUUID: "ACCOUNT1"), prior)
     }
 
     // MARK: - On-demand content

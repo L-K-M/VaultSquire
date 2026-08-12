@@ -9,6 +9,10 @@ struct URIOpeningDecision: Equatable, Sendable {
     /// recognize; the raw vault text is displayed beside it but never alone
     /// decides where the system browser goes.
     let display: String
+
+    var confirmationMessage: String {
+        "VaultSquire will hand the complete saved address to your default browser: \(url.absoluteString). The destination resolves to \(display)."
+    }
 }
 
 /// The URI-opening policy from `SECURITY_AND_TESTING.md`: only parsed `https`

@@ -18,7 +18,12 @@ final class AppModel: ObservableObject {
     /// state and decrypted material.
     @Published private(set) var sessions: [VaultSlot] = []
     /// What the item list is showing: everything open, or one vault.
-    @Published var scope: VaultScope = .allVaults
+    @Published var scope: VaultScope = .allVaults {
+        didSet {
+            guard oldValue != scope else { return }
+            rebuildItems()
+        }
+    }
 
     @Published private(set) var accountPresence: AccountPresence = .unknown
     /// The configured accounts, for display in the shell and unlock prompt.
@@ -58,7 +63,19 @@ final class AppModel: ObservableObject {
     @Published private var protonContent: [VaultItemID: ProtonItemContent] = [:]
     /// The same, for opened 1Password items.
     @Published private var onePasswordContent: [VaultItemID: OnePasswordItemContent] = [:]
-    private var hydratingItems: Set<VaultItemID> = []
+    /// Published so the detail view can say that an item's secret fields are
+    /// still being read rather than looking like an item that has none.
+    @Published private var hydratingItems: Set<VaultItemID> = []
+    /// Copies asked for from a list row before the provider had fetched the
+    /// value. The fetch is started and the copy completes when it lands, so the
+    /// gesture behaves the same whether the provider decrypts locally or shells
+    /// out for every item.
+    private var pendingCopies: [VaultItemID: CopyableSecret] = [:]
+    /// Bumped whenever fetched secrets are discarded. The detail pane keys its
+    /// hydration on this as well as on the selection, so a sync that drops the
+    /// secrets of the item currently open re-reads them instead of leaving the
+    /// password row simply gone until the user clicks away and back.
+    @Published private(set) var contentEpoch: UInt64 = 0
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
@@ -136,22 +153,37 @@ final class AppModel: ObservableObject {
 
     /// The items shown for the current scope, merged across vaults when the
     /// scope is All Vaults and sorted by title so a merged list reads as one.
-    var items: [VaultItemProjection] {
+    ///
+    /// Cached rather than computed. Building it flat-maps every open vault and
+    /// sorts with a localized comparison, and the list read it on every body
+    /// pass — which means on every keystroke in the search field, twice more
+    /// for the placeholder's item count, and again for every unrelated change
+    /// the model published. It is rebuilt when the vaults or the scope change,
+    /// which is the only time the answer can differ.
+    @Published private(set) var items: [VaultItemProjection] = []
+
+    private func rebuildItems() {
         let scoped: [VaultItemProjection]
         if case .group(_, let group) = scope {
             scoped = scopedSessions.flatMap { $0.items(inGroup: group) }
         } else {
             scoped = scopedSessions.flatMap(\.items)
         }
-        return scoped.sorted { lhs, rhs in
+        items = scoped.sorted { lhs, rhs in
             lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
         }
     }
 
     /// Every open vault's items, for Quick Search — it always searches
     /// everything that is open, regardless of the browser's scope.
+    /// Sorted by title, not left in vault-by-vault blocks. Quick Search ranks
+    /// these and breaks ties by the order it was given them, so an unsorted
+    /// merge would make two equally good matches from different vaults arrive
+    /// grouped by provider rather than alphabetically.
     var allOpenItems: [VaultItemProjection] {
-        sessions.filter(\.isOpen).flatMap(\.items)
+        sessions.filter(\.isOpen).flatMap(\.items).sorted { lhs, rhs in
+            lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+        }
     }
 
     /// The sync timestamp shown for the current scope: the oldest across the
@@ -204,6 +236,7 @@ final class AppModel: ObservableObject {
             rebuilt.append(previous)
         }
         sessions = rebuilt
+        rebuildItems()
 
         if let account = scope.account, session(for: account) == nil {
             scope = .allVaults
@@ -249,6 +282,20 @@ final class AppModel: ObservableObject {
     func noteAccountConfigured() {
         accountPresence = .present
         refreshAccountPresence()
+    }
+
+    /// Clears a lingering write failure. Called when an editor sheet opens, so
+    /// an error from an earlier, unrelated write is never shown above a form
+    /// the user has not submitted yet.
+    func noteEditorPresented() {
+        writeError = nil
+    }
+
+    /// Dismisses a write failure the browser is showing. The editor clears it
+    /// on open; a failure from a toolbar or row action is shown in the browser
+    /// instead and is dismissed from there.
+    func dismissWriteError() {
+        writeError = nil
     }
 
     /// Registers the Proton vault so it appears in the sidebar like any other,
@@ -310,7 +357,9 @@ final class AppModel: ObservableObject {
         guard !password.isEmpty,
               let current = session(for: account),
               current.kind == .vaultwarden,
-              !current.isOpening else {
+              // Both, matching `unlockWithBiometrics`. Guarding only
+              // `isOpening` let an already-open vault be unlocked over itself.
+              !current.isOpening, !current.isOpen else {
             return
         }
         let generation = current.generation
@@ -393,15 +442,6 @@ final class AppModel: ObservableObject {
         unlockError = message
     }
 
-    /// Records a failed open on that vault's row alone. `unlockError` drives the
-    /// master-password prompt, and a Proton CLI that is signed out says nothing
-    /// about the Vaultwarden password — so a vault opened alongside another must
-    /// not be able to put its message on that prompt.
-    private func failOpenLocally(_ account: AccountID, generation: UInt64, message: String) {
-        guard isCurrent(account, generation) else { return }
-        mutate(account) { $0.state = .failed(message) }
-    }
-
     /// Opens the Proton vault read-only: a CLI refresh, its projections, and a
     /// sealed snapshot for offline read. No Proton credential is ever collected.
     private func openProton(_ account: AccountID) {
@@ -422,10 +462,68 @@ final class AppModel: ObservableObject {
                     $0.syncError = nil
                 }
             case .failure(let error):
-                self.failOpenLocally(
-                    account, generation: generation, message: Self.message(for: error)
+                self.failProtonOpenOrShowOfflineSnapshot(
+                    account, generation: generation, error: error
                 )
             }
+        }
+    }
+
+    /// A live Proton refresh failed. `refresh()` seals a snapshot to disk on
+    /// every success, and `cachedSnapshot()`/`projections(from:)` exist
+    /// specifically to read it back — but until now nothing called them, so a
+    /// CLI hiccup (briefly unavailable, one slow vault, a version the gate
+    /// hasn't approved yet) showed a hard error with no data, even with a
+    /// valid encrypted snapshot sitting on disk from the last successful
+    /// refresh. Vaultwarden's own `unlock()` already reads its local cache
+    /// first; this brings Proton's resilience in line with it instead of
+    /// leaving the offline path built but unreachable from the UI.
+    /// Whether a failed live read may fall back to the sealed offline snapshot.
+    ///
+    /// Only for failures that mean "VaultSquire could not reach the provider".
+    /// A provider that answered and *refused* is not an outage: a signed-out
+    /// Proton CLI, a locked 1Password app, a disabled CLI integration, or a
+    /// user who pressed Deny on the authorization prompt have each withheld
+    /// access on purpose. Serving the last snapshot there would show the vault
+    /// to someone the provider just declined to serve, turning the offline
+    /// cache into a way around the authorization gate.
+    private static func mayFallBackOffline(_ error: ProtonServiceError) -> Bool {
+        switch error {
+        case .notAuthenticated:
+            return false
+        case .cliNotInstalled, .unsupportedVersion, .unparseableVersion,
+             .incompleteVaultRead, .unreadableOutput, .executionFailed:
+            return true
+        }
+    }
+
+    /// The 1Password counterpart. `.notAuthorized` covers a declined prompt and
+    /// a locked app, and `.unusableAccount` means the CLI will no longer accept
+    /// this account at all; neither is an outage to ride out.
+    private static func mayFallBackOffline(_ error: OnePasswordServiceError) -> Bool {
+        switch error {
+        case .notAuthorized, .unusableAccount:
+            return false
+        case .cliNotInstalled, .unsupportedVersion, .unparseableVersion,
+             .incompleteVaultRead, .unreadableOutput, .executionFailed:
+            return true
+        }
+    }
+
+    private func failProtonOpenOrShowOfflineSnapshot(
+        _ account: AccountID, generation: UInt64, error: ProtonServiceError
+    ) {
+        guard isCurrent(account, generation) else { return }
+        guard Self.mayFallBackOffline(error), let snapshot = protonService.cachedSnapshot() else {
+            mutate(account) { $0.state = .failed(Self.message(for: error)) }
+            return
+        }
+        mutate(account) {
+            $0.state = .open
+            $0.proton = snapshot
+            $0.items = protonService.projections(from: snapshot)
+            $0.lastSyncedAt = snapshot.capturedAt
+            $0.syncError = "Showing the last synced copy. \(Self.message(for: error))"
         }
     }
 
@@ -453,10 +551,31 @@ final class AppModel: ObservableObject {
                     $0.syncError = nil
                 }
             case .failure(let error):
-                self.failOpenLocally(
-                    account, generation: generation, message: Self.message(for: error)
+                self.failOnePasswordOpenOrShowOfflineSnapshot(
+                    account, generation: generation, accountUUID: accountUUID, error: error
                 )
             }
+        }
+    }
+
+    /// The 1Password counterpart of `failProtonOpenOrShowOfflineSnapshot`: a
+    /// failed live refresh falls back to the last sealed snapshot for this
+    /// specific 1Password account rather than a hard, dataless error.
+    private func failOnePasswordOpenOrShowOfflineSnapshot(
+        _ account: AccountID, generation: UInt64, accountUUID: String, error: OnePasswordServiceError
+    ) {
+        guard isCurrent(account, generation) else { return }
+        guard Self.mayFallBackOffline(error),
+              let snapshot = onePasswordService.cachedSnapshot(accountUUID: accountUUID) else {
+            mutate(account) { $0.state = .failed(Self.message(for: error)) }
+            return
+        }
+        mutate(account) {
+            $0.state = .open
+            $0.onePassword = snapshot
+            $0.items = onePasswordService.projections(from: snapshot, accountUUID: accountUUID)
+            $0.lastSyncedAt = snapshot.capturedAt
+            $0.syncError = "Showing the last synced copy. \(Self.message(for: error))"
         }
     }
 
@@ -470,7 +589,11 @@ final class AppModel: ObservableObject {
         unlockError = nil
         refreshBiometricAvailability()
         clipboard.clearIfOwned()
-        if !isUnlocked {
+        if isUnlocked {
+            // Something is still open, so the panel stays — but it must stop
+            // offering the items of the vault that just closed.
+            ApplicationCoordinator.shared.refreshQuickSearch()
+        } else {
             ApplicationCoordinator.shared.dismissQuickSearch()
         }
         AppLog.record(.vaultLocked)
@@ -482,9 +605,11 @@ final class AppModel: ObservableObject {
             cancelTrackedTasks(for: account)
             mutate(account) { $0.close() }
         }
+        contentEpoch &+= 1
         protonContent = [:]
         onePasswordContent = [:]
         hydratingItems = []
+        pendingCopies = [:]
         unlockError = nil
         refreshBiometricAvailability()
         clipboard.clearIfOwned()
@@ -496,9 +621,20 @@ final class AppModel: ObservableObject {
     /// hold theirs in memory only, so closing a vault must clear its entries
     /// from each map.
     private func dropFetchedContent(for account: AccountID) {
+        dropFetchedSecrets(for: account)
+        hydratingItems = hydratingItems.filter { $0.account != account }
+    }
+
+    /// Drops the fetched secrets for one vault while leaving the in-flight set
+    /// alone, so a refresh invalidates what was fetched without letting a fetch
+    /// that is already running be started a second time.
+    private func dropFetchedSecrets(for account: AccountID) {
+        contentEpoch &+= 1
         protonContent = protonContent.filter { $0.key.account != account }
         onePasswordContent = onePasswordContent.filter { $0.key.account != account }
-        hydratingItems = hydratingItems.filter { $0.account != account }
+        // A copy still waiting on a fetch must not land after the vault it came
+        // from has been closed.
+        pendingCopies = pendingCopies.filter { $0.key.account != account }
     }
 
     // MARK: - Touch ID
@@ -674,6 +810,7 @@ final class AppModel: ObservableObject {
                 // Never publish a secret into a vault the user locked meanwhile.
                 guard self.isCurrent(itemID.account, generation), let content else { return }
                 self.protonContent[itemID] = content
+                self.completePendingCopy(itemID)
             }
         case .onePassword:
             guard onePasswordContent[itemID] == nil,
@@ -693,6 +830,7 @@ final class AppModel: ObservableObject {
                 self.hydratingItems.remove(itemID)
                 guard self.isCurrent(itemID.account, generation), let content else { return }
                 self.onePasswordContent[itemID] = content
+                self.completePendingCopy(itemID)
             }
         }
     }
@@ -701,6 +839,88 @@ final class AppModel: ObservableObject {
     /// say so instead of looking like the item simply has no password.
     func isHydrating(_ itemID: VaultItemID) -> Bool {
         hydratingItems.contains(itemID)
+    }
+
+    // MARK: - Copying without opening an item
+
+    /// What a list row can put on the clipboard. A one-time code is generated
+    /// rather than copied: the seed itself must never reach the pasteboard.
+    enum CopyableSecret: Sendable {
+        case password
+        case oneTimeCode
+    }
+
+    /// Whether the vault that owns this item allows a secret to be copied. A
+    /// read-only provider still does; a closed vault does not.
+    func canCopySecret(_ itemID: VaultItemID) -> Bool {
+        guard let owner = session(for: itemID.account), owner.isOpen else { return false }
+        return owner.capabilities.contains(.copySecret)
+    }
+
+    /// Whether this item has a one-time code to copy. Answered from the
+    /// decrypted detail, so it is false for a CLI item whose secrets have not
+    /// been fetched yet rather than offering an action that would do nothing.
+    func hasOneTimeCode(_ itemID: VaultItemID) -> Bool {
+        detail(for: itemID)?.fields.contains { $0.kind == .totpSeed } ?? false
+    }
+
+    /// The username shown on the row, which is never a secret and is always
+    /// present without a fetch.
+    func copyUsername(_ itemID: VaultItemID) {
+        guard let owner = session(for: itemID.account), owner.isOpen,
+              let username = owner.items.first(where: { $0.id == itemID })?.username,
+              !username.isEmpty else {
+            return
+        }
+        clipboard.copyPlain(username)
+    }
+
+    /// Copies a secret straight from a row, so the most common thing anyone
+    /// does with this app does not require selecting the item, waiting for its
+    /// detail, and aiming at a sixteen-point button.
+    ///
+    /// Vaultwarden decrypts locally, so the value is already here. Both CLI
+    /// providers list without secrets, so the fetch is started and the copy
+    /// lands when it answers rather than the gesture quietly doing nothing —
+    /// and is abandoned if the vault closes first.
+    func copySecret(_ kind: CopyableSecret, of itemID: VaultItemID) {
+        guard canCopySecret(itemID) else { return }
+        if let value = secretValue(kind, of: itemID) {
+            clipboard.copySecret(value)
+            return
+        }
+        // A Vaultwarden item's secrets are already decrypted, so a missing
+        // value means the item has none — there is nothing to wait for.
+        guard session(for: itemID.account)?.kind != .vaultwarden else { return }
+        pendingCopies[itemID] = kind
+        hydrateIfNeeded(itemID)
+    }
+
+    /// The value a copy would put on the clipboard, or nil when it is not
+    /// available yet.
+    private func secretValue(_ kind: CopyableSecret, of itemID: VaultItemID) -> String? {
+        guard let detail = detail(for: itemID) else { return nil }
+        switch kind {
+        case .password:
+            return detail.fields.first { $0.kind == .secret }?.value
+        case .oneTimeCode:
+            guard let seed = detail.fields.first(where: { $0.kind == .totpSeed })?.value else {
+                return nil
+            }
+            return VaultwardenTOTP.generate(seed: seed, at: Date())?.code
+        }
+    }
+
+    /// Completes a copy that was waiting on a provider fetch. Nothing is copied
+    /// when the fetch produced no such field, so a request for a password an
+    /// item does not have leaves the clipboard alone.
+    private func completePendingCopy(_ itemID: VaultItemID) {
+        guard let kind = pendingCopies.removeValue(forKey: itemID),
+              canCopySecret(itemID),
+              let value = secretValue(kind, of: itemID) else {
+            return
+        }
+        clipboard.copySecret(value)
     }
 
     // MARK: - Writes
@@ -744,9 +964,20 @@ final class AppModel: ObservableObject {
         return service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
     }
 
-    /// Whether a given item can be edited.
+    /// Whether a given item can be edited. Builds the draft, so it decrypts.
     func canEdit(_ itemID: VaultItemID) -> Bool {
         draft(for: itemID) != nil
+    }
+
+    /// Whether an Edit entry is worth offering, decided without decrypting.
+    ///
+    /// `canEdit` builds the draft to answer, which is fine for the one selected
+    /// item behind a toolbar button but not for a menu the list may build for
+    /// every visible row. This checks the same gates minus the decrypt; the
+    /// action still asks for the draft and does nothing if it cannot have one.
+    func canOfferEdit(_ itemID: VaultItemID) -> Bool {
+        guard let owner = session(for: itemID.account), owner.isOpen else { return false }
+        return owner.capabilities.contains(.updateItem) && owner.vaultwarden != nil
     }
 
     /// Saves a create or edit. An edit routes to the vault that owns the item,
@@ -761,13 +992,19 @@ final class AppModel: ObservableObject {
               let vault = owner.vaultwarden else {
             return
         }
+        let generation = owner.generation
         isWriting = true
         writeError = nil
         spawnTracked(account) {
             let result = draft.isEditing
                 ? await self.service.update(draft: draft, keyring: vault.keyring)
                 : await self.service.create(draft: draft, keyring: vault.keyring)
+            // A lock that landed while this was in flight wins. `isWriting` is
+            // still cleared — it is app-wide UI state, and leaving it true
+            // would block every later write for the life of the process — but
+            // nothing else is published into a vault the user closed.
             self.isWriting = false
+            guard self.isCurrent(account, generation) else { return }
             switch result {
             case .success:
                 self.syncNow(account)
@@ -780,11 +1017,13 @@ final class AppModel: ObservableObject {
     func archive(_ itemID: VaultItemID) {
         guard !isWriting, canArchive(itemID) else { return }
         let account = itemID.account
+        guard let generation = session(for: account)?.generation else { return }
         isWriting = true
         writeError = nil
         spawnTracked(account) {
             let result = await self.service.archive(itemID: itemID)
             self.isWriting = false
+            guard self.isCurrent(account, generation) else { return }
             switch result {
             case .success:
                 self.syncNow(account)
@@ -826,15 +1065,30 @@ final class AppModel: ObservableObject {
                         session.lastSyncedAt = snapshot.syncedAt
                         session.syncError = nil
                         if var vault = session.vaultwarden {
+                            // Decrypting every cipher and rebuilding the list is
+                            // real work — an AES-CBC decrypt and HMAC verify per
+                            // field, synchronously, right here on the main
+                            // actor. A sync that reports the same ciphers and
+                            // folders the vault already has decrypted (the
+                            // common case: nothing changed server-side since
+                            // the last sync) does not need to pay that cost
+                            // again, so it is skipped whenever the content
+                            // that feeds it is unchanged. `VaultwardenCipherModel`
+                            // and its `Folder` sibling are `Hashable`, so this
+                            // is a cheap structural comparison, not a decrypt.
+                            let contentUnchanged = vault.snapshot.ciphers == snapshot.ciphers
+                                && vault.snapshot.folders == snapshot.folders
                             vault.snapshot = snapshot
-                            vault.items = self.service.projections(keyring: vault.keyring, snapshot: snapshot)
-                            // A sync can add or rename folders, so the sidebar's
-                            // list is refreshed with the items it groups.
-                            vault.folderNames = self.service.decryptFolderNames(
-                                keyring: vault.keyring, snapshot: snapshot
-                            )
+                            if !contentUnchanged {
+                                vault.items = self.service.projections(keyring: vault.keyring, snapshot: snapshot)
+                                // A sync can add or rename folders, so the sidebar's
+                                // list is refreshed with the items it groups.
+                                vault.folderNames = self.service.decryptFolderNames(
+                                    keyring: vault.keyring, snapshot: snapshot
+                                )
+                                session.items = vault.items
+                            }
                             session.vaultwarden = vault
-                            session.items = vault.items
                         }
                     case .failure(let error):
                         session.syncError = Self.message(for: error)
@@ -845,6 +1099,13 @@ final class AppModel: ObservableObject {
             spawnTracked(account) {
                 let result = await self.protonService.refresh()
                 guard self.isCurrent(account, generation) else { return }
+                // A refresh replaces the listing, so the secrets fetched
+                // against the previous one are no longer known to be current.
+                // Dropping them makes the next open re-read; keeping them would
+                // show a value the provider may have changed since, under a
+                // freshly updated "last synced" time — the most misleading
+                // form the answer could take.
+                if case .success = result { self.dropFetchedSecrets(for: account) }
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
@@ -863,6 +1124,9 @@ final class AppModel: ObservableObject {
             spawnTracked(account) {
                 let result = await self.onePasswordService.refresh(accountUUID: accountUUID)
                 guard self.isCurrent(account, generation) else { return }
+                // Same as Proton: a new listing invalidates the secrets fetched
+                // against the old one.
+                if case .success = result { self.dropFetchedSecrets(for: account) }
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
@@ -881,9 +1145,15 @@ final class AppModel: ObservableObject {
 
     // MARK: - Session plumbing
 
+    /// The one funnel every session change goes through, which is also where
+    /// the two derived collections are refreshed: the vault's container list
+    /// and the scoped item list. Rebuilding them here costs one pass per
+    /// mutation instead of several passes per redraw.
     private func mutate(_ account: AccountID, _ body: (inout VaultSlot) -> Void) {
         guard let index = sessions.firstIndex(where: { $0.account == account }) else { return }
         body(&sessions[index])
+        sessions[index].refreshGroups()
+        rebuildItems()
     }
 
     /// Whether a vault is still on the generation an async task started under.
@@ -905,6 +1175,8 @@ final class AppModel: ObservableObject {
             return "VaultSquire couldn't read the Proton Pass CLI's version."
         case .notAuthenticated:
             return "The Proton Pass CLI isn't signed in. Sign in with the official CLI in your terminal, then try again."
+        case .incompleteVaultRead:
+            return "VaultSquire couldn't read every Proton Pass vault, so it kept the previous offline snapshot."
         case .unreadableOutput:
             return "The Proton Pass CLI returned output VaultSquire couldn't read."
         case .executionFailed:
@@ -927,6 +1199,8 @@ final class AppModel: ObservableObject {
             return "1Password didn't authorize the read. Make sure the 1Password app is running and unlocked with \"Integrate with 1Password CLI\" turned on in Settings › Developer, then try again and approve its prompt."
         case .unusableAccount:
             return "This vault's 1Password account is no longer one the CLI will accept. Remove the vault and add it again."
+        case .incompleteVaultRead:
+            return "VaultSquire couldn't read every 1Password vault, so it kept the previous offline snapshot."
         case .unreadableOutput:
             return "The 1Password CLI returned output VaultSquire couldn't read."
         case .executionFailed:
@@ -1002,6 +1276,15 @@ extension AppModel: QuickSearchDataSource {
     /// scoped to; a locked vault contributes nothing.
     var quickSearchItems: [VaultItemProjection] { allOpenItems }
     var quickSearchIsUnlocked: Bool { isUnlocked }
+
+    /// One title per configured vault, so a merged result names its source.
+    /// Built with a reduce rather than `uniqueKeysWithValues`, which would trap
+    /// if two sessions ever shared an account.
+    var quickSearchVaultTitles: [AccountID: String] {
+        sessions.reduce(into: [:]) { titles, session in
+            titles[session.account] = session.title
+        }
+    }
 
     func openFromQuickSearch(_ id: VaultItemID) {
         quickSearchSelection = id

@@ -4,19 +4,28 @@ struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var siteIcons: SiteIconStore
 
+    /// The configured idle timeout, read once when Settings opens and written
+    /// straight through to the controller. `AutoLockController` is not
+    /// observable and nothing else changes this while the window is up.
+    @State private var autoLockMinutes = AutoLockController.shared.inactivityMinutes
+
     var body: some View {
         TabView {
             Form {
-                LabeledContent("App shortcut", value: "Command-Shift-Space")
+                // Named "in-app" deliberately: this is a menu shortcut that
+                // works while VaultSquire is the active application, not a
+                // system-wide hotkey. Calling it the "app shortcut" read as a
+                // promise of the latter.
+                LabeledContent("In-app Quick Search", value: "Command-Shift-Space")
                 LabeledContent("Vault state", value: vaultStateDescription)
 
                 Divider()
 
-                biometricSection
+                autoLockSection
 
-                Text("A configurable global shortcut and lock policy are enabled only after their interaction and security tests pass.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Divider()
+
+                biometricSection
             }
             .padding(24)
             .tabItem {
@@ -49,8 +58,65 @@ struct SettingsView: View {
                 }
 #endif
         }
-        .frame(width: 540, height: 340)
+        // A minimum rather than a fixed size: these tabs are mostly prose, and
+        // at any increased text size a pinned height clips the last paragraph.
+        .frame(minWidth: 560, minHeight: 400)
         .accessibilityIdentifier("settings-view")
+    }
+
+    /// The idle timeout, which until now could only be set with `defaults
+    /// write` — while Settings said a lock policy was not enabled yet and the
+    /// app was in fact locking itself after fifteen minutes.
+    ///
+    /// The system triggers are listed but not offered as choices: locking on
+    /// screen lock, screensaver, sleep, and session resignation is what makes
+    /// an unattended Mac safe, and it is not a preference.
+    @ViewBuilder
+    private var autoLockSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Lock after", selection: $autoLockMinutes) {
+                ForEach(offeredTimeouts, id: \.self) { minutes in
+                    Text(Self.timeoutLabel(minutes)).tag(minutes)
+                }
+            }
+            .accessibilityIdentifier("settings-auto-lock")
+            .onChange(of: autoLockMinutes) { _, minutes in
+                AutoLockController.shared.setInactivityMinutes(minutes)
+            }
+
+            Text(autoLockMinutes > 0
+                ? "VaultSquire locks every open vault after \(Self.timeoutLabel(autoLockMinutes).lowercased()) without keyboard or pointer activity."
+                : "The idle timer is off, so VaultSquire keeps your vaults open until something below closes them.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Vaults always lock when the screen locks, the screensaver starts, this Mac sleeps, or you switch users — and with Command-Shift-L. Locking drops every decrypted value, cancels work in flight, and clears a secret VaultSquire put on the clipboard.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The offered choices, plus whatever is actually configured if that is not
+    /// one of them. A timeout set out of band with `defaults write` would
+    /// otherwise match no tag, and a Picker with no matching tag shows a blank
+    /// or the wrong row — telling the user their vault locks on a schedule it
+    /// does not. The stored value is shown rather than normalised away, because
+    /// silently rewriting someone's tighter timeout to a listed one would
+    /// loosen their security to make a menu tidy.
+    private var offeredTimeouts: [Int] {
+        let offered = AutoLockController.offeredInactivityMinutes
+        return offered.contains(autoLockMinutes) ? offered : [autoLockMinutes] + offered
+    }
+
+    private static func timeoutLabel(_ minutes: Int) -> String {
+        switch minutes {
+        case 0: return "Never"
+        case 1: return "1 minute"
+        case 60: return "1 hour"
+        default: return "\(minutes) minutes"
+        }
     }
 
     /// How many vaults are open, which is the honest answer now that several

@@ -368,6 +368,44 @@ VaultSquire necessarily trusts:
 - Redact WebSocket query tokens and presigned attachment URLs.
 - Treat notifications as hints and perform catch-up after reconnect.
 
+### Site Icons
+
+Fetching a site icon is the only outbound request VaultSquire makes to a host
+that is not a configured server, and its address is derived from vault content.
+It is therefore off until the user turns it on, and bounded on both sides of
+the request.
+
+- Ask each site's own origin over HTTPS. Never an icon aggregator: one
+  aggregator would receive the vault's whole list of sites, while a site asked
+  directly learns only that an entry names it.
+- Derive the address from the item's website field through one builder, and let
+  that builder decide whether a host may be asked at all. Refusing a host
+  refuses the request, not the row: an item naming a machine keeps the letter
+  and colour it derives from that name and simply never has artwork fetched.
+- Refuse an address literal in any spelling, a host that is not ASCII letters,
+  digits, hyphens and dots, a malformed or oversize name, and a suffix that
+  resolves on the user's own network. A vault holds router, NAS and intranet
+  logins beside its websites, and enabling icons must not begin probing them.
+  DNS rebinding remains a residual: a public name whose record points inside
+  the network still resolves inside the network.
+- Follow a redirect only when the address the app itself chose issued it, the
+  destination is HTTPS, the destination passes the same host rules, and it
+  stays on the same site. Without this the host rules are advisory. Comparing
+  the whole originating URL rather than only its host is what bounds a chain
+  to one hop: a site redirecting to itself would otherwise satisfy a
+  host-only comparison at every step.
+- Bound the transfer by declared content length before it starts and by count
+  while it runs. Bound the decode separately: read dimensions and frame count
+  from image metadata and refuse an implausible canvas before a bitmap is
+  allocated, because a small compressed body can describe a large one.
+- Bound what is held and what is asked: a cap on cached icons, and a cap on
+  hosts asked per session, which the cache cap alone does not impose.
+- Send no cookies, no credentials and no cache, write nothing to disk, and send
+  a generic user agent rather than one naming the app.
+- Discard a response that arrives after the vault locks, and cancel transfers
+  still in flight. Clearing what is on screen is not enough on its own: a late
+  response would repopulate the window with the sites the lock removed.
+
 ### CLI Process Boundary
 
 These invariants bind every provider that executes an external CLI — currently

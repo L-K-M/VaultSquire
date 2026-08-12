@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import XCTest
 @testable import VaultSquire
@@ -10,7 +11,8 @@ final class AppModelTests: XCTestCase {
         presence: @escaping () -> AppModel.AccountPresence = { .none },
         descriptors: [AccountDescriptor] = [],
         protonService: ProtonAccountService = ProtonAccountService(),
-        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService()
+        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService(),
+        clipboard: ClipboardService = ClipboardService()
     ) -> (AppModel, AccountDescriptorStore) {
         let defaults = UserDefaults(suiteName: "VSQ-appmodel-\(UUID().uuidString)")!
         let store = AccountDescriptorStore(defaults: defaults)
@@ -31,7 +33,8 @@ final class AppModelTests: XCTestCase {
             service: service,
             protonService: protonService,
             onePasswordService: onePasswordService,
-            biometricStore: FakeBiometricVaultKeyStore(available: false)
+            biometricStore: FakeBiometricVaultKeyStore(available: false),
+            clipboard: clipboard
         )
         return (model, store)
     }
@@ -387,6 +390,185 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.allOpenItems.count, 1)
     }
 
+    /// A sync fetches the vault again, so the secrets read on demand against
+    /// the previous listing are no longer known to be current. Keeping them
+    /// would show a password the provider has since changed, under a freshly
+    /// updated "last synced" time — a confidently wrong answer, which is the
+    /// worst kind for this app to give.
+    @MainActor
+    func testSyncingDropsSecretsFetchedBeforeIt() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-first"}}"#
+        )
+
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let id = try XCTUnwrap(model.items.first?.id)
+        model.hydrateIfNeeded(id)
+        try await pollUntil {
+            model.detail(for: id)?.fields.first { $0.label == "Password" }?.value == "VSQ-first"
+        }
+
+        // The password is rotated at the provider, and the user syncs.
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-rotated"}}"#
+        )
+        model.syncNow(account)
+        try await pollUntil { model.session(for: account)?.isSyncing == false }
+
+        // The stale value is gone rather than still on screen …
+        XCTAssertNil(model.detail(for: id)?.fields.first { $0.label == "Password" })
+        // … and opening the item again reads the current one.
+        model.hydrateIfNeeded(id)
+        try await pollUntil {
+            model.detail(for: id)?.fields.first { $0.label == "Password" }?.value == "VSQ-rotated"
+        }
+    }
+
+    // MARK: - Copying from a row
+
+    /// A pasteboard the tests own, so a copy never touches the machine running
+    /// the suite.
+    private final class FakePasteboard: ClipboardPasteboard {
+        var changeCount = 0
+        private(set) var contents: [NSPasteboard.PasteboardType: String] = [:]
+
+        @discardableResult
+        func clearContents() -> Int {
+            contents = [:]
+            changeCount += 1
+            return changeCount
+        }
+
+        @discardableResult
+        func setString(_ string: String, forType type: NSPasteboard.PasteboardType) -> Bool {
+            contents[type] = string
+            if type == .string, !string.isEmpty {
+                changeCount += 1
+            }
+            return true
+        }
+
+        var string: String? { contents[.string] }
+    }
+
+    /// Copying a password from a list row is the most common thing anyone does
+    /// with this app. Both CLI providers list without secrets, so the value is
+    /// not there when the menu is used: the fetch has to be started and the
+    /// copy has to land when it answers, rather than the gesture quietly doing
+    /// nothing.
+    @MainActor
+    func testCopyingAPasswordFromARowFetchesItFirst() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub","content":{"username":"octocat"}}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-secret"}}"#
+        )
+
+        let pasteboard = FakePasteboard()
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor),
+            clipboard: ClipboardService(pasteboard: pasteboard)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let id = try XCTUnwrap(model.items.first?.id)
+
+        // The username is on the row already, so it copies with no fetch.
+        model.copyUsername(id)
+        XCTAssertEqual(pasteboard.string, "octocat")
+
+        // The password is not, so the copy waits on the read.
+        model.copySecret(.password, of: id)
+        try await pollUntil { pasteboard.string == "VSQ-secret" }
+    }
+
+    /// A copy that was waiting on a fetch must not land in a vault the user
+    /// closed while it was in flight.
+    @MainActor
+    func testAPendingCopyIsAbandonedWhenTheVaultLocks() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-secret"}}"#
+        )
+
+        let pasteboard = FakePasteboard()
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor),
+            clipboard: ClipboardService(pasteboard: pasteboard)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let id = try XCTUnwrap(model.items.first?.id)
+        model.copySecret(.password, of: id)
+        model.lock(account)
+
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNil(pasteboard.string, "a closed vault's secret never reaches the clipboard")
+        XCTAssertFalse(model.canCopySecret(id))
+    }
+
     /// Scoping narrows the list; All Vaults merges. Quick Search always spans
     /// everything that is open regardless of the browser's scope.
     @MainActor
@@ -430,6 +612,39 @@ final class AppModelTests: XCTestCase {
         // … but Quick Search still finds the open Proton item.
         XCTAssertEqual(model.quickSearchItems.count, 1)
         XCTAssertTrue(model.quickSearchIsUnlocked)
+    }
+
+    /// The merged Quick Search list must read as one alphabetized list across
+    /// vaults, not vault-by-vault blocks in listing order.
+    @MainActor
+    func testQuickSearchMergesAndSortsEveryOpenVaultsItems() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        // Listed in reverse title order on purpose: the merged list must sort.
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"z","type":"login","title":"Zebra"},{"id":"a","type":"login","title":"Apple"}]}"#
+        )
+
+        let proton = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: proton, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                ),
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(proton)
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+
+        XCTAssertEqual(model.allOpenItems.map(\.displayTitle), ["Apple", "Zebra"])
     }
 
     // MARK: - 1Password, read-only, per vault
@@ -709,5 +924,62 @@ final class AppModelTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(5))
         }
         XCTFail("condition did not hold within the timeout", file: file, line: line)
+    }
+
+    // MARK: - Browser scope hand-off
+
+    private static func itemID(vault: String, provider: ProviderID = .vaultwarden) -> VaultItemID {
+        VaultItemID(
+            space: VaultSpaceID(
+                account: AccountID(provider: provider, rawValue: vault), scope: .personal
+            ),
+            rawValue: "item"
+        )
+    }
+
+    /// A Quick Search hand-off lands on an item from any open vault, so the
+    /// browser has to recognise when its current scope cannot show that item —
+    /// otherwise the jump selects something invisible.
+    @MainActor
+    func testAllVaultsShowsEveryItem() {
+        let id = Self.itemID(vault: "a")
+        XCTAssertTrue(VaultBrowserView.scope(.allVaults, shows: id) { _, _ in false })
+    }
+
+    @MainActor
+    func testVaultScopeShowsOnlyItsOwnVault() {
+        let a = Self.itemID(vault: "a")
+        let ownScope = VaultScope.vault(a.account)
+        let otherScope = VaultScope.vault(AccountID(provider: .protonCLI, rawValue: "b"))
+        XCTAssertTrue(VaultBrowserView.scope(ownScope, shows: a) { _, _ in false })
+        XCTAssertFalse(VaultBrowserView.scope(otherScope, shows: a) { _, _ in true })
+    }
+
+    /// The case the account-only check gets wrong: a group scope of the item's
+    /// own vault still cannot show an item that lives in a different folder of
+    /// that vault, so membership has to be consulted rather than assumed.
+    @MainActor
+    func testGroupScopeConsultsGroupMembershipNotJustTheVault() {
+        let a = Self.itemID(vault: "a")
+        let sameVaultGroup = VaultScope.group(a.account, "Folder")
+        XCTAssertTrue(VaultBrowserView.scope(sameVaultGroup, shows: a) { _, _ in true })
+        XCTAssertFalse(
+            VaultBrowserView.scope(sameVaultGroup, shows: a) { _, _ in false },
+            "an item in another folder of the same vault is not in this list"
+        )
+    }
+
+    /// A group scope belonging to a different vault short-circuits without
+    /// consulting membership at all.
+    @MainActor
+    func testGroupScopeOfAnotherVaultNeverShowsTheItem() {
+        let a = Self.itemID(vault: "a")
+        let otherVaultGroup = VaultScope.group(
+            AccountID(provider: .protonCLI, rawValue: "b"), "Folder"
+        )
+        XCTAssertFalse(VaultBrowserView.scope(otherVaultGroup, shows: a) { _, _ in
+            XCTFail("membership must not be consulted for another vault's group")
+            return true
+        })
     }
 }

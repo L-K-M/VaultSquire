@@ -124,7 +124,17 @@ struct VaultSlot: Identifiable, Sendable {
     /// The containers inside this vault, in name order, with how many items
     /// each holds. Empty while the vault is closed, because it is derived from
     /// the open projections.
-    var groups: [VaultGroup] {
+    ///
+    /// Stored rather than computed. The sidebar reads this inside a `ForEach`
+    /// and the content column reads it again to resolve a scope's name, so as a
+    /// computed property it walked every item in the vault and sorted the
+    /// result several times per redraw — and the sidebar redraws on every model
+    /// change, including each sync's start and finish. It is now rebuilt once
+    /// per mutation instead, by the one funnel every mutation goes through.
+    private(set) var groups: [VaultGroup] = []
+
+    /// Rebuilds `groups` from the current items and folder names.
+    mutating func refreshGroups() {
         var counts: [String: Int] = [:]
         var names: [String: String] = [:]
         // Seed with every folder the account has, so one holding no items still
@@ -139,7 +149,7 @@ struct VaultSlot: Identifiable, Sendable {
                 names[key.id] = key.name
             }
         }
-        return counts
+        groups = counts
             .map { VaultGroup(id: $0.key, name: names[$0.key] ?? $0.key, count: $0.value) }
             .sorted { lhs, rhs in
                 // Two containers can legitimately share a name; the identifier
@@ -183,6 +193,7 @@ struct VaultSlot: Identifiable, Sendable {
     mutating func close() {
         state = .locked
         items = []
+        groups = []
         vaultwarden = nil
         proton = nil
         onePassword = nil
