@@ -83,6 +83,7 @@
 		C00000000000000000000007 /* QuickSearchPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* QuickSearchPanelController.swift */; };
 		C00000000000000000000008 /* QuickSearchPanelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000008 /* QuickSearchPanelModel.swift */; };
 		C00000000000000000000009 /* QuickSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000009 /* QuickSearchView.swift */; };
+		C000000000000000000000D0 /* CopyConfirmationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000D0 /* CopyConfirmationPanel.swift */; };
 		C0000000000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000A /* SettingsView.swift */; };
 		C000000000000000000000B3 /* ShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000B3 /* ShortcutRecorder.swift */; };
 		C0000000000000000000000B /* SandboxProcessProbeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000B /* SandboxProcessProbeView.swift */; };
@@ -251,6 +252,7 @@
 		B00000000000000000000007 /* QuickSearchPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchPanelController.swift; sourceTree = "<group>"; };
 		B00000000000000000000008 /* QuickSearchPanelModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchPanelModel.swift; sourceTree = "<group>"; };
 		B00000000000000000000009 /* QuickSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchView.swift; sourceTree = "<group>"; };
+		B000000000000000000000D0 /* CopyConfirmationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CopyConfirmationPanel.swift; path = VaultSquire/Features/QuickSearch/CopyConfirmationPanel.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000000A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B000000000000000000000B3 /* ShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShortcutRecorder.swift; path = VaultSquire/Features/Settings/ShortcutRecorder.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000000B /* SandboxProcessProbeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxProcessProbeView.swift; sourceTree = "<group>"; };
@@ -584,6 +586,7 @@
 				B00000000000000000000007 /* QuickSearchPanelController.swift */,
 				B00000000000000000000008 /* QuickSearchPanelModel.swift */,
 				B00000000000000000000009 /* QuickSearchView.swift */,
+				B000000000000000000000D0 /* CopyConfirmationPanel.swift */,
 			);
 			path = QuickSearch;
 			sourceTree = "<group>";
@@ -889,6 +892,7 @@
 				C00000000000000000000007 /* QuickSearchPanelController.swift in Sources */,
 				C00000000000000000000008 /* QuickSearchPanelModel.swift in Sources */,
 				C00000000000000000000009 /* QuickSearchView.swift in Sources */,
+				C000000000000000000000D0 /* CopyConfirmationPanel.swift in Sources */,
 				C0000000000000000000000A /* SettingsView.swift in Sources */,
 				C000000000000000000000B3 /* ShortcutRecorder.swift in Sources */,
 				C0000000000000000000000B /* SandboxProcessProbeView.swift in Sources */,

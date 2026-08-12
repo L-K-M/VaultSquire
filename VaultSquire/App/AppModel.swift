@@ -618,6 +618,7 @@ final class AppModel: ObservableObject {
             ApplicationCoordinator.shared.refreshQuickSearch()
         } else {
             ApplicationCoordinator.shared.dismissQuickSearch()
+        CopyConfirmationPanel.dismiss()
         }
         AppLog.record(.vaultLocked)
     }

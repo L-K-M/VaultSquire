@@ -105,6 +105,9 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
             onCancelCopy: onCancelCopy,
             onFinish: { [weak self] restoringFocus in
                 self?.dismiss(restoringFocus: restoringFocus)
+            },
+            onCopied: { copied in
+                CopyConfirmationPanel.show(copied)
             }
         )
         PerformanceTrace.record(.quickSearchVisible)

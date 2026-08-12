@@ -83,6 +83,7 @@ final class QuickSearchPanelModel: ObservableObject {
     private var onCopy: ((QuickSearchCopy, VaultItemID) async -> SecretCopyOutcome)?
     private var onCancelCopy: ((VaultItemID) -> Void)?
     private var onFinish: ((Bool) -> Void)?
+    private var onCopied: ((QuickSearchCopy) -> Void)?
     private var activeCopy: Task<Void, Never>?
     /// The searchable text of each item, lowercased once when the item set is
     /// assigned. Matching re-reads these on every keystroke, and lowercasing a
@@ -142,6 +143,7 @@ final class QuickSearchPanelModel: ObservableObject {
         onCopy = nil
         onCancelCopy = nil
         onFinish = nil
+        onCopied = nil
         // The `query` didSet only fires when the value actually changes, so
         // Escape on an untouched panel would otherwise leave the results and
         // the highlight standing. Reset them explicitly afterwards.
@@ -161,7 +163,8 @@ final class QuickSearchPanelModel: ObservableObject {
         onOpen: ((VaultItemID) -> Void)?,
         onCopy: ((QuickSearchCopy, VaultItemID) async -> SecretCopyOutcome)? = nil,
         onCancelCopy: ((VaultItemID) -> Void)? = nil,
-        onFinish: ((Bool) -> Void)? = nil
+        onFinish: ((Bool) -> Void)? = nil,
+        onCopied: ((QuickSearchCopy) -> Void)? = nil
     ) {
         self.items = items
         self.rows = items.map(Row.init)
@@ -171,6 +174,7 @@ final class QuickSearchPanelModel: ObservableObject {
         self.onCopy = onCopy
         self.onCancelCopy = onCancelCopy
         self.onFinish = onFinish
+        self.onCopied = onCopied
         recomputeResults()
         notePresented()
     }
@@ -304,6 +308,10 @@ final class QuickSearchPanelModel: ObservableObject {
             self.activeCopy = nil
             switch outcome {
             case .copied:
+                // Announced before the dismissal, because the dismissal is
+                // what makes a successful copy invisible: the panel goes and
+                // the user is looking at their own window again.
+                self.onCopied?(value)
                 self.onFinish?(true)
             case .cancelled:
                 self.actionState = .idle
