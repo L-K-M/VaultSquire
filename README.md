@@ -210,6 +210,9 @@ Read the documents in this order:
 22. [`docs/security-review/2026-08-11-adversarial-review.md`](docs/security-review/2026-08-11-adversarial-review.md):
     the 2026-08 adversarial security review findings, remediations, and
     documented follow-ups (subordinate evidence).
+23. [`docs/reviews/2026-08-12-open-pr-consolidation.md`](docs/reviews/2026-08-12-open-pr-consolidation.md):
+    what was taken from forty concurrently open pull requests, what was
+    superseded, and the backlog left open (subordinate evidence).
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and
