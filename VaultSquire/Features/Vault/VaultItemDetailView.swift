@@ -20,9 +20,17 @@ struct VaultItemDetailView: View {
     static let revealTimeout: TimeInterval = 30
 
     @State private var revealed: Set<String> = []
-    /// The live reveal window per field, so a re-reveal cannot be cut short by
-    /// the timer belonging to an earlier one.
-    @State private var revealTokens: [String: UUID] = [:]
+    /// The live re-conceal timer per field.
+    ///
+    /// Held so it can be cancelled, for two reasons. A re-reveal must not be
+    /// cut short by the timer belonging to an earlier one. And every one of
+    /// these closures captures `self` — a `View` struct whose stored `detail`
+    /// is the fully decrypted item — so a timer left sleeping keeps every
+    /// plaintext field of that item alive for its whole duration, including
+    /// after the view is gone and the vault is locked.
+    @State private var revealTasks: [String: Task<Void, Never>] = [:]
+    /// The same, for the copy confirmation's own timer.
+    @State private var copyResetTask: Task<Void, Never>?
     /// The last copy made from this item, so the button can confirm it happened
     /// and — for a secret — say how long it stays on the clipboard.
     @State private var lastCopy: CopyReceipt?
@@ -58,6 +66,7 @@ struct VaultItemDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background { copyShortcuts }
+        .onDisappear(perform: cancelPendingTimers)
         .accessibilityIdentifier("vault-item-detail")
         .confirmationDialog(
             "Open this link?",
@@ -72,7 +81,7 @@ struct VaultItemDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if let decision = pendingOpen {
-                Text("VaultSquire will hand \(decision.display) to your default browser. Nothing from this vault is sent with it.")
+                Text(decision.confirmationMessage)
             }
         }
     }
@@ -210,8 +219,6 @@ struct VaultItemDetailView: View {
                     Spacer(minLength: 12)
                     copyButton(field, value: generated.code, isSecret: true)
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("One-time code, \(remaining) seconds remaining")
             } else {
                 Text("Unreadable one-time code seed")
                     .font(.callout)
@@ -270,8 +277,8 @@ struct VaultItemDetailView: View {
                 let remaining = max(0, Int(expiresAt.timeIntervalSince(context.date).rounded(.up)))
                 Label(
                     remaining > 0
-                        ? "Copied — the clipboard clears in \(remaining)s"
-                        : "Copied — the clipboard has been cleared",
+                        ? "Copied — VaultSquire clears it in \(remaining)s"
+                        : "Copied — this copy has expired",
                     systemImage: "checkmark.circle"
                 )
                 .font(.caption)
@@ -298,11 +305,13 @@ struct VaultItemDetailView: View {
             lastCopy = CopyReceipt(fieldID: field.id, expiresAt: nil)
         }
         let receipt = lastCopy
-        Task { @MainActor in
+        copyResetTask?.cancel()
+        copyResetTask = Task { @MainActor in
             // A non-secret confirmation is a flash; a secret's stays as long as
             // the value it is counting down.
             let seconds = receipt?.expiresAt == nil ? 2.0 : ClipboardService.defaultSecretExpiry + 1
             try? await Task.sleep(for: .milliseconds(Int(seconds * 1_000)))
+            guard !Task.isCancelled else { return }
             if lastCopy == receipt {
                 lastCopy = nil
             }
@@ -326,22 +335,33 @@ struct VaultItemDetailView: View {
     }
 
     private func toggleReveal(_ id: String) {
+        // Whichever way this goes, the window that was running is over.
+        revealTasks.removeValue(forKey: id)?.cancel()
         if revealed.contains(id) {
             revealed.remove(id)
             return
         }
         revealed.insert(id)
-        // Each reveal carries its own token. Hiding and revealing the same
-        // field again starts a fresh window instead of inheriting the first
-        // one's deadline, which would re-conceal the second reveal early.
-        let token = UUID()
-        revealTokens[id] = token
-        Task { @MainActor in
+        revealTasks[id] = Task { @MainActor in
             try? await Task.sleep(for: .seconds(Self.revealTimeout))
-            guard revealTokens[id] == token else { return }
-            revealTokens[id] = nil
+            guard !Task.isCancelled else { return }
+            revealTasks[id] = nil
             revealed.remove(id)
         }
+    }
+
+    /// Drops every timer this view started. Each one captures the decrypted
+    /// item, so leaving them to expire on their own would keep an item's
+    /// plaintext alive after the user navigated away from it.
+    private func cancelPendingTimers() {
+        for task in revealTasks.values {
+            task.cancel()
+        }
+        revealTasks = [:]
+        copyResetTask?.cancel()
+        copyResetTask = nil
+        revealed = []
+        lastCopy = nil
     }
 
     /// Shortcuts for the two copies that make up nearly every use of this app.
@@ -355,13 +375,19 @@ struct VaultItemDetailView: View {
                 Button("Copy Username") { copy(username.value, from: username, isSecret: false) }
                     .keyboardShortcut("c", modifiers: [.command, .option])
             }
-            if let password = detail.fields.first(where: { $0.kind == .secret }) {
+            // Only for a login: a card's security code is a `.secret` field
+            // too, and "Copy Password" must not silently reach for that.
+            if detail.category == .login,
+               let password = detail.fields.first(where: { $0.kind == .secret }) {
                 Button("Copy Password") { copy(password.value, from: password, isSecret: true) }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
             }
         }
         .opacity(0)
         .frame(width: 0, height: 0)
+        // An opacity-zero view is still hit-testable, and these sit at the
+        // container's origin where they would swallow clicks.
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 

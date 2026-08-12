@@ -37,12 +37,9 @@ struct VaultBrowserView: View {
     }
 
     private var filteredItems: [VaultItemProjection] {
-        // `appModel.items` sorts on every access, so bind it once per
-        // evaluation rather than paying for a second sort in the filter path.
-        let items = appModel.items
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return items }
-        return items.filter { Self.matches($0, query: trimmed) }
+        guard !trimmed.isEmpty else { return appModel.items }
+        return appModel.items.filter { Self.matches($0, query: trimmed) }
     }
 
     var body: some View {
@@ -68,6 +65,13 @@ struct VaultBrowserView: View {
             // user's context narrows rather than resets.
             if !scopeContains(newValue) {
                 appModel.scope = .vault(newValue.account)
+            }
+            // A filter left in the search field can hide the handed-off item
+            // even once the scope is right, which would select a row the list
+            // does not render. Quick Search asked for this item by name, so the
+            // filter is what gives way.
+            if !filteredItems.contains(where: { $0.id == newValue }) {
+                query = ""
             }
             selection = newValue
             appModel.clearQuickSearchSelection()
@@ -653,7 +657,7 @@ struct VaultBrowserView: View {
                     // abbreviated form ("2 min ago") also keeps it short. The
                     // timeline re-evaluates the relative wording, so it cannot
                     // sit at "2 min ago" for the rest of the session.
-                    TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    TimelineView(.periodic(from: date, by: 60)) { _ in
                         Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
                             .font(.caption)
                             .foregroundStyle(.secondary)
