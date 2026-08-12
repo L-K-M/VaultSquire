@@ -9,7 +9,13 @@ final class AccountDescriptorStoreTests: XCTestCase {
     private func makeStore() -> (AccountDescriptorStore, UserDefaults, String) {
         let suite = "VSQ-descriptors-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        // Only the suite name is captured. `UserDefaults` is not `Sendable`, so
+        // sending the instance itself into the teardown block is a data-race
+        // error under Swift 6 unless the whole case is actor-isolated, which a
+        // test for a plain value type has no reason to be.
+        addTeardownBlock {
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        }
         return (AccountDescriptorStore(defaults: defaults), defaults, suite)
     }
 
