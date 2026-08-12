@@ -9,6 +9,12 @@ struct SettingsView: View {
     /// observable and nothing else changes this while the window is up.
     @State private var autoLockMinutes = AutoLockController.shared.inactivityMinutes
 
+    /// The Quick Search chord. Observed, not read once like `autoLockMinutes`:
+    /// the recorder writes it while this window is open and the row has to
+    /// redraw.
+    @StateObject private var shortcuts = QuickSearchShortcutStore.shared
+    @StateObject private var recorder = ShortcutRecorder()
+
     /// How wide a paragraph is allowed to want to be.
     ///
     /// `fixedSize(horizontal: false, vertical: true)` fixes only the vertical
@@ -30,7 +36,7 @@ struct SettingsView: View {
                 // works while VaultSquire is the active application, not a
                 // system-wide hotkey. Calling it the "app shortcut" read as a
                 // promise of the latter.
-                LabeledContent("In-app Quick Search", value: "Command-Shift-Space")
+                quickSearchShortcutRow
                 LabeledContent("Vault state", value: vaultStateDescription)
 
                 Divider()
@@ -79,7 +85,64 @@ struct SettingsView: View {
         // A minimum rather than a fixed size: these tabs are mostly prose, and
         // at any increased text size a pinned height clips the last paragraph.
         .frame(minWidth: 560, minHeight: 400)
+        // The recorder's monitor is app-wide while armed, so closing Settings
+        // mid-recording must disarm it.
+        .onDisappear { recorder.stop() }
         .accessibilityIdentifier("settings-view")
+    }
+
+    /// The Quick Search chord.
+    ///
+    /// Still named "in-app", and the caption now says so outright rather than
+    /// leaving it to one adjective: making the chord configurable changes which
+    /// keys open Quick Search, not when it is listening. It is a menu key
+    /// equivalent and fires only while VaultSquire is frontmost.
+    @ViewBuilder
+    private var quickSearchShortcutRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("In-app Quick Search") {
+                HStack(spacing: 8) {
+                    Button(recorder.isRecording
+                        ? "Press a shortcut…"
+                        : shortcuts.shortcut.displayName
+                    ) {
+                        if recorder.isRecording {
+                            recorder.stop()
+                        } else {
+                            recorder.start { shortcuts.set($0) }
+                        }
+                    }
+                    .accessibilityIdentifier("settings-quick-search-shortcut")
+
+                    if shortcuts.shortcut != .default {
+                        Button("Reset") {
+                            recorder.stop()
+                            shortcuts.resetToDefault()
+                        }
+                        .accessibilityIdentifier("settings-quick-search-shortcut-reset")
+                    }
+                }
+            }
+
+            Group {
+                if recorder.isRecording {
+                    Text("Hold Command with the key you want. Press Escape to leave it as it is.")
+                        .foregroundStyle(.secondary)
+                } else if let refusal = recorder.refusal {
+                    Text(refusal)
+                        .foregroundStyle(.red)
+                } else if shortcuts.storedValueWasRejected {
+                    Text("The saved shortcut wasn't usable, so VaultSquire is using \(QuickSearchShortcut.default.displayName).")
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Opens Quick Search while VaultSquire is the active application. This is a menu shortcut, not a system-wide hotkey, so it does nothing while you are working in another app.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: Self.proseWidth, alignment: .leading)
     }
 
     /// The idle timeout, which until now could only be set with `defaults

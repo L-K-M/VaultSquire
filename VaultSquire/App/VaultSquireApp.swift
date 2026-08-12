@@ -7,6 +7,10 @@ struct VaultSquireApp: App {
     /// Owned at the root so the browser and Settings see one store: the switch
     /// in Settings has to change what the item list draws immediately.
     @StateObject private var siteIcons = SiteIconStore()
+    /// The configurable Quick Search chord. Held here so `VaultCommands` can
+    /// observe it: the menu bar has to show and honour a new chord without a
+    /// relaunch.
+    @StateObject private var shortcuts = QuickSearchShortcutStore.shared
 
     init() {
         PerformanceTrace.record(.applicationLaunchStarted)
@@ -37,21 +41,11 @@ struct VaultSquireApp: App {
         .defaultSize(width: 820, height: 560)
         .windowResizability(.contentMinSize)
         .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("Quick Search") {
-                    ApplicationCoordinator.shared.showQuickSearch()
-                }
-                .keyboardShortcut(" ", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button("Lock Vault") {
-                    appModel.lock()
-                    // Icons are drawn from the sites in the vault, so a lock
-                    // clears them along with everything else it decrypted.
-                    siteIcons.clear()
-                }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
+            VaultCommands(shortcuts: shortcuts) {
+                appModel.lock()
+                // Icons are drawn from the sites in the vault, so a lock
+                // clears them along with everything else it decrypted.
+                siteIcons.clear()
             }
         }
 
@@ -66,5 +60,39 @@ struct VaultSquireApp: App {
         // window wider than the display, with its leading edge, and therefore
         // the labels, off the screen entirely.
         .defaultSize(width: 620, height: 520)
+    }
+}
+
+/// VaultSquire's menu commands.
+///
+/// A `Commands`-conforming struct rather than an inline `.commands { }` body
+/// for one reason: it has to observe `QuickSearchShortcutStore`, and property
+/// wrappers cannot be declared inside a `CommandsBuilder` closure.
+///
+/// Whether SwiftUI re-applies a changed `keyboardShortcut` to an
+/// already-installed `NSMenuItem` is not something SwiftUI promises, so
+/// `QuickSearchShortcutStore.set` also writes the chord onto the live menu item
+/// through `MainMenuShortcuts`. The two cannot diverge — both read this one
+/// store — so whichever of them is the one that actually works, the menu shows
+/// and honours the same chord.
+struct VaultCommands: Commands {
+    @ObservedObject var shortcuts: QuickSearchShortcutStore
+    let onLock: () -> Void
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button(QuickSearchShortcutStore.menuItemTitle) {
+                ApplicationCoordinator.shared.showQuickSearch()
+            }
+            .keyboardShortcut(
+                shortcuts.shortcut.keyEquivalent,
+                modifiers: shortcuts.shortcut.eventModifiers
+            )
+
+            Divider()
+
+            Button("Lock Vault", action: onLock)
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+        }
     }
 }

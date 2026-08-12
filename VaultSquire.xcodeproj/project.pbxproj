@@ -11,9 +11,12 @@
 		C00000000000000000000085 /* SiteIconStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000088 /* SiteIconStore.swift */; };
 		C00000000000000000000086 /* ItemIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000089 /* ItemIconView.swift */; };
 		C00000000000000000000087 /* ItemIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008A /* ItemIconTests.swift */; };
+		C000000000000000000000B4 /* QuickSearchShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000B4 /* QuickSearchShortcutTests.swift */; };
 		C00000000000000000000093 /* VaultItemDetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000096 /* VaultItemDetailTests.swift */; };
 		C000000000000000000000A0 /* AccountDescriptorStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000A0 /* AccountDescriptorStoreTests.swift */; };
 		C00000000000000000000076 /* VaultSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000079 /* VaultSlot.swift */; };
+		C000000000000000000000B2 /* QuickSearchShortcutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000B2 /* QuickSearchShortcutStore.swift */; };
+		C000000000000000000000B1 /* QuickSearchShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000B1 /* QuickSearchShortcut.swift */; };
 		C00000000000000000000077 /* VaultBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007A /* VaultBrowserView.swift */; };
 		C00000000000000000000073 /* BiometricVaultKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000076 /* BiometricVaultKeyStore.swift */; };
 		C00000000000000000000074 /* FakeBiometricVaultKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000077 /* FakeBiometricVaultKeyStore.swift */; };
@@ -80,6 +83,7 @@
 		C00000000000000000000008 /* QuickSearchPanelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000008 /* QuickSearchPanelModel.swift */; };
 		C00000000000000000000009 /* QuickSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000009 /* QuickSearchView.swift */; };
 		C0000000000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000A /* SettingsView.swift */; };
+		C000000000000000000000B3 /* ShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000B3 /* ShortcutRecorder.swift */; };
 		C0000000000000000000000B /* SandboxProcessProbeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000B /* SandboxProcessProbeView.swift */; };
 		C0000000000000000000000C /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000C /* AppLog.swift */; };
 		C0000000000000000000000D /* PerformanceTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000D /* PerformanceTrace.swift */; };
@@ -175,9 +179,12 @@
 		B00000000000000000000088 /* SiteIconStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SiteIconStore.swift; path = VaultSquire/Features/Vault/SiteIconStore.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000089 /* ItemIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconView.swift; path = VaultSquire/Features/Vault/ItemIconView.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000008A /* ItemIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconTests.swift; path = VaultSquireTests/ItemIconTests.swift; sourceTree = SOURCE_ROOT; };
+		B000000000000000000000B4 /* QuickSearchShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickSearchShortcutTests.swift; path = VaultSquireTests/QuickSearchShortcutTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000096 /* VaultItemDetailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDetailTests.swift; path = VaultSquireTests/VaultItemDetailTests.swift; sourceTree = SOURCE_ROOT; };
 		B000000000000000000000A0 /* AccountDescriptorStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AccountDescriptorStoreTests.swift; path = VaultSquireTests/AccountDescriptorStoreTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000079 /* VaultSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultSlot.swift; path = VaultSquire/App/VaultSlot.swift; sourceTree = SOURCE_ROOT; };
+		B000000000000000000000B2 /* QuickSearchShortcutStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickSearchShortcutStore.swift; path = VaultSquire/App/QuickSearchShortcutStore.swift; sourceTree = SOURCE_ROOT; };
+		B000000000000000000000B1 /* QuickSearchShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickSearchShortcut.swift; path = VaultSquire/App/QuickSearchShortcut.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000007A /* VaultBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultBrowserView.swift; path = VaultSquire/Features/Vault/VaultBrowserView.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000076 /* BiometricVaultKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BiometricVaultKeyStore.swift; path = VaultSquire/Persistence/BiometricVaultKeyStore.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000077 /* FakeBiometricVaultKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FakeBiometricVaultKeyStore.swift; path = VaultSquireTests/FakeBiometricVaultKeyStore.swift; sourceTree = SOURCE_ROOT; };
@@ -243,6 +250,7 @@
 		B00000000000000000000008 /* QuickSearchPanelModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchPanelModel.swift; sourceTree = "<group>"; };
 		B00000000000000000000009 /* QuickSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchView.swift; sourceTree = "<group>"; };
 		B0000000000000000000000A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B000000000000000000000B3 /* ShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShortcutRecorder.swift; path = VaultSquire/Features/Settings/ShortcutRecorder.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000000B /* SandboxProcessProbeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxProcessProbeView.swift; sourceTree = "<group>"; };
 		B0000000000000000000000C /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		B0000000000000000000000D /* PerformanceTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTrace.swift; sourceTree = "<group>"; };
@@ -535,6 +543,8 @@
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000079 /* VaultSlot.swift */,
+				B000000000000000000000B2 /* QuickSearchShortcutStore.swift */,
+				B000000000000000000000B1 /* QuickSearchShortcut.swift */,
 				B00000000000000000000001 /* VaultSquireApp.swift */,
 				B00000000000000000000002 /* AppDelegate.swift */,
 				B00000000000000000000003 /* AppModel.swift */,
@@ -579,6 +589,7 @@
 			isa = PBXGroup;
 			children = (
 				B0000000000000000000000A /* SettingsView.swift */,
+				B000000000000000000000B3 /* ShortcutRecorder.swift */,
 				B0000000000000000000000B /* SandboxProcessProbeView.swift */,
 			);
 			path = Settings;
@@ -643,6 +654,7 @@
 			isa = PBXGroup;
 			children = (
 				B0000000000000000000008A /* ItemIconTests.swift */,
+				B000000000000000000000B4 /* QuickSearchShortcutTests.swift */,
 				B00000000000000000000096 /* VaultItemDetailTests.swift */,
 				B000000000000000000000A0 /* AccountDescriptorStoreTests.swift */,
 				B00000000000000000000077 /* FakeBiometricVaultKeyStore.swift */,
@@ -843,6 +855,8 @@
 				C00000000000000000000085 /* SiteIconStore.swift in Sources */,
 				C00000000000000000000086 /* ItemIconView.swift in Sources */,
 				C00000000000000000000076 /* VaultSlot.swift in Sources */,
+				C000000000000000000000B2 /* QuickSearchShortcutStore.swift in Sources */,
+				C000000000000000000000B1 /* QuickSearchShortcut.swift in Sources */,
 				C00000000000000000000077 /* VaultBrowserView.swift in Sources */,
 				C00000000000000000000073 /* BiometricVaultKeyStore.swift in Sources */,
 				C00000000000000000000071 /* ProtonConnectModel.swift in Sources */,
@@ -872,6 +886,7 @@
 				C00000000000000000000008 /* QuickSearchPanelModel.swift in Sources */,
 				C00000000000000000000009 /* QuickSearchView.swift in Sources */,
 				C0000000000000000000000A /* SettingsView.swift in Sources */,
+				C000000000000000000000B3 /* ShortcutRecorder.swift in Sources */,
 				C0000000000000000000000B /* SandboxProcessProbeView.swift in Sources */,
 				C0000000000000000000000C /* AppLog.swift in Sources */,
 				C0000000000000000000000D /* PerformanceTrace.swift in Sources */,
@@ -929,6 +944,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C00000000000000000000087 /* ItemIconTests.swift in Sources */,
+				C000000000000000000000B4 /* QuickSearchShortcutTests.swift in Sources */,
 				C00000000000000000000093 /* VaultItemDetailTests.swift in Sources */,
 				C000000000000000000000A0 /* AccountDescriptorStoreTests.swift in Sources */,
 				C00000000000000000000074 /* FakeBiometricVaultKeyStore.swift in Sources */,
