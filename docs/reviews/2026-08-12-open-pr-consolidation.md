@@ -106,17 +106,36 @@ decompression limits, a `securityStamp` rotation detector, a durable
 `reauthenticationRequired` marker, session-generation saturation, lock
 ordering with `LAContext` invalidation, and fail-closed descriptor decoding.
 
-**Recommendation:** close #30 as a branch and re-raise its genuinely-new work as
-its own pull requests against current `main`, each with the macOS evidence its
-change needs. They are not included here: grafting ten delicate security changes
-blind, in an environment with no compiler, into an already large consolidation
-is exactly how a security-critical merge goes wrong.
+**Disposition:** #30 was closed as a branch and its genuinely-new work re-raised
+as five pull requests, listed below. None of it was folded into this
+consolidation: grafting ten delicate security changes blind, in an environment
+with no compiler, into an already large branch is exactly how a
+security-critical merge goes wrong.
 
-### How to extract it
+### How it was extracted
 
-Group by review surface rather than one pull request per change — the reviewer
-for CLI process handling is not the reviewer for icon fetching. Order is by
-value over risk.
+Grouped by review surface rather than one pull request per change — the reviewer
+for CLI process handling is not the reviewer for icon fetching. Ordered by value
+over risk. All five are open:
+
+| | Extraction | Pull request | Based on |
+|---|---|---|---|
+| 1 | Bound the CLI process streams | [#74](https://github.com/L-K-M/VaultSquire/pull/74) | `main` |
+| 2 | Harden the icon fetch | [#77](https://github.com/L-K-M/VaultSquire/pull/77) | this branch |
+| 3 | Fail closed on corrupt stored descriptors | [#75](https://github.com/L-K-M/VaultSquire/pull/75) | `main` |
+| 4 | Harden the transport | [#76](https://github.com/L-K-M/VaultSquire/pull/76) | `main` |
+| 5 | Bound TOTP input | [#78](https://github.com/L-K-M/VaultSquire/pull/78) | this branch |
+
+The first three touch files this consolidation does not, so they go to `main`
+directly and can land in any order. The last two touch files this branch
+rewrote — the icon store's publishing and the Steam Guard seed path — so they
+are written on top of it and need it merged first.
+
+None of the five is compiled: the `macOS Product` lane is the first build for
+each. Each states its own unverified assumptions.
+
+The plan they were written from follows, kept because it records what each one
+was meant to contain and what it was meant to leave behind.
 
 1. **Bound the CLI process streams.** `CLIProcessExecutor` counts bytes before
    they enter the async drain and terminates the child on the bound, and the
@@ -130,7 +149,7 @@ value over risk.
    generation and cancel in-flight fetches on lock so a late response cannot
    repopulate. This is the one feature that sends anything vault-derived off the
    device, so it earns its own review. Must be written on top of the icon
-   publish-batching already merged, not cherry-picked over it.
+   publish-batching on this branch, not cherry-picked over it.
 3. **Fail closed on corrupt stored descriptors.** Unreadable preferences must
    not be treated as an empty account list and overwritten. Small.
 4. **Harden the transport.** Path canonicalization, an explicit redirect policy,
