@@ -232,17 +232,7 @@ struct VaultItemDetailView: View {
     /// way.
     @ViewBuilder
     private func totpContent(_ field: VaultItemDetail.DetailField, at date: Date) -> some View {
-        let generated: VaultwardenTOTP.Generated?
-        if let cached = totpCache[field.id], date < cached.periodEnd {
-            generated = cached
-        } else if let fresh = VaultwardenTOTP.generate(seed: field.value, at: date) {
-            totpCache[field.id] = fresh
-            generated = fresh
-        } else {
-            generated = nil
-        }
-
-        if let generated {
+        if let generated = totpGenerated(field, at: date) {
             let remaining = max(
                 0, Int(generated.periodEnd.timeIntervalSince(date).rounded(.up))
             )
@@ -264,6 +254,24 @@ struct VaultItemDetailView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// The generated code for `field` at `date`: the cached one while its
+    /// window is still live, a freshly derived one once it has rolled over.
+    /// The seed is re-parsed and the HMAC re-run only at that rollover, not on
+    /// every one-second tick.
+    private func totpGenerated(
+        _ field: VaultItemDetail.DetailField,
+        at date: Date
+    ) -> VaultwardenTOTP.Generated? {
+        if let cached = totpCache[field.id], date < cached.periodEnd {
+            return cached
+        }
+        guard let fresh = VaultwardenTOTP.generate(seed: field.value, at: date) else {
+            return nil
+        }
+        totpCache[field.id] = fresh
+        return fresh
     }
 
     /// The window the current code is still good for. A ring drains where a
