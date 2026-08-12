@@ -33,6 +33,14 @@ final class SiteIconStore: ObservableObject {
     /// so the off-actor fetcher enforces it mid-transfer.
     nonisolated static let maximumIconBytes = 256 * 1024
 
+    /// How long resolved icons are held before they are published together.
+    /// Every row in the list, the sidebar, and the detail observe this store,
+    /// so publishing one icon at a time invalidated the whole window once per
+    /// site in the vault — arriving as a burst the moment a vault opened, which
+    /// is exactly when the list is being scrolled. A window this short is
+    /// imperceptible and turns that burst into a handful of updates.
+    static let publishInterval: Duration = .milliseconds(120)
+
     @Published private(set) var images: [String: NSImage] = [:]
 
     /// Whether icons are fetched at all. Turning it off drops what was fetched,
@@ -43,8 +51,7 @@ final class SiteIconStore: ObservableObject {
             guard oldValue != isEnabled else { return }
             defaults.set(isEnabled, forKey: Self.preferenceKey)
             if !isEnabled {
-                images = [:]
-                attemptedHosts = []
+                clear()
             }
         }
     }
@@ -53,6 +60,10 @@ final class SiteIconStore: ObservableObject {
     /// icon is asked once and then left alone; without this, scrolling past it
     /// would re-request forever.
     private var attemptedHosts: Set<String> = []
+    /// Icons resolved since the last publish, held for one short window so a
+    /// vault's worth of them lands as a few updates rather than hundreds.
+    private var pendingImages: [String: NSImage] = [:]
+    private var publishTask: Task<Void, Never>?
     private let defaults: UserDefaults
     private let fetch: @Sendable (URL) async -> Data?
 
@@ -74,15 +85,22 @@ final class SiteIconStore: ObservableObject {
         return images[host]
     }
 
+    /// Everything held for this host, published or waiting to be. Used by the
+    /// duplicate-request check so a host resolved moments ago is not fetched
+    /// again before it has been published.
+    private func isKnown(_ host: String) -> Bool {
+        images[host] != nil || pendingImages[host] != nil
+    }
+
     /// Fetches one host's icon if it is wanted and not already known. Safe to
     /// call from every row on every redraw: it is a no-op for a host that is
     /// cached, already in flight, or already found to have nothing.
     func load(_ host: String?) async {
         guard isEnabled,
               let host,
-              images[host] == nil,
+              !isKnown(host),
               !attemptedHosts.contains(host),
-              images.count < Self.maximumCachedIcons,
+              images.count + pendingImages.count < Self.maximumCachedIcons,
               let url = ItemIconIdentity.iconURL(forHost: host) else {
             return
         }
@@ -94,12 +112,36 @@ final class SiteIconStore: ObservableObject {
         // A host that answers 200 with an HTML error page decodes to nothing,
         // which is indistinguishable from having no icon, and treated as such.
         guard let image = NSImage(data: data), image.isValid, image.size.width > 0 else { return }
-        images[host] = image
+        // Held rather than published, so a vault's worth of icons resolving at
+        // once does not invalidate every row in the window once each.
+        guard isEnabled else { return }
+        pendingImages[host] = image
+        schedulePublish()
+    }
+
+    private func schedulePublish() {
+        guard publishTask == nil else { return }
+        publishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.publishInterval)
+            self?.publishTask = nil
+            self?.publishPendingImages()
+        }
+    }
+
+    /// Moves what has resolved into the published map in one change. Left
+    /// internal so a test can drive it without waiting on the window.
+    func publishPendingImages() {
+        guard !pendingImages.isEmpty else { return }
+        images.merge(pendingImages) { _, resolved in resolved }
+        pendingImages = [:]
     }
 
     /// Drops every fetched icon. Called when the last vault locks, so the
     /// window stops showing which sites were in it.
     func clear() {
+        publishTask?.cancel()
+        publishTask = nil
+        pendingImages = [:]
         images = [:]
         attemptedHosts = []
     }

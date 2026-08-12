@@ -20,6 +20,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// A Dock click on a running, windowless app reopens the main scene.
+    /// With the main scene a `WindowGroup`, AppKit/SwiftUI recreate the window
+    /// themselves; returning true keeps that default behavior. Returning false
+    /// here would leave a user who closed the window with no way back except
+    /// relaunching.
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        true
+    }
+
     /// Restoration is disabled per window (`WindowRestorationDisabler`) and by
     /// `NSQuitAlwaysKeepsWindows`. Returning `true` here does not re-enable it; it
     /// selects the secure archiver for any state AppKit still encodes, which is the
