@@ -113,6 +113,116 @@ final class ItemIconTests: XCTestCase {
     func testNoIconURLWithoutAHost() {
         XCTAssertNil(ItemIconIdentity(title: "Passport", websites: []).iconURL)
     }
+
+    // MARK: - Which hosts may be asked
+
+    /// A vault holds the router and the NAS next to the websites. Turning the
+    /// icon switch on must not start probing them.
+    func testAddressLiteralsAreRefused() {
+        for website in [
+            "https://192.168.1.1/", "http://10.0.0.1", "172.16.4.9",
+            "https://127.0.0.1:8080/admin", "8.8.8.8", "https://169.254.169.254/"
+        ] {
+            let host = ItemIconIdentity.host(from: website)
+            XCTAssertNotNil(host, "\(website) still names a site to the row")
+            XCTAssertFalse(ItemIconIdentity.isSafeIconHost(host ?? ""), website)
+            XCTAssertNil(host.flatMap(ItemIconIdentity.iconURL(forHost:)), website)
+        }
+    }
+
+    /// Only the request is refused, never the row's identity. Five LAN logins
+    /// have to stay five distinguishable rows rather than collapse into one
+    /// identical category badge, which is what a nil host would do to them.
+    func testARefusedHostKeepsItsLetterAndItsColour() {
+        let router = ItemIconIdentity(title: "Home Router", websites: ["https://192.168.1.1"])
+        let nas = ItemIconIdentity(title: "Synology NAS", websites: ["https://nas.local"])
+
+        XCTAssertNotNil(router.host)
+        XCTAssertNotNil(nas.host)
+        XCTAssertNil(router.iconURL, "and neither is ever asked for artwork")
+        XCTAssertNil(nas.iconURL)
+        XCTAssertNotEqual(router.hue, nas.hue)
+        XCTAssertEqual(nas.monogram, "N")
+    }
+
+    /// The octal and hexadecimal spellings of an address exist to slip past a
+    /// check that only knows dotted decimal.
+    func testAlternativeAddressSpellingsAreRefused() {
+        for host in ["0x7f.0x0.0x0.0x1", "0177.0.0.1", "0x7f.0.0.1"] {
+            XCTAssertFalse(ItemIconIdentity.isSafeIconHost(host), host)
+        }
+    }
+
+    /// An IPv6 literal never reaches the label rules — the colons are not
+    /// characters a host this builds an address from may contain.
+    func testIPv6LiteralsAreRefused() {
+        for host in ["::1", "[::1]", "fe80::1", "::ffff:192.168.1.1"] {
+            XCTAssertFalse(ItemIconIdentity.isSafeIconHost(host), host)
+        }
+        XCTAssertNil(ItemIconIdentity.host(from: "https://[::1]/favicon.ico"))
+    }
+
+    /// Names that resolve on the user's own network, or that a development
+    /// machine routinely points at loopback.
+    func testLocalOnlySuffixesAreRefused() {
+        for host in [
+            "nas.local", "router.lan", "printer.home", "vault.internal",
+            "wiki.intranet", "git.corp", "app.private", "host.localdomain",
+            "api.localhost", "dev.test", "1.0.0.127.in-addr.arpa",
+            "abcdefgh.onion"
+        ] {
+            XCTAssertFalse(ItemIconIdentity.isSafeIconHost(host), host)
+            XCTAssertNil(ItemIconIdentity.iconURL(forHost: host), host)
+        }
+    }
+
+    /// Malformed names are refused rather than normalized into something that
+    /// might resolve differently from what was checked.
+    func testMalformedHostsAreRefused() {
+        let tooLongLabel = String(repeating: "a", count: 64) + ".example.com"
+        let tooLongHost = Array(repeating: "abcdefghij", count: 26).joined(separator: ".")
+        for host in [
+            "", ".example.com", "example.com.", "a..b.com", "-bad.example.com",
+            "bad-.example.com", "user:pass@example.com", "example.com:8443",
+            "exa mple.com", "münchen.de", "single", tooLongLabel, tooLongHost
+        ] {
+            XCTAssertFalse(ItemIconIdentity.isSafeIconHost(host), host)
+        }
+    }
+
+    /// The refusals have to leave ordinary sites alone, including the punycode
+    /// form an internationalized name is actually carried as.
+    func testPublicHostsAreStillAccepted() {
+        for host in [
+            "github.com", "mail.example.co.uk", "xn--bcher-kva.de",
+            "1password.com", "3m.com", "a-b.example.org"
+        ] {
+            XCTAssertTrue(ItemIconIdentity.isSafeIconHost(host), host)
+            XCTAssertNotNil(ItemIconIdentity.iconURL(forHost: host), host)
+        }
+    }
+
+    /// An entry whose first website is a router keeps its icon: the next
+    /// website that names a real site is used instead.
+    func testAnUnsafeWebsiteFallsThroughToTheNextOne() {
+        let identity = ItemIconIdentity(
+            title: "Home",
+            websites: ["https://192.168.1.1/", "https://synology.com/account"]
+        )
+        XCTAssertEqual(identity.host, "synology.com")
+    }
+
+    /// The address builder is the entry point the redirect policy uses to
+    /// judge a destination the app did not choose, so it re-checks rather than
+    /// trusting that a host reached it through `host(from:)`.
+    func testTheAddressBuilderRefusesAnUnsafeHostOnItsOwn() {
+        XCTAssertNil(ItemIconIdentity.iconURL(forHost: "192.168.1.1"))
+        XCTAssertNil(ItemIconIdentity.iconURL(forHost: "nas.local"))
+        XCTAssertEqual(
+            ItemIconIdentity.iconURL(forHost: "GitHub.com")?.absoluteString,
+            "https://github.com/favicon.ico"
+        )
+    }
 }
 
 @MainActor
@@ -126,18 +236,25 @@ final class SiteIconStoreTests: XCTestCase {
     }
 
     /// A tiny real PNG, so `NSImage` has something that actually decodes.
-    /// Built straight from a bitmap rep rather than through `lockFocus`, which
-    /// needs a drawing context the test host has no reason to own.
-    private var pngData: Data {
+    private var pngData: Data { pngData(width: 4, height: 4) }
+
+    /// A real PNG of a given size. Built straight from a bitmap rep rather
+    /// than through `lockFocus`, which needs a drawing context the test host
+    /// has no reason to own, and zeroed so the encoded size stays small even
+    /// when the canvas does not.
+    private func pngData(width: Int, height: Int) -> Data {
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
-            pixelsWide: 4, pixelsHigh: 4,
+            pixelsWide: width, pixelsHigh: height,
             bitsPerSample: 8, samplesPerPixel: 4,
             hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB,
             bytesPerRow: 0, bitsPerPixel: 0
         ) else {
             return Data()
+        }
+        if let pixels = rep.bitmapData {
+            pixels.update(repeating: 0, count: rep.bytesPerRow * height)
         }
         return rep.representation(using: .png, properties: [:]) ?? Data()
     }
@@ -302,10 +419,149 @@ final class SiteIconStoreTests: XCTestCase {
         await store.load(nil)
         XCTAssertTrue(store.images.isEmpty)
     }
+
+    // MARK: - What is never asked for
+
+    /// The host rules are the point at which vault content stops being able to
+    /// become an outbound request, so nothing refused there reaches the
+    /// network at all.
+    func testAHostTheIdentityRefusesIsNeverRequested() async {
+        let requested = Counter()
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
+            await requested.increment()
+            return nil
+        })
+        store.isEnabled = true
+
+        for host in ["192.168.1.1", "nas.local", "router.lan", "::1"] {
+            await store.load(host)
+        }
+
+        let count = await requested.value
+        XCTAssertEqual(count, 0, "an address literal or a local-only name is never asked")
+        XCTAssertTrue(store.images.isEmpty)
+    }
+
+    // MARK: - What is never decoded
+
+    /// The byte bound limits the transfer, not the bitmap. A few kilobytes of
+    /// PNG describes a canvas large enough to matter, and the decode is the
+    /// allocation.
+    func testAnImplausiblyLargeCanvasIsRefusedBeforeDecoding() async {
+        let bomb = pngData(width: 1_200, height: 1_200)
+        XCTAssertFalse(bomb.isEmpty)
+        XCTAssertLessThan(
+            bomb.count, SiteIconStore.maximumIconBytes,
+            "the byte bound must not be what refuses this, or the test proves nothing"
+        )
+        XCTAssertFalse(SiteIconStore.hasPlausibleIconDimensions(bomb))
+
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in bomb })
+        store.isEnabled = true
+        await store.load("example.com")
+        store.publishPendingImages()
+        XCTAssertNil(store.image(for: "example.com"))
+    }
+
+    /// And an ordinary icon still passes, while bytes that are not an image at
+    /// all are refused without `NSImage` being asked.
+    func testTheDimensionCheckAdmitsARealIconAndNothingElse() {
+        XCTAssertTrue(SiteIconStore.hasPlausibleIconDimensions(pngData))
+        XCTAssertFalse(SiteIconStore.hasPlausibleIconDimensions(Data()))
+        XCTAssertFalse(
+            SiteIconStore.hasPlausibleIconDimensions(Data("<!doctype html><title>404</title>".utf8))
+        )
+    }
+
+    // MARK: - Locking
+
+    /// Dropping the icons already on screen is only half of a lock. A fetch
+    /// still in flight would otherwise resume afterwards and put its host
+    /// back, telling anyone looking at the window what was in the vault.
+    func testAResponseArrivingAfterLockIsDiscarded() async {
+        let gate = Gate()
+        let png = pngData
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
+            await gate.waitUntilOpened()
+            return png
+        })
+        store.isEnabled = true
+
+        let load = Task { await store.load("github.com") }
+        await gate.waitUntilEntered()
+        store.clear()
+        await gate.open()
+        await load.value
+
+        store.publishPendingImages()
+        XCTAssertTrue(store.images.isEmpty)
+        XCTAssertNil(store.image(for: "github.com"))
+
+        // And the next unlock may ask again: the discard is about this fetch,
+        // not about the host.
+        await store.load("github.com")
+        store.publishPendingImages()
+        XCTAssertNotNil(store.image(for: "github.com"))
+    }
+
+    /// A fetch that stopped because its row scrolled away learned nothing
+    /// about the site. Without forgetting the attempt, one fast scroll would
+    /// leave every row it passed permanently without an icon.
+    func testAFetchStoppedByItsRowIsAskedAgain() async {
+        let gate = Gate()
+        let png = pngData
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
+            await gate.waitUntilOpened()
+            // What a real transfer yields when it is cancelled.
+            return Task.isCancelled ? nil : png
+        })
+        store.isEnabled = true
+
+        let load = Task { await store.load("github.com") }
+        await gate.waitUntilEntered()
+        load.cancel()
+        await gate.open()
+        await load.value
+        XCTAssertNil(store.image(for: "github.com"))
+
+        await store.load("github.com")
+        store.publishPendingImages()
+        XCTAssertNotNil(store.image(for: "github.com"))
+    }
 }
 
 /// A counter the injected fetch closure can bump from any isolation.
 private actor Counter {
     private(set) var value = 0
     func increment() { value += 1 }
+}
+
+/// A rendezvous that holds an injected fetch suspended, so a test can lock the
+/// store while a request is genuinely in flight rather than pretend it is.
+private actor Gate {
+    private var isOpen = false
+    private var hasEntered = false
+    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Called by the fetch. Returns once the test calls `open()`.
+    func waitUntilOpened() async {
+        hasEntered = true
+        for waiter in enteredWaiters { waiter.resume() }
+        enteredWaiters = []
+        guard !isOpen else { return }
+        await withCheckedContinuation { openWaiters.append($0) }
+    }
+
+    /// Called by the test. Returns once a fetch is suspended in the gate.
+    func waitUntilEntered() async {
+        guard !hasEntered else { return }
+        await withCheckedContinuation { enteredWaiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for waiter in openWaiters { waiter.resume() }
+        openWaiters = []
+    }
 }
