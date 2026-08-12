@@ -17,19 +17,34 @@ final class CLIProcessExecutorTests: XCTestCase {
         )
     }
 
-    /// A provider may pin a fixed non-secret mode switch, but the overlay can
-    /// only add or pin an entry — never remove one the boundary depends on.
-    func testAnOverlayAddsToTheAllowlistWithoutRemovingFromIt() async {
+    /// Provider switches come from a closed enum, so no caller can smuggle a
+    /// token or user-authored value into an arbitrary environment overlay.
+    func testTheOnePasswordModeAddsOnlyItsReviewedConstant() async {
         let base = await CLIProcessExecutor().childEnvironment()
-        let overlaid = await CLIProcessExecutor(
-            environmentOverlay: ["EXAMPLE_MODE": "true", "LANG": "en_US.UTF-8"]
+        let configured = await CLIProcessExecutor(
+            mode: .onePasswordDesktopAuthorization
         ).childEnvironment()
 
-        XCTAssertEqual(overlaid["EXAMPLE_MODE"], "true")
-        XCTAssertEqual(overlaid["LANG"], "en_US.UTF-8", "an overlay entry wins over the base")
-        for key in base.keys where key != "LANG" {
-            XCTAssertEqual(overlaid[key], base[key], "\(key) was lost from the base environment")
+        XCTAssertEqual(configured["OP_BIOMETRIC_UNLOCK_ENABLED"], "true")
+        XCTAssertEqual(
+            Set(configured.keys).subtracting(base.keys),
+            Set(["OP_BIOMETRIC_UNLOCK_ENABLED"])
+        )
+        for key in base.keys {
+            XCTAssertEqual(configured[key], base[key], "\(key) changed from the base environment")
         }
+    }
+
+    func testExecutionOutputCanBeExplicitlyDiscarded() {
+        var execution = CLIExecution(
+            exitCode: 0,
+            standardOutput: Data("synthetic-secret".utf8),
+            standardErrorByteCount: 0
+        )
+
+        execution.discardStandardOutput()
+
+        XCTAssertTrue(execution.standardOutput.isEmpty)
     }
 
     func testRejectsANonAbsoluteExecutable() async {
@@ -41,6 +56,38 @@ final class CLIProcessExecutorTests: XCTestCase {
             )
         ) { error in
             XCTAssertEqual(error as? CLIExecutionError, .executableNotAbsolute)
+        }
+    }
+
+    func testRejectsNULArgumentsBeforeLaunch() async throws {
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/true")
+        await XCTAssertThrowsErrorAsync(
+            try await CLIProcessExecutor().execute(
+                CLIInvocation(arguments: ["safe\0suffix"]),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .invalidArguments)
+        }
+    }
+
+    func testRejectsInvalidTimeoutAndExcessiveOutputLimit() async throws {
+        let executableURL = try macOSExecutableURL(at: "/usr/bin/true")
+        await XCTAssertThrowsErrorAsync(
+            try await CLIProcessExecutor().execute(
+                CLIInvocation(arguments: [], timeout: .zero),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .invalidTimeout)
+        }
+        await XCTAssertThrowsErrorAsync(
+            try await CLIProcessExecutor().execute(
+                CLIInvocation(arguments: [], outputLimit: 64 * 1024 * 1024 + 1),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .invalidOutputLimit)
         }
     }
 
@@ -77,6 +124,30 @@ final class CLIProcessExecutorTests: XCTestCase {
         XCTAssertEqual(result.exitCode, 7)
     }
 
+    /// The bound is on bytes, not on how many pieces they arrive in. The byte
+    /// budget is applied before a chunk enters the queue, so the queue can
+    /// never hold more than one invocation limit however far the reader runs
+    /// ahead of the drain — which is why the stream is deliberately unbounded.
+    /// An element cap there would bound nothing further and would evict rather
+    /// than wait, turning a burst that merely outpaced the consumer into an
+    /// `outputLimitExceeded` against a payload nowhere near the limit.
+    func testAPayloadUnderTheBoundArrivesWholeHoweverItIsChunked() async throws {
+        let executor = CLIProcessExecutor()
+        let executableURL = try macOSExecutableURL(at: "/bin/sh")
+        // 512 separate writes of 1 KiB: far more pieces than any element cap
+        // would allow, and half a mebibyte against a four-mebibyte limit.
+        let result = try await executor.execute(
+            CLIInvocation(
+                arguments: ["-c", "i=0; while [ $i -lt 512 ]; do printf '%1024s' ''; i=$((i+1)); done"],
+                timeout: .seconds(30),
+                outputLimit: 4 * 1024 * 1024
+            ),
+            executableURL: executableURL
+        )
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.standardOutput.count, 512 * 1024, "not one chunk may be lost")
+    }
+
     func testFailsClosedWhenOutputExceedsTheBound() async throws {
         let executor = CLIProcessExecutor()
         // Resolved before the assertion: inside the autoclosure, the helper's
@@ -86,6 +157,23 @@ final class CLIProcessExecutorTests: XCTestCase {
         await XCTAssertThrowsErrorAsync(
             try await executor.execute(
                 CLIInvocation(arguments: [], timeout: .seconds(30), outputLimit: 8),
+                executableURL: executableURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? CLIExecutionError, .outputLimitExceeded)
+        }
+    }
+
+    func testFailsClosedWhenStandardErrorExceedsTheSameBound() async throws {
+        let executor = CLIProcessExecutor()
+        let executableURL = try macOSExecutableURL(at: "/bin/sh")
+        await XCTAssertThrowsErrorAsync(
+            try await executor.execute(
+                CLIInvocation(
+                    arguments: ["-c", "while :; do printf 1234567890 1>&2; done"],
+                    timeout: .seconds(30),
+                    outputLimit: 8
+                ),
                 executableURL: executableURL
             )
         ) { error in

@@ -21,7 +21,7 @@ final class OnePasswordLeakageTests: XCTestCase {
     /// of these, which is exactly why neither mode is supported.
     func testTheChildEnvironmentCarriesNoSessionOrTokenVariable() async {
         let executor = CLIProcessExecutor(
-            environmentOverlay: ["OP_BIOMETRIC_UNLOCK_ENABLED": "true"]
+            mode: .onePasswordDesktopAuthorization
         )
         let environment = await executor.childEnvironment()
 
