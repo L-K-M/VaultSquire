@@ -96,8 +96,8 @@ struct SettingsView: View {
     /// menu key equivalent.
     @ViewBuilder
     private var quickSearchShortcutRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            LabeledContent("Quick Search") {
+        LabeledContent("Quick Search") {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Button(recorder.isRecording
                         ? "Press a shortcut…"
@@ -119,30 +119,30 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings-quick-search-shortcut-reset")
                     }
                 }
-            }
 
-            Group {
-                if recorder.isRecording {
-                    Text("Press the keys you want, with at least one of Command, Control or Option. Escape leaves it as it is.")
-                        .foregroundStyle(.secondary)
-                } else if let refusal = recorder.refusal {
-                    Text(refusal)
-                        .foregroundStyle(.red)
-                } else if shortcuts.isUnavailable {
-                    Text("Another app is using \(shortcuts.shortcut.displayName), so VaultSquire could not claim it. Pick a different one.")
-                        .foregroundStyle(.red)
-                } else if shortcuts.storedValueWasRejected {
-                    Text("The saved shortcut wasn't usable, so VaultSquire is using \(QuickSearchShortcut.default.displayName).")
-                        .foregroundStyle(.red)
-                } else {
-                    Text("Opens Quick Search from any app. VaultSquire asks the system for this one chord and is told nothing else you type — no Accessibility permission is involved.")
-                        .foregroundStyle(.secondary)
+                Group {
+                    if recorder.isRecording {
+                        Text("Press the keys you want, with at least one of Command, Control or Option. Escape leaves it as it is.")
+                            .foregroundStyle(.secondary)
+                    } else if let refusal = recorder.refusal {
+                        Text(refusal)
+                            .foregroundStyle(.red)
+                    } else if shortcuts.isUnavailable {
+                        Text("Another app is using \(shortcuts.shortcut.displayName), so VaultSquire could not claim it. Pick a different one.")
+                            .foregroundStyle(.red)
+                    } else if shortcuts.storedValueWasRejected {
+                        Text("The saved shortcut wasn't usable, so VaultSquire is using \(QuickSearchShortcut.default.displayName).")
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Opens Quick Search from any app. VaultSquire asks the system for this one chord and is told nothing else you type — no Accessibility permission is involved.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: Self.proseWidth, alignment: .leading)
             }
-            .font(.caption)
-            .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: Self.proseWidth, alignment: .leading)
     }
 
     /// The idle timeout, which until now could only be set with `defaults
@@ -154,30 +154,34 @@ struct SettingsView: View {
     /// an unattended Mac safe, and it is not a preference.
     @ViewBuilder
     private var autoLockSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Picker("Lock after", selection: $autoLockMinutes) {
-                ForEach(offeredTimeouts, id: \.self) { minutes in
-                    Text(Self.timeoutLabel(minutes)).tag(minutes)
+        LabeledContent("Lock after") {
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Lock after", selection: $autoLockMinutes) {
+                    ForEach(offeredTimeouts, id: \.self) { minutes in
+                        Text(Self.timeoutLabel(minutes)).tag(minutes)
+                    }
                 }
-            }
-            .accessibilityIdentifier("settings-auto-lock")
-            .onChange(of: autoLockMinutes) { _, minutes in
-                AutoLockController.shared.setInactivityMinutes(minutes)
-            }
+                // The Form owns the label column; the Picker drawing its own
+                // would put "Lock after" twice on one row.
+                .labelsHidden()
+                .accessibilityIdentifier("settings-auto-lock")
+                .onChange(of: autoLockMinutes) { _, minutes in
+                    AutoLockController.shared.setInactivityMinutes(minutes)
+                }
 
-            Text(autoLockMinutes > 0
-                ? "VaultSquire locks every open vault after \(Self.timeoutLabel(autoLockMinutes).lowercased()) without keyboard or pointer activity."
-                : "The idle timer is off, so VaultSquire keeps your vaults open until something below closes them.")
+                Group {
+                    Text(autoLockMinutes > 0
+                        ? "VaultSquire locks every open vault after \(Self.timeoutLabel(autoLockMinutes).lowercased()) without keyboard or pointer activity."
+                        : "The idle timer is off, so VaultSquire keeps your vaults open until something below closes them.")
+
+                    Text("Vaults always lock when the screen locks, the screensaver starts, this Mac sleeps, or you switch users — and with Command-Shift-L. Locking drops every decrypted value, cancels work in flight, and clears a secret VaultSquire put on the clipboard.")
+                }
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            Text("Vaults always lock when the screen locks, the screensaver starts, this Mac sleeps, or you switch users — and with Command-Shift-L. Locking drops every decrypted value, cancels work in flight, and clears a secret VaultSquire put on the clipboard.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: Self.proseWidth, alignment: .leading)
+            }
         }
-        .frame(maxWidth: Self.proseWidth, alignment: .leading)
     }
 
     /// The offered choices, plus whatever is actually configured if that is not
@@ -235,40 +239,45 @@ struct SettingsView: View {
     /// stores exists only while the vault is unlocked.
     @ViewBuilder
     private var biometricSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if appModel.canUnlockWithBiometrics {
-                Button("Turn Off Touch ID Unlock") {
-                    appModel.disableBiometricUnlock()
+        LabeledContent("Touch ID") {
+            VStack(alignment: .leading, spacing: 6) {
+                if appModel.canUnlockWithBiometrics {
+                    Button("Turn Off Touch ID Unlock") {
+                        appModel.disableBiometricUnlock()
+                    }
+                    .accessibilityIdentifier("settings-biometrics-disable")
+                    caption("VaultSquire opens with your fingerprint. Your vault key is stored on this Mac, protected by the current set of enrolled fingerprints, and is discarded if they change.")
+                } else if appModel.canEnrollBiometrics {
+                    Button("Unlock With Touch ID Next Time") {
+                        appModel.enableBiometricUnlock()
+                    }
+                    .accessibilityIdentifier("settings-biometrics-enable")
+                    caption("Stores this vault's key on this Mac behind Touch ID so you don't retype your master password. Your master password itself is never stored, and the stored key cannot sign in to your server.")
+                } else {
+                    caption(appModel.isUnlocked
+                        ? "Touch ID isn't available on this Mac."
+                        : "Unlock your vault to set up Touch ID.")
                 }
-                .accessibilityIdentifier("settings-biometrics-disable")
-                Text("VaultSquire opens with your fingerprint. Your vault key is stored on this Mac, protected by the current set of enrolled fingerprints, and is discarded if they change.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if appModel.canEnrollBiometrics {
-                Button("Unlock With Touch ID Next Time") {
-                    appModel.enableBiometricUnlock()
-                }
-                .accessibilityIdentifier("settings-biometrics-enable")
-                Text("Stores this vault's key on this Mac behind Touch ID so you don't retype your master password. Your master password itself is never stored, and the stored key cannot sign in to your server.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(appModel.isUnlocked
-                    ? "Touch ID isn't available on this Mac."
-                    : "Unlock your vault to set up Touch ID.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
 
-            if let error = appModel.biometricError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let error = appModel.biometricError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: Self.proseWidth, alignment: .leading)
+                }
             }
         }
-        .frame(maxWidth: Self.proseWidth, alignment: .leading)
     }
+
+    /// One caption paragraph, bounded so it cannot inflate the window's ideal
+    /// width the way an unbounded one did.
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: Self.proseWidth, alignment: .leading)
+    }
+
 }
