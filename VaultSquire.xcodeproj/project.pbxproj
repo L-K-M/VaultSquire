@@ -44,6 +44,8 @@
 		C00000000000000000000069 /* ProtonCLIRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006C /* ProtonCLIRunnerTests.swift */; };
 		C0000000000000000000006A /* CLIProcessExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006D /* CLIProcessExecutorTests.swift */; };
 		C00000000000000000000060 /* VaultItemDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000063 /* VaultItemDraft.swift */; };
+		C00000000000000000000091 /* PasswordGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000094 /* PasswordGenerator.swift */; };
+		C00000000000000000000092 /* PasswordGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000095 /* PasswordGeneratorTests.swift */; };
 		C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000064 /* VaultwardenWriteService.swift */; };
 		C00000000000000000000062 /* VaultItemEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* VaultItemEditView.swift */; };
 		C00000000000000000000063 /* VaultwardenWriteServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */; };
@@ -204,6 +206,8 @@
 		B0000000000000000000006C /* ProtonCLIRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProtonCLIRunnerTests.swift; path = VaultSquireTests/ProtonCLIRunnerTests.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000006D /* CLIProcessExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CLIProcessExecutorTests.swift; path = VaultSquireTests/CLIProcessExecutorTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000063 /* VaultItemDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDraft.swift; path = VaultSquire/Domain/VaultItemDraft.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000094 /* PasswordGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PasswordGenerator.swift; path = VaultSquire/Domain/PasswordGenerator.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000095 /* PasswordGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PasswordGeneratorTests.swift; path = VaultSquireTests/PasswordGeneratorTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000064 /* VaultwardenWriteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteService.swift; path = VaultSquire/Providers/Vaultwarden/Network/VaultwardenWriteService.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000065 /* VaultItemEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemEditView.swift; path = VaultSquire/Features/Vault/VaultItemEditView.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000066 /* VaultwardenWriteServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultwardenWriteServiceTests.swift; path = VaultSquireTests/VaultwardenWriteServiceTests.swift; sourceTree = SOURCE_ROOT; };
@@ -510,6 +514,7 @@
 			children = (
 				B00000000000000000000087 /* ItemIconIdentity.swift */,
 				B00000000000000000000063 /* VaultItemDraft.swift */,
+				B00000000000000000000094 /* PasswordGenerator.swift */,
 				B00000000000000000000057 /* VaultItemDetail.swift */,
 				B0000000000000000000001C /* ProviderIdentity.swift */,
 				B0000000000000000000001D /* SessionState.swift */,
@@ -684,6 +689,7 @@
 				B00000000000000000000091 /* AutoLockControllerTests.swift */,
 				B00000000000000000000092 /* SerialOperationGateTests.swift */,
 				B00000000000000000000093 /* VaultwardenCipherFidelityTests.swift */,
+				B00000000000000000000095 /* PasswordGeneratorTests.swift */,
 			);
 			path = VaultSquireTests;
 			sourceTree = "<group>";
@@ -847,6 +853,7 @@
 				C00000000000000000000065 /* ProtonCLIVersionGate.swift in Sources */,
 				C00000000000000000000066 /* ProtonCLIRunner.swift in Sources */,
 				C00000000000000000000060 /* VaultItemDraft.swift in Sources */,
+				C00000000000000000000091 /* PasswordGenerator.swift in Sources */,
 				C00000000000000000000061 /* VaultwardenWriteService.swift in Sources */,
 				C00000000000000000000062 /* VaultItemEditView.swift in Sources */,
 				C00000000000000000000001 /* VaultSquireApp.swift in Sources */,
@@ -970,6 +977,7 @@
 				C0000000000000000000008E /* AutoLockControllerTests.swift in Sources */,
 				C0000000000000000000008F /* SerialOperationGateTests.swift in Sources */,
 				C00000000000000000000090 /* VaultwardenCipherFidelityTests.swift in Sources */,
+				C00000000000000000000092 /* PasswordGeneratorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
