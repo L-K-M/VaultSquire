@@ -69,6 +69,7 @@ branch each came from.
 | Digit grouping only applied to six-digit codes | B6 |
 | 2FA "Back" did not cancel the in-flight verification | VS-061, #47 |
 | Steam Guard (`steam://`) seeds were unreadable | #47 |
+| A Task was allocated per input event, including every `.mouseMoved` | VS-023, #47 |
 
 ---
 
@@ -501,6 +502,30 @@ Ordered roughly by value within each group.
 - **The lock timeout default of 15 minutes differs from the plan's recommended
   5.** Reconcile the number or the plan. *(#48 41)*
 
+### Process
+
+These are observations about how the work was done rather than about the code,
+and they are kept because the eight documents this file replaces are themselves
+the evidence for the first one.
+
+- **Parallel review passes that cannot see each other produce duplicate
+  implementations.** Three password generators, three auto-lock settings, five
+  Quick Search branches and seven files called `ANALYSIS.md` were written
+  against the same base at the same time. Several reviewers noticed mid-pass and
+  started annotating findings with "check `<branch>` before adding a second" —
+  which worked, and is the practice to keep: read the open pull request list
+  before starting, and say in the document which branch already owns a finding.
+  *(#47, #33)*
+- **Do not bundle visual redesign, new item types, or product surface into a
+  security fix.** A security change should be reviewable on its own terms; the
+  broad-but-shallow branch that mixed hardening with disabling writes and
+  narrowing providers is the reason that pull request cannot be merged as a
+  branch at all. *(#48, #52)*
+- **Clean-room attestation is a per-document obligation.** Each of these
+  reviews recorded that it inspected no production vault material, no vendor
+  credentials, and no prohibited source history. That record travels with the
+  finding, not just with the pull request that carried it. *(#48, #33)*
+
 ---
 
 ## 10. Ideas worth stealing
@@ -601,6 +626,23 @@ that only lists faults invites someone to trade away what is working.
 - **Accessibility identifiers are thorough**, which is rare and valuable.
 - **The named-residuals culture** in the security reviews (the R5–R8 pattern) is
   worth keeping.
+- **Vaultwarden's `unlock()` reads the local sealed cache first**, so the vault
+  opens without waiting on the network. This is the resilience the CLI providers
+  were missing, and it is the model their offline path was brought in line with.
+- **`AutoLockController` was already a complete and correct inactivity lock.**
+  Every gap reported against it was in Settings, not in the policy engine.
+
+Two things were examined and found correct, recorded so they are not raised a
+third time:
+
+- **`ProtonCLILocator` reading the real user home** is discovery only. It
+  resolves where a CLI might be installed; it does not relocate `HOME` for the
+  child process, which still runs under the fixed environment allowlist.
+- **The `defer { zero(&unwrapped) }` in `VaultwardenKeyUnwrap`** zeroizes a
+  buffer nobody else holds, because `Data` is copy-on-write and
+  `VaultwardenSymmetricKey` copies into its own storage. It is a no-op rather
+  than a live-fire bug — but the reliance on that copy should be commented, so a
+  later refactor to a class-backed key type does not silently zero a live key.
 
 ---
 
