@@ -18,6 +18,11 @@ struct VaultItemEditView: View {
     @State private var revealsPassword = false
     @State private var showsGenerator = false
     @State private var generatorOptions = PasswordGenerator.Options()
+    /// True once this sheet has submitted a write of its own. The model's
+    /// `isWriting` is app-wide — archiving from the toolbar sets it too — so
+    /// without this the sheet would close on someone else's write and throw
+    /// away whatever had been typed.
+    @State private var didSubmit = false
     let onClose: () -> Void
 
     init(draft: VaultItemDraft, onClose: @escaping () -> Void) {
@@ -90,10 +95,15 @@ struct VaultItemEditView: View {
         }
         .frame(width: 460, height: 560)
         // When a save succeeds the model re-syncs and clears writeError; close
-        // the sheet once a submit completes without error.
+        // the sheet once this sheet's own submit completes without error.
         .onChange(of: appModel.isWriting) { wasWriting, isWriting in
-            if wasWriting && !isWriting && appModel.writeError == nil {
+            guard didSubmit, wasWriting, !isWriting else { return }
+            if appModel.writeError == nil {
                 onClose()
+            } else {
+                // The failure is on screen and the draft is intact, so the
+                // sheet stays open and the next attempt is a fresh submit.
+                didSubmit = false
             }
         }
         .accessibilityIdentifier("vault-item-edit")
@@ -288,6 +298,7 @@ struct VaultItemEditView: View {
     }
 
     private func submit() {
+        didSubmit = true
         draft.websites = websitesText
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }

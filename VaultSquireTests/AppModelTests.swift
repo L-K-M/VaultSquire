@@ -387,6 +387,65 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.allOpenItems.count, 1)
     }
 
+    /// A sync fetches the vault again, so the secrets read on demand against
+    /// the previous listing are no longer known to be current. Keeping them
+    /// would show a password the provider has since changed, under a freshly
+    /// updated "last synced" time — a confidently wrong answer, which is the
+    /// worst kind for this app to give.
+    @MainActor
+    func testSyncingDropsSecretsFetchedBeforeIt() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-first"}}"#
+        )
+
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let id = try XCTUnwrap(model.items.first?.id)
+        model.hydrateIfNeeded(id)
+        try await pollUntil {
+            model.detail(for: id)?.fields.first { $0.label == "Password" }?.value == "VSQ-first"
+        }
+
+        // The password is rotated at the provider, and the user syncs.
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-rotated"}}"#
+        )
+        model.syncNow(account)
+        try await pollUntil { model.session(for: account)?.isSyncing == false }
+
+        // The stale value is gone rather than still on screen …
+        XCTAssertNil(model.detail(for: id)?.fields.first { $0.label == "Password" })
+        // … and opening the item again reads the current one.
+        model.hydrateIfNeeded(id)
+        try await pollUntil {
+            model.detail(for: id)?.fields.first { $0.label == "Password" }?.value == "VSQ-rotated"
+        }
+    }
+
     /// Scoping narrows the list; All Vaults merges. Quick Search always spans
     /// everything that is open regardless of the browser's scope.
     @MainActor

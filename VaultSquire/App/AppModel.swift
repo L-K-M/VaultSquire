@@ -540,9 +540,16 @@ final class AppModel: ObservableObject {
     /// hold theirs in memory only, so closing a vault must clear its entries
     /// from each map.
     private func dropFetchedContent(for account: AccountID) {
+        dropFetchedSecrets(for: account)
+        hydratingItems = hydratingItems.filter { $0.account != account }
+    }
+
+    /// Drops the fetched secrets for one vault while leaving the in-flight set
+    /// alone, so a refresh invalidates what was fetched without letting a fetch
+    /// that is already running be started a second time.
+    private func dropFetchedSecrets(for account: AccountID) {
         protonContent = protonContent.filter { $0.key.account != account }
         onePasswordContent = onePasswordContent.filter { $0.key.account != account }
-        hydratingItems = hydratingItems.filter { $0.account != account }
     }
 
     // MARK: - Touch ID
@@ -904,6 +911,13 @@ final class AppModel: ObservableObject {
             spawnTracked(account) {
                 let result = await self.protonService.refresh()
                 guard self.isCurrent(account, generation) else { return }
+                // A refresh replaces the listing, so the secrets fetched
+                // against the previous one are no longer known to be current.
+                // Dropping them makes the next open re-read; keeping them would
+                // show a value the provider may have changed since, under a
+                // freshly updated "last synced" time — the most misleading
+                // form the answer could take.
+                if case .success = result { self.dropFetchedSecrets(for: account) }
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
@@ -922,6 +936,9 @@ final class AppModel: ObservableObject {
             spawnTracked(account) {
                 let result = await self.onePasswordService.refresh(accountUUID: accountUUID)
                 guard self.isCurrent(account, generation) else { return }
+                // Same as Proton: a new listing invalidates the secrets fetched
+                // against the old one.
+                if case .success = result { self.dropFetchedSecrets(for: account) }
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
