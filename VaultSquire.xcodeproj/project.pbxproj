@@ -11,6 +11,7 @@
 		C00000000000000000000085 /* SiteIconStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000088 /* SiteIconStore.swift */; };
 		C00000000000000000000086 /* ItemIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000089 /* ItemIconView.swift */; };
 		C00000000000000000000087 /* ItemIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008A /* ItemIconTests.swift */; };
+		C00000000000000000000093 /* VaultItemDetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000096 /* VaultItemDetailTests.swift */; };
 		C00000000000000000000076 /* VaultSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000079 /* VaultSlot.swift */; };
 		C00000000000000000000077 /* VaultBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000007A /* VaultBrowserView.swift */; };
 		C00000000000000000000073 /* BiometricVaultKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000076 /* BiometricVaultKeyStore.swift */; };
@@ -173,6 +174,7 @@
 		B00000000000000000000088 /* SiteIconStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SiteIconStore.swift; path = VaultSquire/Features/Vault/SiteIconStore.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000089 /* ItemIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconView.swift; path = VaultSquire/Features/Vault/ItemIconView.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000008A /* ItemIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconTests.swift; path = VaultSquireTests/ItemIconTests.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000096 /* VaultItemDetailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDetailTests.swift; path = VaultSquireTests/VaultItemDetailTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000079 /* VaultSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultSlot.swift; path = VaultSquire/App/VaultSlot.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000007A /* VaultBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultBrowserView.swift; path = VaultSquire/Features/Vault/VaultBrowserView.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000076 /* BiometricVaultKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BiometricVaultKeyStore.swift; path = VaultSquire/Persistence/BiometricVaultKeyStore.swift; sourceTree = SOURCE_ROOT; };
@@ -639,6 +641,7 @@
 			isa = PBXGroup;
 			children = (
 				B0000000000000000000008A /* ItemIconTests.swift */,
+				B00000000000000000000096 /* VaultItemDetailTests.swift */,
 				B00000000000000000000077 /* FakeBiometricVaultKeyStore.swift */,
 				B00000000000000000000078 /* BiometricUnlockTests.swift */,
 				B00000000000000000000075 /* VaultwardenAccountServiceTests.swift */,
@@ -923,6 +926,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C00000000000000000000087 /* ItemIconTests.swift in Sources */,
+				C00000000000000000000093 /* VaultItemDetailTests.swift in Sources */,
 				C00000000000000000000074 /* FakeBiometricVaultKeyStore.swift in Sources */,
 				C00000000000000000000075 /* BiometricUnlockTests.swift in Sources */,
 				C00000000000000000000072 /* VaultwardenAccountServiceTests.swift in Sources */,

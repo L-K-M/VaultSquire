@@ -529,7 +529,10 @@ struct VaultBrowserView: View {
     @ViewBuilder
     private var detailPane: some View {
         if let selection, let detail = appModel.detail(for: selection) {
-            VaultItemDetailView(detail: detail)
+            VaultItemDetailView(
+                detail: detail,
+                isFetchingSecrets: appModel.isHydrating(selection)
+            )
                 .id(selection)
                 // A CLI provider's item has its secret fields fetched the first
                 // time it is opened, because listing deliberately carries none;

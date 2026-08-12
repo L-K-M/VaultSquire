@@ -58,7 +58,9 @@ final class AppModel: ObservableObject {
     @Published private var protonContent: [VaultItemID: ProtonItemContent] = [:]
     /// The same, for opened 1Password items.
     @Published private var onePasswordContent: [VaultItemID: OnePasswordItemContent] = [:]
-    private var hydratingItems: Set<VaultItemID> = []
+    /// Published so the detail view can say that an item's secret fields are
+    /// still being read rather than looking like an item that has none.
+    @Published private var hydratingItems: Set<VaultItemID> = []
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
