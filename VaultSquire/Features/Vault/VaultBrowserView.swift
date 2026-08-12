@@ -29,6 +29,10 @@ struct VaultBrowserView: View {
     /// the detail pane gives before any URI leaves the app.
     @State private var pendingOpen: URIOpeningDecision?
     @State private var showOpenConfirmation = false
+    /// The item awaiting archive confirmation. The dialog's presentation is
+    /// derived from this rather than tracked separately, so dismissing it with
+    /// Escape cannot leave a staged item behind.
+    @State private var pendingArchive: VaultItemID?
 
     /// What the detail pane's hydration is keyed on: the item, and the
     /// generation of the fetched-secret store it was satisfied from.
@@ -103,6 +107,21 @@ struct VaultBrowserView: View {
             }
         }
         .confirmationDialog(
+            "Archive this item?",
+            isPresented: archiveConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Archive", role: .destructive) {
+                if let pendingArchive {
+                    appModel.archive(pendingArchive)
+                }
+                pendingArchive = nil
+            }
+            Button("Cancel", role: .cancel) { pendingArchive = nil }
+        } message: {
+            Text("\(archiveCandidateTitle) leaves every list and search here. VaultSquire cannot bring it back yet — you would restore it from your Vaultwarden app.")
+        }
+        .confirmationDialog(
             "Open this link?",
             isPresented: $showOpenConfirmation,
             titleVisibility: .visible
@@ -130,6 +149,28 @@ struct VaultBrowserView: View {
     }
 
     // MARK: - Sidebar
+
+    /// Drives the archive dialog from `pendingArchive`, so Escape or a dismissal
+    /// clears the staged item instead of leaving it armed for the next dialog.
+    private var archiveConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { pendingArchive != nil },
+            set: { presented in
+                if !presented { pendingArchive = nil }
+            }
+        )
+    }
+
+    /// The quoted name of the item being archived, so the dialog is about a
+    /// specific entry rather than an abstract action.
+    private var archiveCandidateTitle: String {
+        guard let pendingArchive,
+              let title = appModel.allOpenItems.first(where: { $0.id == pendingArchive })?.displayTitle,
+              !title.isEmpty else {
+            return "This item"
+        }
+        return "\u{201C}\(title)\u{201D}"
+    }
 
     private var scopeSelection: Binding<VaultScope?> {
         Binding(
@@ -392,7 +433,7 @@ struct VaultBrowserView: View {
                 .accessibilityIdentifier("context-edit")
             }
             if appModel.canArchive(item.id) {
-                Button("Archive") { appModel.archive(item.id) }
+                Button("Archive") { pendingArchive = item.id }
                     .accessibilityIdentifier("context-archive")
             }
         }
@@ -713,7 +754,7 @@ struct VaultBrowserView: View {
             .accessibilityIdentifier("vault-edit")
 
             Button {
-                if let selection { appModel.archive(selection) }
+                pendingArchive = selection
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }
