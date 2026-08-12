@@ -106,11 +106,62 @@ decompression limits, a `securityStamp` rotation detector, a durable
 `reauthenticationRequired` marker, session-generation saturation, lock
 ordering with `LAContext` invalidation, and fail-closed descriptor decoding.
 
-**Recommendation:** close #30 as a branch and re-raise those ten as their own
-pull requests against current `main`, each with the macOS evidence its change
-needs. They are not included here: grafting ten delicate security changes
+**Recommendation:** close #30 as a branch and re-raise its genuinely-new work as
+its own pull requests against current `main`, each with the macOS evidence its
+change needs. They are not included here: grafting ten delicate security changes
 blind, in an environment with no compiler, into an already large consolidation
 is exactly how a security-critical merge goes wrong.
+
+### How to extract it
+
+Group by review surface rather than one pull request per change — the reviewer
+for CLI process handling is not the reviewer for icon fetching. Order is by
+value over risk.
+
+1. **Bound the CLI process streams.** `CLIProcessExecutor` counts bytes before
+   they enter the async drain and terminates the child on the bound, and the
+   child environment becomes a closed enum rather than a dictionary callers can
+   extend. This closes the open finding that the streams are documented as
+   bounded and are created `.unbounded`. One file plus tests, no conflict with
+   anything merged since.
+2. **Harden the icon fetch.** Reject IP literals and local-only suffixes before
+   any request, and inspect image metadata with ImageIO for implausible
+   dimensions or pixel counts before asking AppKit to decode. Add a store
+   generation and cancel in-flight fetches on lock so a late response cannot
+   repopulate. This is the one feature that sends anything vault-derived off the
+   device, so it earns its own review. Must be written on top of the icon
+   publish-batching already merged, not cherry-picked over it.
+3. **Fail closed on corrupt stored descriptors.** Unreadable preferences must
+   not be treated as an empty account list and overwritten. Small.
+4. **Harden the transport.** Path canonicalization, an explicit redirect policy,
+   and an `expectedContentLength` pre-check against the response bound. Take the
+   policy; do **not** take #30's replacement of `data(for:)` with a per-byte
+   `AsyncBytes` drain, which makes a realistic sync take tens of seconds.
+5. **Bound TOTP input.** Cap seed length before URL parsing and uppercasing, and
+   avoid the trapping `Double(UInt64.max)` conversion boundary. Do not carry
+   #30's comment claiming the previous base32 accumulator crashed: Swift's `<<`
+   on a fixed-width integer discards high bits rather than trapping.
+
+Two items need a decision before they are worth extracting:
+
+- **The session-generation hardening** — saturating the counter instead of
+  wrapping, and making a durable reauthentication requirement block quick unlock
+  as well as password unlock — is correct, but `VaultSession` is referenced by
+  nothing except its own tests. Hardening it changes no runtime behaviour. It
+  belongs with the decision to wire that actor in as the single authority or
+  delete it, not shipped alone as a security fix that reaches no user.
+- **The `reauthenticationRequired` marker and the `securityStamp` rotation
+  detector** are the complement to the merged no-silent-rotation guard, and are
+  the most valuable thing in #30. They are also not an extraction: a durable
+  marker, quick-unlock invalidation, and refusing secret operations until a
+  complete reauthentication is a design-first transaction with its own crash and
+  cancellation tests.
+
+Do not extract, in any grouping: the sync-success generation bump (it wedges
+`isWriting` for the process lifetime), the `#if DEBUG` around the write service,
+the single-query Keychain change, the app-group-only cache directory, the
+per-byte transport drain, the per-cipher strict date decode, the `_exit` on a
+failed `setrlimit`, or the duplicate lock observers in the app delegate.
 
 ## Still open
 
