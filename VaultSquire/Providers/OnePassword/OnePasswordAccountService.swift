@@ -118,7 +118,7 @@ struct OnePasswordAccountService: Sendable {
     /// allowlist, so no inherited `OP_SESSION`, `OP_SERVICE_ACCOUNT_TOKEN`, or
     /// `OP_CONNECT_TOKEN` can reach the child either.
     static func makeExecutor() -> any CLIExecuting {
-        CLIProcessExecutor(environmentOverlay: ["OP_BIOMETRIC_UNLOCK_ENABLED": "true"])
+        CLIProcessExecutor(mode: .onePasswordDesktopAuthorization)
     }
 
     // MARK: - Detection
