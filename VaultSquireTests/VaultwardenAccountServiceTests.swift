@@ -3,11 +3,26 @@ import XCTest
 @testable import VaultSquire
 
 final class VaultwardenAccountServiceTests: XCTestCase {
+    /// The preference key the descriptor store writes under, so a test can
+    /// plant bytes it will refuse to decode.
+    private static let descriptorKey = "ch.lkmc.VaultSquire.account-descriptors.v1"
+
     private func makeService() -> (
         service: VaultwardenAccountService,
         descriptors: AccountDescriptorStore,
         cache: VaultwardenVaultCache,
         account: AccountID
+    ) {
+        let made = makeServiceWithDefaults()
+        return (made.service, made.descriptors, made.cache, made.account)
+    }
+
+    private func makeServiceWithDefaults() -> (
+        service: VaultwardenAccountService,
+        descriptors: AccountDescriptorStore,
+        cache: VaultwardenVaultCache,
+        account: AccountID,
+        defaults: UserDefaults
     ) {
         let account = AccountID.vaultwardenPrimary
         let defaults = UserDefaults(suiteName: "VaultSquireTest-\(UUID().uuidString)")!
@@ -23,7 +38,7 @@ final class VaultwardenAccountServiceTests: XCTestCase {
             vaultCache: cache,
             descriptorStore: descriptors
         )
-        return (service, descriptors, cache, account)
+        return (service, descriptors, cache, account, defaults)
     }
 
     private func session(wrappedUserKey: String?) -> VaultwardenAuthSession {
@@ -42,13 +57,38 @@ final class VaultwardenAccountServiceTests: XCTestCase {
         )
     }
 
+    /// The other half of the promptless-locked rule. Refusing to write over an
+    /// unreadable account list is what stops one added account from destroying
+    /// the others — but a login completed on top of that refusal would be
+    /// exactly the state this method exists to prevent, and one with no way
+    /// out: the shell would offer no prompt, and adding the account again
+    /// would fail identically. So the login fails instead.
+    func testPersistAfterLoginFailsRatherThanCompleteWithoutADescriptor() throws {
+        let (service, _, cache, account, defaults) = makeServiceWithDefaults()
+        defaults.set(Data("not a descriptor list".utf8), forKey: Self.descriptorKey)
+
+        XCTAssertThrowsError(
+            try service.persistAfterLogin(
+                session: session(wrappedUserKey: "2.k|k"),
+                serverBaseURL: URL(string: "https://vault.example.com")!,
+                email: "u@example.com"
+            )
+        ) { error in
+            XCTAssertEqual(error as? VaultwardenAccountError, .accountListUnreadable)
+        }
+
+        // And nothing partial is left behind: no cache is seeded for an
+        // account the list does not admit exists.
+        XCTAssertNil(try cache.load(for: account))
+    }
+
     /// The regression: a login whose token carried no wrapped user key must
     /// still leave a descriptor, so the shell shows an unlock prompt instead of
     /// the dead promptless locked state.
     func testPersistAfterLoginWritesDescriptorWhenTokenHasNoWrappedKey() throws {
         let (service, descriptors, cache, account) = makeService()
 
-        service.persistAfterLogin(
+        try service.persistAfterLogin(
             session: session(wrappedUserKey: nil),
             serverBaseURL: URL(string: "https://vault.example.com")!,
             email: "User@Example.com"
@@ -83,7 +123,7 @@ final class VaultwardenAccountServiceTests: XCTestCase {
     /// sync merge must carry the stored API base forward.
     func testSnapshotWithoutAPIBaseStillDecodes() throws {
         let (service, _, cache, account) = makeService()
-        service.persistAfterLogin(
+        try service.persistAfterLogin(
             session: session(wrappedUserKey: "2.k|k"),
             serverBaseURL: URL(string: "https://vault.example.com")!,
             email: "u@example.com"
@@ -98,7 +138,7 @@ final class VaultwardenAccountServiceTests: XCTestCase {
     func testPersistAfterLoginSeedsTheWrappedKeyWhenTheTokenProvidesIt() throws {
         let (service, descriptors, cache, account) = makeService()
 
-        service.persistAfterLogin(
+        try service.persistAfterLogin(
             session: session(wrappedUserKey: "2.userkey|mac"),
             serverBaseURL: URL(string: "https://vault.example.com")!,
             email: "u@example.com"

@@ -18,8 +18,13 @@ final class AddAccountModelTests: XCTestCase {
         super.tearDown()
     }
 
+    /// The preference key the descriptor store writes under, so a test can
+    /// plant bytes it will refuse to decode.
+    private static let descriptorKey = "ch.lkmc.VaultSquire.account-descriptors.v1"
+
     private func makeModel(
         store: any VaultwardenCredentialStore,
+        accountService: VaultwardenAccountService? = nil,
         onAccountConfigured: @escaping @MainActor (URL) -> Void = { _ in }
     ) -> AddAccountModel {
         let configuration = URLSessionConfiguration.ephemeral
@@ -32,7 +37,7 @@ final class AddAccountModelTests: XCTestCase {
                 VaultwardenTransport(environment: environment, session: session)
             },
             onAccountConfigured: onAccountConfigured,
-            accountService: makeIsolatedAccountService()
+            accountService: accountService ?? makeIsolatedAccountService()
         )
     }
 
@@ -41,16 +46,61 @@ final class AddAccountModelTests: XCTestCase {
     /// app's real UserDefaults and Application Support, and a descriptor left
     /// there makes the app launch into the vault browser — which the UI tests,
     /// running later in the same job, see instead of the locked shell.
-    private func makeIsolatedAccountService() -> VaultwardenAccountService {
+    private func makeIsolatedAccountService(
+        descriptorDefaults: UserDefaults? = nil
+    ) -> VaultwardenAccountService {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VSQ-addaccount-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let key = SymmetricKey(size: .bits256)
-        let defaults = UserDefaults(suiteName: "VSQ-addaccount-\(UUID().uuidString)")!
+        let defaults = descriptorDefaults ?? Self.throwawayDefaults()
         return VaultwardenAccountService(
             credentialStore: InMemoryCredentialStore(),
             vaultCache: VaultwardenVaultCache(keyProvider: { key }, directory: directory),
             descriptorStore: AccountDescriptorStore(defaults: defaults)
+        )
+    }
+
+    /// A preference suite of its own, so a descriptor written by a test never
+    /// reaches the app's real defaults.
+    private static func throwawayDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "VSQ-addaccount-\(UUID().uuidString)")!
+    }
+
+    /// Refusing to write over an unreadable account list is the point of the
+    /// change, but a sign-in cannot report success on top of that refusal. By
+    /// then the credential is durable, so the shell would see an account that
+    /// exists with no descriptor naming it — and therefore no unlock prompt,
+    /// while its own copy tells the user to add the account again, which would
+    /// fail identically every time. The sign-in fails and the credential goes
+    /// back out.
+    func testAnUnreadableAccountListFailsTheSignInAndTakesTheCredentialBack() async {
+        let store = InMemoryCredentialStore()
+        let corrupt = Data("not a descriptor list".utf8)
+        let defaults = Self.throwawayDefaults()
+        defaults.set(corrupt, forKey: Self.descriptorKey)
+        let model = makeModel(
+            store: store,
+            accountService: makeIsolatedAccountService(descriptorDefaults: defaults)
+        )
+        stubSuccessfulLogin()
+
+        model.serverURL = "https://vault.example.com"
+        model.email = "user@example.com"
+        model.masterPassword = "pw"
+        await model.signIn()
+
+        guard case .failed(let message) = model.phase else {
+            return XCTFail("expected the add to fail, got \(model.phase)")
+        }
+        XCTAssertTrue(message.contains("account list"), message)
+        XCTAssertNil(
+            store.record(for: .primary),
+            "a credential must not outlive the add it belonged to"
+        )
+        XCTAssertEqual(
+            defaults.data(forKey: Self.descriptorKey), corrupt,
+            "and the bytes it could not read are left for a later migration"
         )
     }
 
@@ -535,9 +585,9 @@ final class AddAccountModelTests: XCTestCase {
     private func makeSeededModel(
         store: any VaultwardenCredentialStore,
         seededIterations: Int
-    ) -> (AddAccountModel, VaultwardenAccountService) {
+    ) throws -> (AddAccountModel, VaultwardenAccountService) {
         let accountService = makeIsolatedAccountService()
-        accountService.persistAfterLogin(
+        try accountService.persistAfterLogin(
             session: VaultwardenAuthSession(
                 accessToken: "a",
                 refreshToken: "r",
@@ -587,8 +637,8 @@ final class AddAccountModelTests: XCTestCase {
         model.beginSignIn()
     }
 
-    func testUnchangedKDFProceedsWithoutConfirmation() async {
-        let (model, _) = makeSeededModel(
+    func testUnchangedKDFProceedsWithoutConfirmation() async throws {
+        let (model, _) = try makeSeededModel(
             store: InMemoryCredentialStore(), seededIterations: 100_000
         )
         stubPrelogin(iterations: 100_000)
@@ -600,8 +650,8 @@ final class AddAccountModelTests: XCTestCase {
         XCTAssertNil(model.kdfConfirmation, "an unchanged KDF never prompts")
     }
 
-    func testChangedKDFIsConfirmedBeforeDerivationAndApprovalProceeds() async {
-        let (model, accountService) = makeSeededModel(
+    func testChangedKDFIsConfirmedBeforeDerivationAndApprovalProceeds() async throws {
+        let (model, accountService) = try makeSeededModel(
             store: InMemoryCredentialStore(), seededIterations: 100_000
         )
         stubPrelogin(iterations: 200_000)
@@ -630,9 +680,9 @@ final class AddAccountModelTests: XCTestCase {
         )
     }
 
-    func testDeclinedKDFChangeFailsClosedAndKeepsTheBaseline() async {
+    func testDeclinedKDFChangeFailsClosedAndKeepsTheBaseline() async throws {
         let store = InMemoryCredentialStore()
-        let (model, accountService) = makeSeededModel(store: store, seededIterations: 100_000)
+        let (model, accountService) = try makeSeededModel(store: store, seededIterations: 100_000)
         stubPrelogin(iterations: 200_000)
 
         beginSignIn(model)
