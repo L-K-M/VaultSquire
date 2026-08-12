@@ -40,11 +40,17 @@ enum GlobalHotkey {
     /// only a short table of its own chords rather than trying to predict every
     /// chord macOS and every other application might own.
     @discardableResult
-    static func register(_ shortcut: QuickSearchShortcut, onPressed: @escaping () -> Void) -> Bool {
+    static func register(
+        _ shortcut: QuickSearchShortcut,
+        onPressed: @escaping @MainActor @Sendable () -> Void
+    ) -> Bool {
         unregister()
         // Stored before the handler is installed, so a chord pressed between
-        // these two calls cannot find an empty box.
-        pressHandler = { onPressed() }
+        // these two calls cannot find an empty box. The handler is typed
+        // `@MainActor @Sendable` rather than wrapped here: it is read from a C
+        // callback, which is nonisolated, so the isolation has to travel with
+        // the value instead of being asserted at the point of call.
+        pressHandler = onPressed
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -96,7 +102,7 @@ enum GlobalHotkey {
 /// disambiguate. `nonisolated(unsafe)` is the honest annotation — it is written
 /// only from the main actor, and read only from the callback, which runs on the
 /// main thread as part of the application's own Carbon event dispatch.
-private nonisolated(unsafe) var pressHandler: (@Sendable () -> Void)?
+private nonisolated(unsafe) var pressHandler: (@MainActor @Sendable () -> Void)?
 
 /// The C entry point. Verifies the event really is our hot key and hops to the
 /// main actor before anything else happens.
