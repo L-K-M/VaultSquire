@@ -9,6 +9,20 @@ struct SettingsView: View {
     /// observable and nothing else changes this while the window is up.
     @State private var autoLockMinutes = AutoLockController.shared.inactivityMinutes
 
+    /// How wide a paragraph is allowed to want to be.
+    ///
+    /// `fixedSize(horizontal: false, vertical: true)` fixes only the vertical
+    /// axis: horizontally the text stays flexible, so when SwiftUI asks for an
+    /// ideal size with no width proposed, a `Text` answers with its whole
+    /// sentence on one line. That ideal climbs the tree, and a `Settings` scene
+    /// sizes its window from it — which is how a window wider than the display,
+    /// with its labels off the left edge, comes from a paragraph.
+    ///
+    /// A maximum rather than a fixed width: a fixed one would refuse to shrink
+    /// when the window is narrowed, which is the same failure pointed the other
+    /// way.
+    private static let proseWidth: CGFloat = 420
+
     var body: some View {
         TabView {
             Form {
@@ -28,6 +42,9 @@ struct SettingsView: View {
                 biometricSection
             }
             .padding(24)
+            // A Form is not vertically greedy, so a short one is centred in the
+            // tab's rect with a band of empty space above it.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .tabItem {
                 Label("General", systemImage: "gearshape")
             }
@@ -40,6 +57,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: Self.proseWidth, alignment: .leading)
 
                 Divider()
 
@@ -96,6 +114,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: Self.proseWidth, alignment: .leading)
     }
 
     /// The offered choices, plus whatever is actually configured if that is not
@@ -146,6 +165,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: Self.proseWidth, alignment: .leading)
     }
 
     /// Touch ID opt-in. Enrolling needs the vault open, because the key it
@@ -183,7 +203,9 @@ struct SettingsView: View {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .frame(maxWidth: Self.proseWidth, alignment: .leading)
     }
 }

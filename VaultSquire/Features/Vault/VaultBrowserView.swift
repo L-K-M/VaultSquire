@@ -63,6 +63,13 @@ struct VaultBrowserView: View {
             sidebar
         } content: {
             contentColumn
+                // A floor, as the sidebar has had one all along. Without it the
+                // column's minimum width is whatever its content will tolerate,
+                // and a `Text` will tolerate the width of its longest word — so
+                // a pane of prose collapses to a ribbon and pays for it in
+                // height, which `.windowResizability(.contentMinSize)` then
+                // makes the window's own minimum.
+                .navigationSplitViewColumnWidth(min: 320, ideal: 400)
         } detail: {
             detailPane
         }
@@ -589,8 +596,30 @@ struct VaultBrowserView: View {
 
     // MARK: - Locked vault pane
 
+    /// The pane shown for a configured vault that is not open.
+    ///
+    /// Scrolls, and has a width floor, because everything in it is prose whose
+    /// height is a function of the width it is given. A `Text` that may not
+    /// truncate answers a narrow proposal with however many lines that takes,
+    /// so without a floor the failure message below wraps to a ribbon fifty
+    /// lines tall — and with `.windowResizability(.contentMinSize)` that
+    /// becomes the window's minimum height, which is a window the user cannot
+    /// shrink. The floor keeps the wrapping sane; the `ScrollView` makes the
+    /// pane's own minimum height small whatever the wrapping does, which is
+    /// what keeps this true at large accessibility text sizes too.
     @ViewBuilder
     private func lockedVaultPane(_ session: VaultSlot) -> some View {
+        ScrollView {
+            lockedVaultPaneContent(session)
+                .padding(28)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minWidth: 320, idealWidth: 400)
+        .navigationTitle(session.title)
+    }
+
+    @ViewBuilder
+    private func lockedVaultPaneContent(_ session: VaultSlot) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(session.title)
                 .font(.title2.weight(.semibold))
@@ -673,11 +702,7 @@ struct VaultBrowserView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("unlock-error")
             }
-            Spacer()
         }
-        .padding(28)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .navigationTitle(session.title)
     }
 
     private func passwordBinding(_ account: AccountID) -> Binding<String> {

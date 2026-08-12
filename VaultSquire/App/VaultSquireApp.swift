@@ -60,5 +60,11 @@ struct VaultSquireApp: App {
                 .environmentObject(appModel)
                 .environmentObject(siteIcons)
         }
+        // Stated, because otherwise the window is sized from what its content
+        // asks for — and a paragraph that is free to be as wide as it likes
+        // asks for its whole sentence on one line. That produced a Settings
+        // window wider than the display, with its leading edge, and therefore
+        // the labels, off the screen entirely.
+        .defaultSize(width: 620, height: 520)
     }
 }
