@@ -251,6 +251,13 @@ final class AppModel: ObservableObject {
         refreshAccountPresence()
     }
 
+    /// Clears a lingering write failure. Called when an editor sheet opens, so
+    /// an error from an earlier, unrelated write is never shown above a form
+    /// the user has not submitted yet.
+    func noteEditorPresented() {
+        writeError = nil
+    }
+
     /// Registers the Proton vault so it appears in the sidebar like any other,
     /// then opens it. Called from the Add Account pane once the CLI reports
     /// ready.

@@ -98,6 +98,8 @@ struct VaultItemEditView: View {
         }
         .accessibilityIdentifier("vault-item-edit")
         .onAppear {
+            // A failure from an earlier write must not greet a fresh sheet.
+            appModel.noteEditorPresented()
             if destination == nil {
                 destination = appModel.createTarget?.account
                     ?? appModel.writableVaults.first?.account
