@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A create/edit sheet for a login item. It edits a plaintext draft held only
@@ -11,6 +12,17 @@ struct VaultItemEditView: View {
     /// defaulted to the browser's target. An edit never uses it: the item
     /// belongs to the vault it came from.
     @State private var destination: AccountID?
+    /// Whether the password is shown as text. A password that cannot be read
+    /// back cannot be checked, and one that was pasted or generated is exactly
+    /// the one worth checking.
+    @State private var revealsPassword = false
+    @State private var showsGenerator = false
+    @State private var generatorOptions = PasswordGenerator.Options()
+    /// True once this sheet has submitted a write of its own. The model's
+    /// `isWriting` is app-wide — archiving from the toolbar sets it too — so
+    /// without this the sheet would close on someone else's write and throw
+    /// away whatever had been typed.
+    @State private var didSubmit = false
     let onClose: () -> Void
 
     init(draft: VaultItemDraft, onClose: @escaping () -> Void) {
@@ -36,23 +48,19 @@ struct VaultItemEditView: View {
                 Section("Login") {
                     TextField("Username", text: $draft.username)
                         .accessibilityIdentifier("edit-username")
-                    SecureField("Password", text: $draft.password)
-                        .accessibilityIdentifier("edit-password")
+                    passwordRow
                     TextField("One-time code (otpauth:// or Base32)", text: $draft.totp)
                         .accessibilityIdentifier("edit-totp")
                 }
                 Section("Websites") {
-                    TextEditor(text: $websitesText)
-                        .frame(minHeight: 54)
-                        .font(.body)
+                    boundedEditor(text: $websitesText, minHeight: 54)
                         .accessibilityIdentifier("edit-websites")
                     Text("One URL per line.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Section("Notes") {
-                    TextEditor(text: $draft.notes)
-                        .frame(minHeight: 70)
+                    boundedEditor(text: $draft.notes, minHeight: 70)
                         .accessibilityIdentifier("edit-notes")
                 }
             }
@@ -87,19 +95,184 @@ struct VaultItemEditView: View {
         }
         .frame(width: 460, height: 560)
         // When a save succeeds the model re-syncs and clears writeError; close
-        // the sheet once a submit completes without error.
+        // the sheet once this sheet's own submit completes without error.
         .onChange(of: appModel.isWriting) { wasWriting, isWriting in
-            if wasWriting && !isWriting && appModel.writeError == nil {
+            guard didSubmit, wasWriting, !isWriting else { return }
+            if appModel.writeError == nil {
                 onClose()
+            } else {
+                // The failure is on screen and the draft is intact, so the
+                // sheet stays open and the next attempt is a fresh submit.
+                didSubmit = false
             }
         }
         .accessibilityIdentifier("vault-item-edit")
         .onAppear {
+            // A failure from an earlier write must not greet a fresh sheet.
+            appModel.noteEditorPresented()
             if destination == nil {
                 destination = appModel.createTarget?.account
                     ?? appModel.writableVaults.first?.account
             }
         }
+    }
+
+    // MARK: - Password
+
+    /// The password field, with the two things a create form has to have: a way
+    /// to see what was typed, and a way to be handed something better.
+    private var passwordRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                if revealsPassword {
+                    TextField("Password", text: $draft.password)
+                        .accessibilityIdentifier("edit-password")
+                } else {
+                    SecureField("Password", text: $draft.password)
+                        .accessibilityIdentifier("edit-password")
+                }
+
+                Button {
+                    revealsPassword.toggle()
+                } label: {
+                    Image(systemName: revealsPassword ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.borderless)
+                .help(revealsPassword ? "Hide the password" : "Show the password")
+                .accessibilityIdentifier("edit-password-reveal")
+
+                Button {
+                    showsGenerator = true
+                } label: {
+                    Image(systemName: "key.fill")
+                }
+                .buttonStyle(.borderless)
+                .help("Generate a password")
+                .accessibilityIdentifier("edit-password-generate")
+                .popover(isPresented: $showsGenerator, arrowEdge: .bottom) {
+                    generatorPopover
+                }
+            }
+
+            if !draft.password.isEmpty {
+                strengthMeter
+            }
+        }
+    }
+
+    /// Four segments and a word. It ranks length and variety, and its own
+    /// documentation is honest that it cannot see a dictionary word — which is
+    /// why the generator sits next to it.
+    private var strengthMeter: some View {
+        let strength = PasswordGenerator.strength(of: draft.password)
+        return HStack(spacing: 6) {
+            ForEach(PasswordGenerator.Strength.allCases, id: \.rawValue) { step in
+                Capsule()
+                    .fill(step <= strength ? color(for: strength) : Color.secondary.opacity(0.2))
+                    .frame(height: 4)
+            }
+            Text(strength.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 66, alignment: .leading)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Password strength: \(strength.label)")
+        .accessibilityIdentifier("edit-password-strength")
+    }
+
+    private func color(for strength: PasswordGenerator.Strength) -> Color {
+        switch strength {
+        case .weak: return .red
+        case .fair: return .orange
+        case .strong: return .green
+        case .excellent: return .green
+        }
+    }
+
+    private var generatorPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Generate a Password")
+                .font(.callout.weight(.semibold))
+
+            HStack {
+                Text("Length")
+                Slider(
+                    value: Binding(
+                        get: { Double(generatorOptions.length) },
+                        set: { generatorOptions.length = Int($0) }
+                    ),
+                    in: Double(PasswordGenerator.Options.minimumLength)
+                        ... Double(PasswordGenerator.Options.maximumLength),
+                    step: 1
+                )
+                Text("\(generatorOptions.effectiveLength)")
+                    .font(.body.monospacedDigit())
+                    .frame(width: 28, alignment: .trailing)
+            }
+
+            ForEach(PasswordGenerator.CharacterClass.allCases, id: \.rawValue) { characterClass in
+                Toggle(Self.label(for: characterClass), isOn: classBinding(characterClass))
+            }
+            Toggle("Allow lookalike characters (l, I, 1, O, 0)", isOn: $generatorOptions.allowsAmbiguous)
+
+            HStack {
+                Spacer()
+                Button("Use Password") {
+                    if let generated = PasswordGenerator.generate(generatorOptions) {
+                        draft.password = generated
+                        revealsPassword = true
+                    }
+                    showsGenerator = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!generatorOptions.isSatisfiable)
+                .accessibilityIdentifier("edit-password-generate-confirm")
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
+    }
+
+    private func classBinding(_ characterClass: PasswordGenerator.CharacterClass) -> Binding<Bool> {
+        Binding(
+            get: { generatorOptions.classes.contains(characterClass) },
+            set: { isOn in
+                if isOn {
+                    generatorOptions.classes.insert(characterClass)
+                } else {
+                    generatorOptions.classes.remove(characterClass)
+                }
+            }
+        )
+    }
+
+    private static func label(for characterClass: PasswordGenerator.CharacterClass) -> String {
+        switch characterClass {
+        case .lowercase: return "Lowercase letters"
+        case .uppercase: return "Uppercase letters"
+        case .digits: return "Digits"
+        case .symbols: return "Symbols"
+        }
+    }
+
+    /// A text editor that looks like a field. Inside a grouped form a bare
+    /// `TextEditor` draws no border and no background on macOS, so both of
+    /// these read as stray text rather than as something to type into.
+    private func boundedEditor(text: Binding<String>, minHeight: CGFloat) -> some View {
+        TextEditor(text: text)
+            .font(.body)
+            .scrollContentBackground(.hidden)
+            .padding(4)
+            .frame(minHeight: minHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.28), lineWidth: 1)
+            )
     }
 
     /// Where a new item lands. Shown whenever creating, even with one writable
@@ -125,6 +298,7 @@ struct VaultItemEditView: View {
     }
 
     private func submit() {
+        didSubmit = true
         draft.websites = websitesText
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }

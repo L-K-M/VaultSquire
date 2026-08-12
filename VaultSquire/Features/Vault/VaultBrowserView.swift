@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The main window once at least one vault is configured: a vault sidebar, the
@@ -20,9 +21,30 @@ struct VaultBrowserView: View {
     @State private var editSession: EditSession?
     /// The password being typed for a locked vault, keyed by vault so switching
     /// between two locked vaults does not carry one field's text to the other.
+    ///
+    /// Dropped as soon as the field it belongs to is no longer on screen — see
+    /// `discardUnsubmittedPasswords()`. Only `submitUnlock` used to clear an
+    /// entry, so a master password typed and then abandoned stayed in memory
+    /// for the life of the process.
     @State private var passwords: [AccountID: String] = [:]
     /// Which vaults have their container list expanded in the sidebar.
     @State private var expandedVaults: Set<AccountID> = []
+    /// The website awaiting confirmation to open, shown with the effective
+    /// scheme and host the browser will actually visit — the same confirmation
+    /// the detail pane gives before any URI leaves the app.
+    @State private var pendingOpen: URIOpeningDecision?
+    @State private var showOpenConfirmation = false
+    /// The item awaiting archive confirmation. The dialog's presentation is
+    /// derived from this rather than tracked separately, so dismissing it with
+    /// Escape cannot leave a staged item behind.
+    @State private var pendingArchive: VaultItemID?
+
+    /// What the detail pane's hydration is keyed on: the item, and the
+    /// generation of the fetched-secret store it was satisfied from.
+    private struct HydrationKey: Equatable {
+        let item: VaultItemID
+        let epoch: UInt64
+    }
 
     /// Wraps a draft so it can drive an item-identified sheet.
     private struct EditSession: Identifiable {
@@ -52,16 +74,74 @@ struct VaultBrowserView: View {
         }
         .onChange(of: appModel.quickSearchSelection) { _, newValue in
             guard let newValue else { return }
-            // Quick Search spans every open vault, so jump the browser to the
-            // scope that actually contains the chosen item.
-            if case .vault(let account) = appModel.scope, account != newValue.account {
-                appModel.scope = .allVaults
+            // Quick Search spans every open vault, so jump the browser to a
+            // scope that actually contains the chosen item: a group or
+            // single-vault scope that excludes it would swallow the selection.
+            // The owning vault's scope is preferred over All Vaults so the
+            // user's context narrows rather than resets.
+            if !scopeContains(newValue) {
+                appModel.scope = .vault(newValue.account)
+            }
+            // A filter left in the search field can hide the handed-off item
+            // even once the scope is right, which would select a row the list
+            // does not render. Quick Search asked for this item by name, so the
+            // filter is what gives way.
+            if !filteredItems.contains(where: { $0.id == newValue }) {
+                query = ""
             }
             selection = newValue
             appModel.clearQuickSearchSelection()
         }
         .onChange(of: appModel.scope) { _, _ in
-            selection = nil
+            discardUnsubmittedPasswords()
+            // A new scope is a fresh list, so the filter typed for the old one
+            // does not carry into it — the same thing Finder and Mail do when
+            // the sidebar selection changes.
+            query = ""
+            // Clear the selection only when it is not visible in the new
+            // scope. This handler also fires for the Quick Search jump above,
+            // where clearing would undo the navigation it just performed.
+            if let selection, !scopeContains(selection) {
+                self.selection = nil
+            }
+        }
+        .onChange(of: query) { _, _ in
+            // A narrower filter can hide the selected row; drop the selection
+            // so the detail pane never disagrees with the visible list.
+            if let selection, !filteredItems.contains(where: { $0.id == selection }) {
+                self.selection = nil
+            }
+        }
+        .confirmationDialog(
+            "Archive this item?",
+            isPresented: archiveConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Archive", role: .destructive) {
+                if let pendingArchive {
+                    appModel.archive(pendingArchive)
+                }
+                pendingArchive = nil
+            }
+            Button("Cancel", role: .cancel) { pendingArchive = nil }
+        } message: {
+            Text("\(archiveCandidateTitle) leaves every list and search here. VaultSquire cannot bring it back yet — you would restore it from your Vaultwarden app.")
+        }
+        .confirmationDialog(
+            "Open this link?",
+            isPresented: $showOpenConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let decision = pendingOpen {
+                Button("Open \(decision.display)") {
+                    NSWorkspace.shared.open(decision.url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let decision = pendingOpen {
+                Text(decision.confirmationMessage)
+            }
         }
         .task {
             // Offer Touch ID as soon as the browser appears when it is set up,
@@ -75,6 +155,28 @@ struct VaultBrowserView: View {
     }
 
     // MARK: - Sidebar
+
+    /// Drives the archive dialog from `pendingArchive`, so Escape or a dismissal
+    /// clears the staged item instead of leaving it armed for the next dialog.
+    private var archiveConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { pendingArchive != nil },
+            set: { presented in
+                if !presented { pendingArchive = nil }
+            }
+        )
+    }
+
+    /// The quoted name of the item being archived, so the dialog is about a
+    /// specific entry rather than an abstract action.
+    private var archiveCandidateTitle: String {
+        guard let pendingArchive,
+              let title = appModel.allOpenItems.first(where: { $0.id == pendingArchive })?.displayTitle,
+              !title.isEmpty else {
+            return "This item"
+        }
+        return "\u{201C}\(title)\u{201D}"
+    }
 
     private var scopeSelection: Binding<VaultScope?> {
         Binding(
@@ -172,6 +274,10 @@ struct VaultBrowserView: View {
             } else if session.isOpen {
                 Button {
                     appModel.lock(session.account)
+                    // The cache is not partitioned by account. Clear it all so
+                    // a site belonging only to this now-locked vault cannot
+                    // remain in memory while another vault stays open.
+                    siteIcons.clear()
                 } label: {
                     Image(systemName: "lock")
                 }
@@ -256,6 +362,7 @@ struct VaultBrowserView: View {
             lockedVaultPane(session)
         } else if appModel.isUnlocked {
             itemList
+                .safeAreaInset(edge: .bottom) { writeErrorBanner }
         } else {
             ContentUnavailableView(
                 "No vault is open",
@@ -265,14 +372,127 @@ struct VaultBrowserView: View {
         }
     }
 
+    /// A write failure that happened outside the editor sheet.
+    ///
+    /// `writeError` is rendered inside that sheet, which is the only place it
+    /// could ever appear — so archiving from the toolbar or from a row failed
+    /// silently, and the message then turned up misattributed above the next
+    /// form the user opened. Archive is also the one write with no undo here,
+    /// which makes a silent failure the worst kind.
+    @ViewBuilder
+    private var writeErrorBanner: some View {
+        if editSession == nil, let error = appModel.writeError {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                Text(error)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Dismiss") { appModel.dismissWriteError() }
+                    .buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.bar)
+            .accessibilityIdentifier("vault-write-error")
+        }
+    }
+
+    @ViewBuilder
     private var itemList: some View {
-        List(filteredItems, selection: $selection) { item in
-            itemRow(item)
-                .tag(item.id)
+        let items = filteredItems
+        Group {
+            if items.isEmpty {
+                emptyItemList
+            } else {
+                List(items, selection: $selection) { item in
+                    itemRow(item)
+                        .tag(item.id)
+                        .contextMenu { itemActions(item) }
+                }
+            }
         }
         .searchable(text: $query, prompt: searchPrompt)
         .navigationTitle(scopeTitle)
+        // On the Group rather than the List, so the identifier is present in
+        // both states and a test for it does not fail on an empty vault.
         .accessibilityIdentifier("vault-item-list")
+    }
+
+    /// The row's own actions. Getting a password onto the clipboard is the
+    /// single most common thing anyone does with this app, and it previously
+    /// required selecting the item, waiting for its detail, and aiming at a
+    /// sixteen-point button. Every copy goes through the same clipboard service
+    /// the detail view uses, so a secret copied from a row expires and clears
+    /// on lock exactly as one copied from the item does, and each action is
+    /// gated on the owning vault's capabilities rather than on the row it
+    /// happens to sit beside.
+    @ViewBuilder
+    private func itemActions(_ item: VaultItemProjection) -> some View {
+        if let username = item.username, !username.isEmpty {
+            Button("Copy Username") { appModel.copyUsername(item.id) }
+                .accessibilityIdentifier("context-copy-username")
+        }
+        if appModel.canCopySecret(item.id) {
+            Button("Copy Password") { appModel.copySecret(.password, of: item.id) }
+                .accessibilityIdentifier("context-copy-password")
+            if item.hasOneTimeCode {
+                Button("Copy One-Time Code") { appModel.copySecret(.oneTimeCode, of: item.id) }
+                    .accessibilityIdentifier("context-copy-totp")
+            }
+        }
+        if let website = item.websites.first,
+           let decision = URIOpeningPolicy.decision(for: website) {
+            Divider()
+            // Behind the same confirmation the detail pane gives: nothing
+            // leaves for a browser without the user seeing where it goes.
+            Button("Open \(decision.display)") {
+                pendingOpen = decision
+                showOpenConfirmation = true
+            }
+            .accessibilityIdentifier("context-open-website")
+        }
+        // Every predicate below is answered from the projection or the vault's
+        // capabilities. Nothing here decrypts: the list may build this menu for
+        // each visible row, so a decrypt per predicate would be a decrypt of
+        // the whole vault on every redraw.
+        if appModel.canOfferEdit(item.id) || appModel.canArchive(item.id) {
+            Divider()
+            if appModel.canOfferEdit(item.id) {
+                Button("Edit…") {
+                    guard let draft = appModel.draft(for: item.id) else { return }
+                    editSession = EditSession(draft: draft)
+                }
+                .accessibilityIdentifier("context-edit")
+            }
+            if appModel.canArchive(item.id) {
+                Button("Archive") { pendingArchive = item.id }
+                    .accessibilityIdentifier("context-archive")
+            }
+        }
+    }
+
+    /// The empty state for the item list: "no matches" when a filter excludes
+    /// everything, and "no items" when the scope itself is empty. A blank list
+    /// said neither.
+    @ViewBuilder
+    private var emptyItemList: some View {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        ContentUnavailableView {
+            Label(
+                trimmed.isEmpty ? "No items" : "No matches",
+                systemImage: trimmed.isEmpty ? "tray" : "magnifyingglass"
+            )
+        } description: {
+            if trimmed.isEmpty {
+                Text("This scope has no items to show.")
+            } else {
+                Text("No items match “\(trimmed)”.")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var scopeTitle: String {
@@ -291,6 +511,41 @@ struct VaultBrowserView: View {
 
     private var searchPrompt: String {
         appModel.scope == .allVaults ? "Search every open vault" : "Search this vault"
+    }
+
+    /// Whether the current scope's item list contains the item. Group scopes
+    /// consult the owning vault's group contents; the other scopes follow the
+    /// scope's account.
+    private func scopeContains(_ itemID: VaultItemID) -> Bool {
+        Self.scope(appModel.scope, shows: itemID) { account, group in
+            appModel.session(for: account)?
+                .items(inGroup: group)
+                .contains(where: { $0.id == itemID }) ?? false
+        }
+    }
+
+    /// The pure rule behind `scopeContains`, extracted so it can be tested
+    /// without standing up a view and an environment.
+    ///
+    /// A group scope is not satisfied merely by belonging to the same vault:
+    /// an item in another folder of that same vault is not in this list, and
+    /// treating it as visible leaves a selection the user cannot see.
+    /// `groupContainsItem` is consulted only for a group scope, so the
+    /// non-group cases stay a comparison.
+    static func scope(
+        _ scope: VaultScope,
+        shows itemID: VaultItemID,
+        groupContainsItem: (AccountID, String) -> Bool
+    ) -> Bool {
+        switch scope {
+        case .allVaults:
+            return true
+        case .vault(let account):
+            return account == itemID.account
+        case .group(let account, let group):
+            guard account == itemID.account else { return false }
+            return groupContainsItem(account, group)
+        }
     }
 
     private func itemRow(_ item: VaultItemProjection) -> some View {
@@ -320,6 +575,13 @@ struct VaultBrowserView: View {
                             .lineLimit(1)
                     }
                 }
+            }
+            if item.favorite {
+                Spacer(minLength: 4)
+                Image(systemName: "star.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.vertical, 2)
@@ -425,6 +687,18 @@ struct VaultBrowserView: View {
         )
     }
 
+    /// Forgets every typed master password whose prompt is no longer showing.
+    ///
+    /// The prompt appears only for the vault the scope names, and only while it
+    /// is closed, so anything else in the map is text the user typed and walked
+    /// away from. A master password is the one value this app must never keep.
+    private func discardUnsubmittedPasswords() {
+        let stillPrompting = appModel.selectedSession.flatMap { $0.isOpen ? nil : $0.account }
+        // Filtered into a new dictionary rather than removed while iterating
+        // the old one's keys.
+        passwords = passwords.filter { $0.key == stillPrompting }
+    }
+
     private func submitUnlock(_ account: AccountID) {
         let password = passwords[account] ?? ""
         guard !password.isEmpty else { return }
@@ -437,12 +711,21 @@ struct VaultBrowserView: View {
     @ViewBuilder
     private var detailPane: some View {
         if let selection, let detail = appModel.detail(for: selection) {
-            VaultItemDetailView(detail: detail)
+            VaultItemDetailView(
+                detail: detail,
+                isFetchingSecrets: appModel.isHydrating(selection)
+            )
                 .id(selection)
                 // A CLI provider's item has its secret fields fetched the first
                 // time it is opened, because listing deliberately carries none;
                 // a Vaultwarden item already has them in memory.
-                .task(id: selection) { appModel.hydrateIfNeeded(selection) }
+                // Keyed on the content epoch too: a sync drops the secrets
+                // fetched against the listing it replaced, and without this the
+                // selection has not changed so the task never re-runs — the
+                // password row would vanish from an open item and stay gone.
+                .task(id: HydrationKey(item: selection, epoch: appModel.contentEpoch)) {
+                    appModel.hydrateIfNeeded(selection)
+                }
         } else {
             ContentUnavailableView {
                 Label("Select an item", systemImage: "list.bullet.rectangle")
@@ -476,12 +759,16 @@ struct VaultBrowserView: View {
                     // The toolbar draws a fixed-size background behind this
                     // item; without fixedSize the label is compressed and its
                     // text clips against the edges of that bubble. The
-                    // abbreviated form ("2 min ago") also keeps it short.
-                    Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help("Last synced \(date.formatted(.relative(presentation: .named)))")
+                    // abbreviated form ("2 min ago") also keeps it short. The
+                    // timeline re-evaluates the relative wording, so it cannot
+                    // sit at "2 min ago" for the rest of the session.
+                    TimelineView(.periodic(from: date, by: 60)) { _ in
+                        Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .help("Last synced \(date.formatted(.relative(presentation: .named)))")
+                    }
                 }
             }
             // The toolbar draws a capsule that hugs this content. Without the
@@ -510,10 +797,11 @@ struct VaultBrowserView: View {
                 Label("Edit", systemImage: "pencil")
             }
             .disabled(selection.map { !appModel.canEdit($0) } ?? true || appModel.isWriting)
+            .keyboardShortcut("e", modifiers: .command)
             .accessibilityIdentifier("vault-edit")
 
             Button {
-                if let selection { appModel.archive(selection) }
+                pendingArchive = selection
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }
@@ -526,6 +814,7 @@ struct VaultBrowserView: View {
                 Label("Sync", systemImage: "arrow.clockwise")
             }
             .disabled(appModel.isSyncing || !appModel.isUnlocked)
+            .keyboardShortcut("r", modifiers: .command)
             .accessibilityIdentifier("vault-sync")
 
             Button {

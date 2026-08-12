@@ -103,4 +103,120 @@ final class AutoLockControllerTests: XCTestCase {
         XCTAssertEqual(controller.inactivityTimeout, AutoLockController.defaultInactivityTimeout)
         XCTAssertTrue(controller.inactivityLockEnabled)
     }
+
+    /// An installation nobody has configured must report the timeout it is
+    /// actually running, not zero, or Settings would offer to change something
+    /// away from a value it never showed.
+    func testUnconfiguredMinutesReportTheRunningDefault() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, _, _) = makeController(now: { t0 })
+        XCTAssertEqual(
+            controller.inactivityMinutes, Int(AutoLockController.defaultInactivityTimeout / 60)
+        )
+    }
+
+    /// Settings writes through this, and the new timeout has to apply now
+    /// rather than at the next launch.
+    func testSettingTheTimeoutTakesEffectImmediately() {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, lockCount, start) = makeController(timeoutMinutes: 60, now: { clock })
+        start()
+
+        controller.setInactivityMinutes(5)
+        XCTAssertEqual(controller.inactivityMinutes, 5)
+        XCTAssertEqual(controller.inactivityTimeout, 5 * 60)
+
+        clock = clock.addingTimeInterval(6 * 60)
+        controller.checkInactivity(at: clock)
+        XCTAssertEqual(lockCount(), 1, "six idle minutes is past the new five-minute timeout")
+    }
+
+    /// Shortening the timeout must not lock retroactively for time already
+    /// spent reading under the longer one.
+    func testShorteningTheTimeoutRestartsTheClock() {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, lockCount, start) = makeController(timeoutMinutes: 60, now: { clock })
+        start()
+
+        // Fifty idle minutes under the old hour-long timeout …
+        clock = clock.addingTimeInterval(50 * 60)
+        controller.setInactivityMinutes(5)
+
+        // … does not count against the new five-minute one.
+        controller.checkInactivity(at: clock)
+        XCTAssertEqual(lockCount(), 0)
+
+        clock = clock.addingTimeInterval(5 * 60)
+        controller.checkInactivity(at: clock)
+        XCTAssertEqual(lockCount(), 1)
+    }
+
+    func testChoosingNeverDisablesOnlyTheIdleClock() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, lockCount, start) = makeController(timeoutMinutes: 15, now: { t0 })
+        start()
+
+        controller.setInactivityMinutes(0)
+        XCTAssertFalse(controller.inactivityLockEnabled)
+        controller.checkInactivity(at: t0.addingTimeInterval(365 * 24 * 3600))
+        XCTAssertEqual(lockCount(), 0)
+
+        controller.systemLockObserved()
+        XCTAssertEqual(lockCount(), 1, "the system triggers are not a preference")
+    }
+
+    /// The poll interval has to scale with the timeout. A fixed one-minute
+    /// poll would let the shortest offered choice overrun by another whole
+    /// minute — a one-minute timeout that can take two is not the setting the
+    /// picker offered.
+    func testCheckIntervalKeepsEveryOfferedTimeoutNearItsBoundary() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        for minutes in AutoLockController.offeredInactivityMinutes where minutes > 0 {
+            let (controller, _, _) = makeController(timeoutMinutes: Double(minutes), now: { t0 })
+            let timeout = TimeInterval(minutes) * 60
+            let interval = controller.inactivityCheckInterval
+
+            XCTAssertGreaterThanOrEqual(
+                interval, 5, "\(minutes)m: never wakes more often than every five seconds"
+            )
+            // The worst-case overrun is one interval, so this is the bound on
+            // how late a lock can be.
+            XCTAssertLessThanOrEqual(
+                interval, timeout / 2,
+                "\(minutes)m: at least two checks inside the timeout, so a lock is never more than half a timeout late"
+            )
+        }
+    }
+
+    /// A sub-minute timeout set out of band must not report as "Never". It
+    /// rounds, so the number Settings shows agrees with the clock that runs.
+    func testSubMinuteTimeoutDoesNotReportAsNever() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, _, _) = makeController(timeoutMinutes: 0.5, now: { t0 })
+        XCTAssertTrue(controller.inactivityLockEnabled, "half a minute still locks")
+        XCTAssertEqual(controller.inactivityMinutes, 1, "rounds rather than truncating to a false Never")
+    }
+
+    /// Settings can reach `setInactivityMinutes` on a controller that was never
+    /// started. That must not leave a poll running against a nil lock closure.
+    func testSettingTheTimeoutOnAnUnstartedControllerArmsNothing() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, lockCount, _) = makeController(now: { t0 })
+        controller.setInactivityMinutes(1)
+        XCTAssertEqual(controller.inactivityMinutes, 1)
+        controller.checkInactivity(at: t0.addingTimeInterval(3600))
+        XCTAssertEqual(lockCount(), 0, "no lock closure was ever installed")
+    }
+
+    /// Every offered choice has a label, and "never" is the only non-positive
+    /// one, so the picker can never show a blank or a negative timeout.
+    func testEveryOfferedTimeoutIsSaneAndDistinct() {
+        let offered = AutoLockController.offeredInactivityMinutes
+        XCTAssertEqual(Set(offered).count, offered.count, "no duplicate choices")
+        XCTAssertEqual(offered.filter { $0 <= 0 }, [0], "exactly one 'never', and it is zero")
+        XCTAssertTrue(
+            offered.contains(Int(AutoLockController.defaultInactivityTimeout / 60)),
+            "the running default is one of the choices, or it could never be chosen again"
+        )
+    }
 }

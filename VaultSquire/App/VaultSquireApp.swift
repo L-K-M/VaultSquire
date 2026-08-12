@@ -13,7 +13,12 @@ struct VaultSquireApp: App {
     }
 
     var body: some Scene {
-        Window("VaultSquire", id: "main") {
+        // A WindowGroup rather than a Window: the app deliberately outlives its
+        // last closed window (applicationShouldTerminateAfterLastWindowClosed is
+        // false), and a Window scene cannot be recreated once closed — a user
+        // who closed the window would be left with a running app with no way
+        // back. WindowGroup lets a Dock click reopen the main window.
+        WindowGroup("VaultSquire", id: "main") {
             LockedShellView()
                 .environmentObject(appModel)
                 .environmentObject(siteIcons)

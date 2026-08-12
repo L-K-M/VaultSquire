@@ -7,6 +7,9 @@ import AppKit
 protocol QuickSearchDataSource: AnyObject {
     var quickSearchItems: [VaultItemProjection] { get }
     var quickSearchIsUnlocked: Bool { get }
+    /// Display names for the configured vaults, so a result found across a
+    /// merged search can name the vault it came from.
+    var quickSearchVaultTitles: [AccountID: String] { get }
     func openFromQuickSearch(_ id: VaultItemID)
 }
 
@@ -39,9 +42,23 @@ final class ApplicationCoordinator {
         controller.show(
             items: quickSearchDataSource?.quickSearchItems ?? [],
             isUnlocked: quickSearchDataSource?.quickSearchIsUnlocked ?? false,
+            vaultTitles: quickSearchDataSource?.quickSearchVaultTitles ?? [:],
             onOpen: { [weak self] id in
                 self?.quickSearchDataSource?.openFromQuickSearch(id)
             }
+        )
+    }
+
+    /// Re-reads the data source into a panel that is already on screen. The
+    /// panel takes a snapshot when it opens, so without this a vault locked
+    /// behind it would keep offering its items — and a sync that landed would
+    /// be invisible until the panel was closed and reopened.
+    func refreshQuickSearch() {
+        guard let controller = quickSearchController, controller.isVisible else { return }
+        controller.update(
+            items: quickSearchDataSource?.quickSearchItems ?? [],
+            isUnlocked: quickSearchDataSource?.quickSearchIsUnlocked ?? false,
+            vaultTitles: quickSearchDataSource?.quickSearchVaultTitles ?? [:]
         )
     }
 

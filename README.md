@@ -101,7 +101,10 @@ security boundaries:
   server — asking `example.com` for its icon tells it that this Mac holds an
   entry for it. When it is on, each icon comes from that site's own origin and
   never from an icon service, which would instead receive your entire list of
-  sites; nothing is cached to disk, so the set of sites leaves no trace.
+  sites; nothing is cached to disk, so the set of sites leaves no trace. Entries
+  that name a machine rather than a site — the router at `192.168.1.1`, the NAS
+  at `nas.local` — are never asked at all, and a site cannot redirect its icon
+  request somewhere else.
 - **One unlock opens the app.** Unlocking — by master password or by Touch ID —
   also opens every configured vault that has no credential of its own to
   collect, which is both CLI providers: their sessions live in the official CLI
@@ -210,6 +213,13 @@ Read the documents in this order:
 22. [`docs/security-review/2026-08-11-adversarial-review.md`](docs/security-review/2026-08-11-adversarial-review.md):
     the 2026-08 adversarial security review findings, remediations, and
     documented follow-ups (subordinate evidence).
+23. [`docs/reviews/2026-08-12-open-pr-consolidation.md`](docs/reviews/2026-08-12-open-pr-consolidation.md):
+    what was taken from forty concurrently open pull requests, what was
+    superseded, and why one of them must not be merged (subordinate evidence).
+24. [`docs/reviews/2026-08-12-consolidated-backlog.md`](docs/reviews/2026-08-12-consolidated-backlog.md):
+    the merged product, correctness, performance, interaction, visual, and
+    accessibility backlog from the 2026-08 parallel reviews (subordinate
+    evidence).
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and

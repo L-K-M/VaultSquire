@@ -330,14 +330,28 @@ final class AddAccountModel: ObservableObject, Identifiable {
         } catch let error as VaultwardenAPIError {
             // Surface the error on the challenge screen; a send failure must not
             // discard the 2FA context and drop the user back to the form.
+            //
+            // Unless the user already left: `returnToForm()` cancels whatever is
+            // in `activeTask`, and the email send is stored there too, so
+            // without this guard tapping Back mid-send puts a failure message
+            // on the form the user just went back to.
+            guard !Task.isCancelled else { return }
             failureMessage = error.safeDisplayMessage
         } catch {
+            guard !Task.isCancelled else { return }
             failureMessage = "The verification email could not be sent."
         }
     }
 
     /// Submits the entered second-factor code for the selected provider.
     func submitTwoFactor() async {
+        // A task whose cancellation landed before it even started running —
+        // beginSubmitTwoFactor() followed immediately by returnToForm(), the
+        // Verify-then-Back race — must not touch state at all: returnToForm()
+        // has already cleared `pending`, and without this guard that would
+        // otherwise fall into the "inconsistent state" branch below and show
+        // a stale, confusing error on the form the user already left.
+        guard !Task.isCancelled else { return }
         guard let authenticator, let pending, let provider = selectedProvider else {
             // Inconsistent state (no active challenge); surface feedback rather
             // than a dead button.
@@ -364,22 +378,33 @@ final class AddAccountModel: ObservableObject, Identifiable {
                 onAccountConfigured(environment.base)
             }
         } catch AddAccountError.missingRefreshToken {
+            // If the sheet was dismissed (or Back was tapped) mid-request, the
+            // user is no longer looking at the challenge screen this would
+            // flip back to, and returnToForm() already reset this state.
+            guard !Task.isCancelled else { return }
             phase = .challenged
             self.failureMessage = "The server did not return the tokens needed to stay signed in."
         } catch VaultwardenAccountError.accountListUnreadable {
+            // Same guard as every arm around it: Back mid-request has already
+            // reset this state, and the user is no longer on the screen this
+            // would flip back to.
+            guard !Task.isCancelled else { return }
             phase = .challenged
             self.failureMessage = Self.accountListUnreadableMessage
         } catch is VaultwardenCredentialStoreError {
             // The code was accepted; only the local save failed. Do not claim
             // the code was rejected.
+            guard !Task.isCancelled else { return }
             phase = .challenged
             self.failureMessage = "Verification succeeded, but the credentials could not be saved. Please start over."
         } catch let error as VaultwardenAPIError {
+            guard !Task.isCancelled else { return }
             phase = .challenged
             self.failureMessage = error.safeDisplayMessage
         } catch {
             // A non-API failure (timeout, cancellation, decode) is not a
             // rejected code, so avoid implying the entered code was wrong.
+            guard !Task.isCancelled else { return }
             phase = .challenged
             self.failureMessage = "Verification could not be completed. Please try again."
         }
@@ -387,7 +412,17 @@ final class AddAccountModel: ObservableObject, Identifiable {
 
     /// Returns from the challenge to the form, preserving the non-secret URL
     /// and email fields.
+    ///
+    /// Cancels whatever verification is in flight first. Without this, a user
+    /// who tapped Verify and then Back before the network call returned could
+    /// watch it land moments later anyway: on success it would store
+    /// credentials and jump the sheet to "Account Added" out from under the
+    /// form the user is now looking at; on failure it would flip back to the
+    /// challenge screen with a stale error. `cancelActiveWork()` is a no-op on
+    /// the origin/KDF continuations, which have nothing pending here.
     func returnToForm() {
+        cancelActiveWork()
+        activeTask = nil
         pending = nil
         offeredProviders = []
         selectedProvider = nil
@@ -448,9 +483,10 @@ final class AddAccountModel: ObservableObject, Identifiable {
     /// Says which of the two is wrong — the stored list, not the sign-in — and
     /// does not suggest adding the account again, which is what the shell's own
     /// locked-state copy suggests and which would fail identically every time.
-    static let accountListUnreadableMessage = """
-        Signed in, but the saved account list on this Mac could not be read, so         the account was not added. It was left untouched rather than replaced,         because replacing it would remove any other accounts it holds.
-        """
+    static let accountListUnreadableMessage = "Signed in, but the saved account list "
+        + "on this Mac could not be read, so the account was not added. It was left "
+        + "untouched rather than replaced, because replacing it would remove any "
+        + "other accounts it holds."
 
     private func fail(with message: String) {
         // A cancelled flow (dismissed sheet, restarted sign-in) must not
