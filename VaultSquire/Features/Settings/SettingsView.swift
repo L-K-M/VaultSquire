@@ -166,7 +166,7 @@ struct SettingsView: View {
             }
 
             Text(autoLockMinutes > 0
-                ? "VaultSquire locks every open vault after \(Self.timeoutLabel(autoLockMinutes).lowercased()) without keyboard or pointer activity."
+                ? "VaultSquire locks every open vault after \(Self.timeoutLabel(autoLockMinutes).lowercased()) without a keystroke, click, or scroll. Moving the pointer alone doesn't keep the vault open."
                 : "The idle timer is off, so VaultSquire keeps your vaults open until something below closes them.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

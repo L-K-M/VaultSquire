@@ -38,6 +38,22 @@ final class AutoLockController {
     static let screenIsLockedNotification = "com.apple.screenIsLocked"
     static let screensaverDidStartNotification = "com.apple.screensaver.didstart"
 
+    /// The event types that count as user activity for the idle clock.
+    ///
+    /// Keystrokes, clicks, and scrolls are the honest signals of a hand on
+    /// the machine. Pointer motion is deliberately absent: a monitor matching
+    /// `.mouseMoved` receives an event continuously while the pointer sits
+    /// over the window, so ambient motion alone would defeat the inactivity
+    /// lock for as long as the app stays frontmost — the one posture where
+    /// the vault is visible. Excluding hover is a security decision (the idle
+    /// lock must fire while the user reads without touching anything) and a
+    /// performance one (no per-event allocation for continuous motion).
+    /// Exposed so the test suite pins the decision: adding `.mouseMoved` back
+    /// later must be a conscious, tested change, not a revert by accident.
+    static let activityEventMask: NSEvent.EventTypeMask = [
+        .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel,
+    ]
+
     private let defaults: UserDefaults
     private let now: @MainActor () -> Date
     private var onLock: (@MainActor () -> Void)?
@@ -133,15 +149,16 @@ final class AutoLockController {
             workspaceObservers.append(observer)
         }
 
-        // Any input aimed at this app counts as activity. The monitor only
-        // observes; it never consumes the event.
+        // Any deliberate input aimed at this app counts as activity; the mask
+        // is `activityEventMask`, which excludes passive pointer motion. The
+        // monitor only observes; it never consumes the event.
         eventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .mouseMoved]
+            matching: Self.activityEventMask
         ) { [weak self] event in
             // A local monitor is called on the main thread as part of event
             // dispatch, so the activity note is taken inline. Hopping through a
-            // Task would allocate one per event, and `.mouseMoved` alone
-            // delivers those continuously while the pointer is over the window.
+            // Task would allocate one per event, and this handler runs for
+            // every matching event of the whole session.
             MainActor.assumeIsolated {
                 self?.noteActivity()
             }
