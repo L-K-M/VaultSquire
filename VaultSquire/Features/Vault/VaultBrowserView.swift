@@ -172,6 +172,10 @@ struct VaultBrowserView: View {
             } else if session.isOpen {
                 Button {
                     appModel.lock(session.account)
+                    // The cache is not partitioned by account. Clear it all so
+                    // a site belonging only to this now-locked vault cannot
+                    // remain in memory while another vault stays open.
+                    siteIcons.clear()
                 } label: {
                     Image(systemName: "lock")
                 }
