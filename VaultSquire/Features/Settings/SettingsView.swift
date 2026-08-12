@@ -75,7 +75,7 @@ struct SettingsView: View {
     private var autoLockSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Picker("Lock after", selection: $autoLockMinutes) {
-                ForEach(AutoLockController.offeredInactivityMinutes, id: \.self) { minutes in
+                ForEach(offeredTimeouts, id: \.self) { minutes in
                     Text(Self.timeoutLabel(minutes)).tag(minutes)
                 }
             }
@@ -96,6 +96,18 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// The offered choices, plus whatever is actually configured if that is not
+    /// one of them. A timeout set out of band with `defaults write` would
+    /// otherwise match no tag, and a Picker with no matching tag shows a blank
+    /// or the wrong row — telling the user their vault locks on a schedule it
+    /// does not. The stored value is shown rather than normalised away, because
+    /// silently rewriting someone's tighter timeout to a listed one would
+    /// loosen their security to make a menu tidy.
+    private var offeredTimeouts: [Int] {
+        let offered = AutoLockController.offeredInactivityMinutes
+        return offered.contains(autoLockMinutes) ? offered : [autoLockMinutes] + offered
     }
 
     private static func timeoutLabel(_ minutes: Int) -> String {

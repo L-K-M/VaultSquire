@@ -188,6 +188,26 @@ final class AutoLockControllerTests: XCTestCase {
         }
     }
 
+    /// A sub-minute timeout set out of band must not report as "Never". It
+    /// rounds, so the number Settings shows agrees with the clock that runs.
+    func testSubMinuteTimeoutDoesNotReportAsNever() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, _, _) = makeController(timeoutMinutes: 0.5, now: { t0 })
+        XCTAssertTrue(controller.inactivityLockEnabled, "half a minute still locks")
+        XCTAssertEqual(controller.inactivityMinutes, 1, "rounds rather than truncating to a false Never")
+    }
+
+    /// Settings can reach `setInactivityMinutes` on a controller that was never
+    /// started. That must not leave a poll running against a nil lock closure.
+    func testSettingTheTimeoutOnAnUnstartedControllerArmsNothing() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let (controller, lockCount, _) = makeController(now: { t0 })
+        controller.setInactivityMinutes(1)
+        XCTAssertEqual(controller.inactivityMinutes, 1)
+        controller.checkInactivity(at: t0.addingTimeInterval(3600))
+        XCTAssertEqual(lockCount(), 0, "no lock closure was ever installed")
+    }
+
     /// Every offered choice has a label, and "never" is the only non-positive
     /// one, so the picker can never show a blank or a negative timeout.
     func testEveryOfferedTimeoutIsSaneAndDistinct() {

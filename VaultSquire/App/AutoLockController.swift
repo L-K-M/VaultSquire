@@ -80,7 +80,12 @@ final class AutoLockController {
         guard defaults.object(forKey: Self.inactivityMinutesKey) != nil else {
             return Int(Self.defaultInactivityTimeout / 60)
         }
-        return max(0, Int(defaults.double(forKey: Self.inactivityMinutesKey)))
+        // Rounded, not truncated. A stored 0.5 truncates to 0, which would show
+        // "Never" in Settings while `inactivityLockEnabled` is still true and
+        // the vault really locks after thirty seconds — a display that
+        // contradicts the behaviour in the direction that makes someone think
+        // they are less protected than they are.
+        return max(0, Int(defaults.double(forKey: Self.inactivityMinutesKey).rounded()))
     }
 
     /// Stores a new timeout and restarts the idle clock, so the choice takes
@@ -203,7 +208,11 @@ final class AutoLockController {
     private func armInactivityCheck() {
         inactivityTask?.cancel()
         inactivityTask = nil
-        guard inactivityLockEnabled else { return }
+        // `started` matters now that `setInactivityMinutes` can reach this from
+        // Settings: without it, a controller that was never started would spawn
+        // a poll that runs for the object's lifetime checking against a nil
+        // lock closure.
+        guard started, inactivityLockEnabled else { return }
         let interval = inactivityCheckInterval
         inactivityTask = Task { [weak self] in
             while !Task.isCancelled {
