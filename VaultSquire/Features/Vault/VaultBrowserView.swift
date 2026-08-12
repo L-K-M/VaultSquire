@@ -30,6 +30,13 @@ struct VaultBrowserView: View {
     @State private var pendingOpen: URIOpeningDecision?
     @State private var showOpenConfirmation = false
 
+    /// What the detail pane's hydration is keyed on: the item, and the
+    /// generation of the fetched-secret store it was satisfied from.
+    private struct HydrationKey: Equatable {
+        let item: VaultItemID
+        let epoch: UInt64
+    }
+
     /// Wraps a draft so it can drive an item-identified sheet.
     private struct EditSession: Identifiable {
         let id = UUID()
@@ -355,7 +362,7 @@ struct VaultBrowserView: View {
         if appModel.canCopySecret(item.id) {
             Button("Copy Password") { appModel.copySecret(.password, of: item.id) }
                 .accessibilityIdentifier("context-copy-password")
-            if appModel.hasOneTimeCode(item.id) {
+            if item.hasOneTimeCode {
                 Button("Copy One-Time Code") { appModel.copySecret(.oneTimeCode, of: item.id) }
                     .accessibilityIdentifier("context-copy-totp")
             }
@@ -371,9 +378,13 @@ struct VaultBrowserView: View {
             }
             .accessibilityIdentifier("context-open-website")
         }
-        if appModel.canEdit(item.id) || appModel.canArchive(item.id) {
+        // Every predicate below is answered from the projection or the vault's
+        // capabilities. Nothing here decrypts: the list may build this menu for
+        // each visible row, so a decrypt per predicate would be a decrypt of
+        // the whole vault on every redraw.
+        if appModel.canOfferEdit(item.id) || appModel.canArchive(item.id) {
             Divider()
-            if appModel.canEdit(item.id) {
+            if appModel.canOfferEdit(item.id) {
                 Button("Edit…") {
                     guard let draft = appModel.draft(for: item.id) else { return }
                     editSession = EditSession(draft: draft)
@@ -620,7 +631,13 @@ struct VaultBrowserView: View {
                 // A CLI provider's item has its secret fields fetched the first
                 // time it is opened, because listing deliberately carries none;
                 // a Vaultwarden item already has them in memory.
-                .task(id: selection) { appModel.hydrateIfNeeded(selection) }
+                // Keyed on the content epoch too: a sync drops the secrets
+                // fetched against the listing it replaced, and without this the
+                // selection has not changed so the task never re-runs — the
+                // password row would vanish from an open item and stay gone.
+                .task(id: HydrationKey(item: selection, epoch: appModel.contentEpoch)) {
+                    appModel.hydrateIfNeeded(selection)
+                }
         } else {
             ContentUnavailableView {
                 Label("Select an item", systemImage: "list.bullet.rectangle")

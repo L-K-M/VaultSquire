@@ -124,7 +124,8 @@ enum VaultwardenItemDecryptor {
             groupingLabels: groupingLabels,
             capabilities: readCapabilities,
             cacheReference: cacheReference(for: cipher, account: account, generation: generation),
-            favorite: cipher.favorite
+            favorite: cipher.favorite,
+            hasOneTimeCode: cipher.login?.totp?.isEmpty == false
         )
     }
 

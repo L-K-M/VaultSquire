@@ -71,6 +71,11 @@ final class AppModel: ObservableObject {
     /// gesture behaves the same whether the provider decrypts locally or shells
     /// out for every item.
     private var pendingCopies: [VaultItemID: CopyableSecret] = [:]
+    /// Bumped whenever fetched secrets are discarded. The detail pane keys its
+    /// hydration on this as well as on the selection, so a sync that drops the
+    /// secrets of the item currently open re-reads them instead of leaving the
+    /// password row simply gone until the user clicks away and back.
+    @Published private(set) var contentEpoch: UInt64 = 0
 
     init(
         queryAccountPresence: @escaping () -> AccountPresence = AppModel.keychainAccountPresence,
@@ -464,11 +469,43 @@ final class AppModel: ObservableObject {
     /// refresh. Vaultwarden's own `unlock()` already reads its local cache
     /// first; this brings Proton's resilience in line with it instead of
     /// leaving the offline path built but unreachable from the UI.
+    /// Whether a failed live read may fall back to the sealed offline snapshot.
+    ///
+    /// Only for failures that mean "VaultSquire could not reach the provider".
+    /// A provider that answered and *refused* is not an outage: a signed-out
+    /// Proton CLI, a locked 1Password app, a disabled CLI integration, or a
+    /// user who pressed Deny on the authorization prompt have each withheld
+    /// access on purpose. Serving the last snapshot there would show the vault
+    /// to someone the provider just declined to serve, turning the offline
+    /// cache into a way around the authorization gate.
+    private static func mayFallBackOffline(_ error: ProtonServiceError) -> Bool {
+        switch error {
+        case .notAuthenticated:
+            return false
+        case .cliNotInstalled, .unsupportedVersion, .unparseableVersion,
+             .incompleteVaultRead, .unreadableOutput, .executionFailed:
+            return true
+        }
+    }
+
+    /// The 1Password counterpart. `.notAuthorized` covers a declined prompt and
+    /// a locked app, and `.unusableAccount` means the CLI will no longer accept
+    /// this account at all; neither is an outage to ride out.
+    private static func mayFallBackOffline(_ error: OnePasswordServiceError) -> Bool {
+        switch error {
+        case .notAuthorized, .unusableAccount:
+            return false
+        case .cliNotInstalled, .unsupportedVersion, .unparseableVersion,
+             .incompleteVaultRead, .unreadableOutput, .executionFailed:
+            return true
+        }
+    }
+
     private func failProtonOpenOrShowOfflineSnapshot(
         _ account: AccountID, generation: UInt64, error: ProtonServiceError
     ) {
         guard isCurrent(account, generation) else { return }
-        guard let snapshot = protonService.cachedSnapshot() else {
+        guard Self.mayFallBackOffline(error), let snapshot = protonService.cachedSnapshot() else {
             mutate(account) { $0.state = .failed(Self.message(for: error)) }
             return
         }
@@ -519,7 +556,8 @@ final class AppModel: ObservableObject {
         _ account: AccountID, generation: UInt64, accountUUID: String, error: OnePasswordServiceError
     ) {
         guard isCurrent(account, generation) else { return }
-        guard let snapshot = onePasswordService.cachedSnapshot(accountUUID: accountUUID) else {
+        guard Self.mayFallBackOffline(error),
+              let snapshot = onePasswordService.cachedSnapshot(accountUUID: accountUUID) else {
             mutate(account) { $0.state = .failed(Self.message(for: error)) }
             return
         }
@@ -558,6 +596,7 @@ final class AppModel: ObservableObject {
             cancelTrackedTasks(for: account)
             mutate(account) { $0.close() }
         }
+        contentEpoch &+= 1
         protonContent = [:]
         onePasswordContent = [:]
         hydratingItems = []
@@ -581,6 +620,7 @@ final class AppModel: ObservableObject {
     /// alone, so a refresh invalidates what was fetched without letting a fetch
     /// that is already running be started a second time.
     private func dropFetchedSecrets(for account: AccountID) {
+        contentEpoch &+= 1
         protonContent = protonContent.filter { $0.key.account != account }
         onePasswordContent = onePasswordContent.filter { $0.key.account != account }
         // A copy still waiting on a fetch must not land after the vault it came
@@ -915,9 +955,20 @@ final class AppModel: ObservableObject {
         return service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
     }
 
-    /// Whether a given item can be edited.
+    /// Whether a given item can be edited. Builds the draft, so it decrypts.
     func canEdit(_ itemID: VaultItemID) -> Bool {
         draft(for: itemID) != nil
+    }
+
+    /// Whether an Edit entry is worth offering, decided without decrypting.
+    ///
+    /// `canEdit` builds the draft to answer, which is fine for the one selected
+    /// item behind a toolbar button but not for a menu the list may build for
+    /// every visible row. This checks the same gates minus the decrypt; the
+    /// action still asks for the draft and does nothing if it cannot have one.
+    func canOfferEdit(_ itemID: VaultItemID) -> Bool {
+        guard let owner = session(for: itemID.account), owner.isOpen else { return false }
+        return owner.capabilities.contains(.updateItem) && owner.vaultwarden != nil
     }
 
     /// Saves a create or edit. An edit routes to the vault that owns the item,
