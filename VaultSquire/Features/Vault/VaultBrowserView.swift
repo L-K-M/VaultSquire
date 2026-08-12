@@ -21,6 +21,11 @@ struct VaultBrowserView: View {
     @State private var editSession: EditSession?
     /// The password being typed for a locked vault, keyed by vault so switching
     /// between two locked vaults does not carry one field's text to the other.
+    ///
+    /// Dropped as soon as the field it belongs to is no longer on screen — see
+    /// `discardUnsubmittedPasswords()`. Only `submitUnlock` used to clear an
+    /// entry, so a master password typed and then abandoned stayed in memory
+    /// for the life of the process.
     @State private var passwords: [AccountID: String] = [:]
     /// Which vaults have their container list expanded in the sidebar.
     @State private var expandedVaults: Set<AccountID> = []
@@ -88,6 +93,7 @@ struct VaultBrowserView: View {
             appModel.clearQuickSearchSelection()
         }
         .onChange(of: appModel.scope) { _, _ in
+            discardUnsubmittedPasswords()
             // A new scope is a fresh list, so the filter typed for the old one
             // does not carry into it — the same thing Finder and Mail do when
             // the sidebar selection changes.
@@ -679,6 +685,18 @@ struct VaultBrowserView: View {
             get: { passwords[account] ?? "" },
             set: { passwords[account] = $0 }
         )
+    }
+
+    /// Forgets every typed master password whose prompt is no longer showing.
+    ///
+    /// The prompt appears only for the vault the scope names, and only while it
+    /// is closed, so anything else in the map is text the user typed and walked
+    /// away from. A master password is the one value this app must never keep.
+    private func discardUnsubmittedPasswords() {
+        let stillPrompting = appModel.selectedSession.flatMap { $0.isOpen ? nil : $0.account }
+        // Filtered into a new dictionary rather than removed while iterating
+        // the old one's keys.
+        passwords = passwords.filter { $0.key == stillPrompting }
     }
 
     private func submitUnlock(_ account: AccountID) {

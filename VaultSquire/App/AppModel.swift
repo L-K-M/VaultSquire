@@ -357,7 +357,9 @@ final class AppModel: ObservableObject {
         guard !password.isEmpty,
               let current = session(for: account),
               current.kind == .vaultwarden,
-              !current.isOpening else {
+              // Both, matching `unlockWithBiometrics`. Guarding only
+              // `isOpening` let an already-open vault be unlocked over itself.
+              !current.isOpening, !current.isOpen else {
             return
         }
         let generation = current.generation
@@ -990,13 +992,19 @@ final class AppModel: ObservableObject {
               let vault = owner.vaultwarden else {
             return
         }
+        let generation = owner.generation
         isWriting = true
         writeError = nil
         spawnTracked(account) {
             let result = draft.isEditing
                 ? await self.service.update(draft: draft, keyring: vault.keyring)
                 : await self.service.create(draft: draft, keyring: vault.keyring)
+            // A lock that landed while this was in flight wins. `isWriting` is
+            // still cleared — it is app-wide UI state, and leaving it true
+            // would block every later write for the life of the process — but
+            // nothing else is published into a vault the user closed.
             self.isWriting = false
+            guard self.isCurrent(account, generation) else { return }
             switch result {
             case .success:
                 self.syncNow(account)
@@ -1009,11 +1017,13 @@ final class AppModel: ObservableObject {
     func archive(_ itemID: VaultItemID) {
         guard !isWriting, canArchive(itemID) else { return }
         let account = itemID.account
+        guard let generation = session(for: account)?.generation else { return }
         isWriting = true
         writeError = nil
         spawnTracked(account) {
             let result = await self.service.archive(itemID: itemID)
             self.isWriting = false
+            guard self.isCurrent(account, generation) else { return }
             switch result {
             case .success:
                 self.syncNow(account)
