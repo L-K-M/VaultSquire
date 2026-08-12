@@ -150,8 +150,14 @@ final class AppModel: ObservableObject {
 
     /// Every open vault's items, for Quick Search — it always searches
     /// everything that is open, regardless of the browser's scope.
+    /// Sorted by title, not left in vault-by-vault blocks. Quick Search ranks
+    /// these and breaks ties by the order it was given them, so an unsorted
+    /// merge would make two equally good matches from different vaults arrive
+    /// grouped by provider rather than alphabetically.
     var allOpenItems: [VaultItemProjection] {
-        sessions.filter(\.isOpen).flatMap(\.items)
+        sessions.filter(\.isOpen).flatMap(\.items).sorted { lhs, rhs in
+            lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+        }
     }
 
     /// The sync timestamp shown for the current scope: the oldest across the
@@ -514,7 +520,11 @@ final class AppModel: ObservableObject {
         unlockError = nil
         refreshBiometricAvailability()
         clipboard.clearIfOwned()
-        if !isUnlocked {
+        if isUnlocked {
+            // Something is still open, so the panel stays — but it must stop
+            // offering the items of the vault that just closed.
+            ApplicationCoordinator.shared.refreshQuickSearch()
+        } else {
             ApplicationCoordinator.shared.dismissQuickSearch()
         }
         AppLog.record(.vaultLocked)
@@ -1082,6 +1092,15 @@ extension AppModel: QuickSearchDataSource {
     /// scoped to; a locked vault contributes nothing.
     var quickSearchItems: [VaultItemProjection] { allOpenItems }
     var quickSearchIsUnlocked: Bool { isUnlocked }
+
+    /// One title per configured vault, so a merged result names its source.
+    /// Built with a reduce rather than `uniqueKeysWithValues`, which would trap
+    /// if two sessions ever shared an account.
+    var quickSearchVaultTitles: [AccountID: String] {
+        sessions.reduce(into: [:]) { titles, session in
+            titles[session.account] = session.title
+        }
+    }
 
     func openFromQuickSearch(_ id: VaultItemID) {
         quickSearchSelection = id
