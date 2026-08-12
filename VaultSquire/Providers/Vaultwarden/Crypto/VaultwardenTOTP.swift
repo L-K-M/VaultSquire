@@ -37,7 +37,7 @@ enum VaultwardenTOTP {
         // alphabet instead of formatting six decimal digits. Handled as its
         // own path rather than through `parse`/`code`, whose output is
         // decimal-digits-shaped throughout.
-        if trimmed.lowercased().hasPrefix("steam://") {
+        if trimmed.prefix(8).lowercased() == "steam://" {
             return generateSteam(trimmed, at: date)
         }
         guard let parameters = parse(seed: seed) else { return nil }
@@ -61,7 +61,7 @@ enum VaultwardenTOTP {
     private static let steamPeriod = 30
 
     private static func generateSteam(_ seed: String, at date: Date) -> Generated? {
-        let secretString = String(seed.dropFirst("steam://".count))
+        let secretString = String(seed.dropFirst(8))
         guard let secret = base32Decode(secretString), !secret.isEmpty else { return nil }
 
         let counter = UInt64(max(0, date.timeIntervalSince1970) / Double(steamPeriod))

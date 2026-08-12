@@ -86,19 +86,26 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
             // value decides synchronously whether the field sees the key, so
             // the isolation is asserted rather than hopped through — the same
             // pattern the auto-lock input monitor uses.
-            MainActor.assumeIsolated {
+            //
+            // Only a Bool comes back out. `NSEvent` is not `Sendable`, so
+            // returning the event itself across the isolation boundary does not
+            // compile under Swift 6; the event is swallowed or passed on here
+            // instead, outside the block.
+            let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self,
                       event.window === self.panel,
                       event.modifierFlags.isDisjoint(with: [.command, .option, .control])
-                else { return event }
+                else { return false }
                 switch event.keyCode {
-                case 125: self.model.moveSelection(by: 1); return nil   // down
-                case 126: self.model.moveSelection(by: -1); return nil  // up
-                case 115: self.model.selectFirst(); return nil          // home
-                case 119: self.model.selectLast(); return nil           // end
-                default: return event
+                case 125: self.model.moveSelection(by: 1)   // down
+                case 126: self.model.moveSelection(by: -1)  // up
+                case 115: self.model.selectFirst()          // home
+                case 119: self.model.selectLast()           // end
+                default: return false
                 }
+                return true
             }
+            return handled ? nil : event
         }
     }
 

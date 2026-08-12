@@ -356,12 +356,41 @@ struct VaultBrowserView: View {
             lockedVaultPane(session)
         } else if appModel.isUnlocked {
             itemList
+                .safeAreaInset(edge: .bottom) { writeErrorBanner }
         } else {
             ContentUnavailableView(
                 "No vault is open",
                 systemImage: "lock",
                 description: Text("Select a vault to open it.")
             )
+        }
+    }
+
+    /// A write failure that happened outside the editor sheet.
+    ///
+    /// `writeError` is rendered inside that sheet, which is the only place it
+    /// could ever appear — so archiving from the toolbar or from a row failed
+    /// silently, and the message then turned up misattributed above the next
+    /// form the user opened. Archive is also the one write with no undo here,
+    /// which makes a silent failure the worst kind.
+    @ViewBuilder
+    private var writeErrorBanner: some View {
+        if editSession == nil, let error = appModel.writeError {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                Text(error)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Dismiss") { appModel.dismissWriteError() }
+                    .buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.bar)
+            .accessibilityIdentifier("vault-write-error")
         }
     }
 

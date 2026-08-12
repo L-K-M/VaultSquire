@@ -53,14 +53,36 @@ final class QuickSearchPanelModel: ObservableObject {
         let title: String
         let others: [String]
 
+        // Built with explicit types and a plain loop rather than a chain of
+        // `+` and `map`: overload resolution across concatenated arrays is one
+        // of the shapes the Swift type checker takes exponential time on.
         init(_ item: VaultItemProjection) {
             self.item = item
             self.title = item.displayTitle.lowercased()
-            self.others = ([item.displaySubtitle, item.username].compactMap { $0 }
-                + item.websites + item.groupingLabels)
-                .filter { !$0.isEmpty }
-                .map { $0.lowercased() }
+
+            var haystacks: [String] = []
+            haystacks.reserveCapacity(item.websites.count + item.groupingLabels.count + 2)
+            if let subtitle = item.displaySubtitle { haystacks.append(subtitle) }
+            if let username = item.username { haystacks.append(username) }
+            haystacks.append(contentsOf: item.websites)
+            haystacks.append(contentsOf: item.groupingLabels)
+
+            var lowered: [String] = []
+            lowered.reserveCapacity(haystacks.count)
+            for value in haystacks where !value.isEmpty {
+                lowered.append(value.lowercased())
+            }
+            self.others = lowered
         }
+    }
+
+    /// One scored match. A named type rather than a labelled tuple: inferring
+    /// the tuple through `compactMap`/`Optional.map`/`sorted` in one chain is
+    /// the other shape that makes type checking blow up here.
+    fileprivate struct Scored {
+        let score: Int
+        let index: Int
+        let item: VaultItemProjection
     }
 
     /// Drops everything the presentation held. `dismiss()` and the lock path
@@ -197,14 +219,23 @@ final class QuickSearchPanelModel: ObservableObject {
     fileprivate static func ranked(rows: [Row], query: String) -> [VaultItemProjection] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return rows.map(\.item) }
-        return rows.enumerated()
-            .compactMap { index, row in
-                score(row: row, needle: needle).map { (score: $0, index: index, item: row.item) }
-            }
-            .sorted { lhs, rhs in
-                lhs.score == rhs.score ? lhs.index < rhs.index : lhs.score < rhs.score
-            }
-            .map(\.item)
+
+        var scored: [Scored] = []
+        scored.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() {
+            guard let value = score(row: row, needle: needle) else { continue }
+            scored.append(Scored(score: value, index: index, item: row.item))
+        }
+        scored.sort { lhs, rhs in
+            lhs.score == rhs.score ? lhs.index < rhs.index : lhs.score < rhs.score
+        }
+
+        var ordered: [VaultItemProjection] = []
+        ordered.reserveCapacity(scored.count)
+        for match in scored {
+            ordered.append(match.item)
+        }
+        return ordered
     }
 
     /// How well one item matches an already-lowercased, non-empty needle, or

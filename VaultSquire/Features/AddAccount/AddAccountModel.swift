@@ -325,8 +325,15 @@ final class AddAccountModel: ObservableObject, Identifiable {
         } catch let error as VaultwardenAPIError {
             // Surface the error on the challenge screen; a send failure must not
             // discard the 2FA context and drop the user back to the form.
+            //
+            // Unless the user already left: `returnToForm()` cancels whatever is
+            // in `activeTask`, and the email send is stored there too, so
+            // without this guard tapping Back mid-send puts a failure message
+            // on the form the user just went back to.
+            guard !Task.isCancelled else { return }
             failureMessage = error.safeDisplayMessage
         } catch {
+            guard !Task.isCancelled else { return }
             failureMessage = "The verification email could not be sent."
         }
     }

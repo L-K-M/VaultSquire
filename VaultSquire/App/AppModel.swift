@@ -291,6 +291,13 @@ final class AppModel: ObservableObject {
         writeError = nil
     }
 
+    /// Dismisses a write failure the browser is showing. The editor clears it
+    /// on open; a failure from a toolbar or row action is shown in the browser
+    /// instead and is dismissed from there.
+    func dismissWriteError() {
+        writeError = nil
+    }
+
     /// Registers the Proton vault so it appears in the sidebar like any other,
     /// then opens it. Called from the Add Account pane once the CLI reports
     /// ready.
