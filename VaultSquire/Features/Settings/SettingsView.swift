@@ -32,10 +32,6 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             Form {
-                // Named "in-app" deliberately: this is a menu shortcut that
-                // works while VaultSquire is the active application, not a
-                // system-wide hotkey. Calling it the "app shortcut" read as a
-                // promise of the latter.
                 quickSearchShortcutRow
                 LabeledContent("Vault state", value: vaultStateDescription)
 
@@ -93,14 +89,15 @@ struct SettingsView: View {
 
     /// The Quick Search chord.
     ///
-    /// Still named "in-app", and the caption now says so outright rather than
-    /// leaving it to one adjective: making the chord configurable changes which
-    /// keys open Quick Search, not when it is listening. It is a menu key
-    /// equivalent and fires only while VaultSquire is frontmost.
+    /// Registered system-wide, so it opens Quick Search from whatever the user
+    /// is working in. That is what a launcher is for, and it is what makes the
+    /// copy actions useful: the panel hands focus back to the app it was
+    /// summoned from, which had nothing to hand back to while the chord was a
+    /// menu key equivalent.
     @ViewBuilder
     private var quickSearchShortcutRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            LabeledContent("In-app Quick Search") {
+            LabeledContent("Quick Search") {
                 HStack(spacing: 8) {
                     Button(recorder.isRecording
                         ? "Press a shortcut…"
@@ -126,16 +123,19 @@ struct SettingsView: View {
 
             Group {
                 if recorder.isRecording {
-                    Text("Hold Command with the key you want. Press Escape to leave it as it is.")
+                    Text("Press the keys you want, with at least one of Command, Control or Option. Escape leaves it as it is.")
                         .foregroundStyle(.secondary)
                 } else if let refusal = recorder.refusal {
                     Text(refusal)
+                        .foregroundStyle(.red)
+                } else if shortcuts.isUnavailable {
+                    Text("Another app is using \(shortcuts.shortcut.displayName), so VaultSquire could not claim it. Pick a different one.")
                         .foregroundStyle(.red)
                 } else if shortcuts.storedValueWasRejected {
                     Text("The saved shortcut wasn't usable, so VaultSquire is using \(QuickSearchShortcut.default.displayName).")
                         .foregroundStyle(.red)
                 } else {
-                    Text("Opens Quick Search while VaultSquire is the active application. This is a menu shortcut, not a system-wide hotkey, so it does nothing while you are working in another app.")
+                    Text("Opens Quick Search from any app. VaultSquire asks the system for this one chord and is told nothing else you type — no Accessibility permission is involved.")
                         .foregroundStyle(.secondary)
                 }
             }

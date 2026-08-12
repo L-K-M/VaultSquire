@@ -36,12 +36,17 @@ struct VaultSquireApp: App {
                         appModel.lock()
                         siteIcons.clear()
                     })
+                    // Claims the stored chord system-wide. Done here rather
+                    // than in the store's initialiser so registration happens
+                    // once the app is running, and so a failure is visible in
+                    // Settings rather than during a property read.
+                    shortcuts.activate()
                 }
         }
         .defaultSize(width: 820, height: 560)
         .windowResizability(.contentMinSize)
         .commands {
-            VaultCommands(shortcuts: shortcuts) {
+            VaultCommands {
                 appModel.lock()
                 // Icons are drawn from the sites in the vault, so a lock
                 // clears them along with everything else it decrypted.
@@ -65,18 +70,12 @@ struct VaultSquireApp: App {
 
 /// VaultSquire's menu commands.
 ///
-/// A `Commands`-conforming struct rather than an inline `.commands { }` body
-/// for one reason: it has to observe `QuickSearchShortcutStore`, and property
-/// wrappers cannot be declared inside a `CommandsBuilder` closure.
-///
-/// Whether SwiftUI re-applies a changed `keyboardShortcut` to an
-/// already-installed `NSMenuItem` is not something SwiftUI promises, so
-/// `QuickSearchShortcutStore.set` also writes the chord onto the live menu item
-/// through `MainMenuShortcuts`. The two cannot diverge — both read this one
-/// store — so whichever of them is the one that actually works, the menu shows
-/// and honours the same chord.
+/// The Quick Search item carries no key equivalent. The chord is registered
+/// system-wide, so it already fires while VaultSquire is frontmost; giving the
+/// menu item the same chord as well would mean two claims on one keystroke. The
+/// item stays so the command is discoverable and clickable, and Settings is
+/// where the chord is shown.
 struct VaultCommands: Commands {
-    @ObservedObject var shortcuts: QuickSearchShortcutStore
     let onLock: () -> Void
 
     var body: some Commands {
@@ -84,10 +83,6 @@ struct VaultCommands: Commands {
             Button(QuickSearchShortcutStore.menuItemTitle) {
                 ApplicationCoordinator.shared.showQuickSearch()
             }
-            .keyboardShortcut(
-                shortcuts.shortcut.keyEquivalent,
-                modifiers: shortcuts.shortcut.eventModifiers
-            )
 
             Divider()
 

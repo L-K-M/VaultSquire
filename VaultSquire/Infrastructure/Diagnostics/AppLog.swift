@@ -5,6 +5,9 @@ enum AppLogEvent: String, CaseIterable, Sendable {
     case applicationWillTerminate = "application.will-terminate"
     case quickSearchDismissed = "quick-search.dismissed"
     case quickSearchPresented = "quick-search.presented"
+    /// The system or another application already holds the chord. A fixed
+    /// event name; the chord itself is never logged.
+    case quickSearchHotkeyUnavailable = "quick-search.hotkey-unavailable"
     case vaultLocked = "vault.locked"
 }
 
@@ -24,6 +27,8 @@ enum AppLog {
             logger.notice("quick-search.dismissed")
         case .quickSearchPresented:
             logger.notice("quick-search.presented")
+        case .quickSearchHotkeyUnavailable:
+            logger.notice("quick-search.hotkey-unavailable")
         case .vaultLocked:
             logger.notice("vault.locked")
         }

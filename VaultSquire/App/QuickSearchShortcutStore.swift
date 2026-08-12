@@ -13,14 +13,18 @@ import SwiftUI
 final class QuickSearchShortcutStore: ObservableObject {
     static let shared = QuickSearchShortcutStore()
 
-    /// Two keys, both hand-editable. The key is one Unicode scalar; the
-    /// modifiers are names, not a raw `NSEvent.ModifierFlags` integer, because
-    /// a bit mask spelled `1179648` is precisely the kind of value someone
-    /// mis-edits and the kind this must fail closed on.
-    static let keyDefaultsKey = "VaultSquire.quickSearchShortcutKey"
+    /// Two keys. The key code is the small integer Carbon registers — a
+    /// virtual key code, not a character, because a character depends on the
+    /// keyboard layout and the physical key does not. The modifiers are names
+    /// rather than a raw `NSEvent.ModifierFlags` integer, because a bit mask
+    /// spelled `1179648` is precisely the kind of value someone mis-edits and
+    /// the kind this must fail closed on.
+    static let keyDefaultsKey = "VaultSquire.quickSearchShortcutKeyCode"
     static let modifiersDefaultsKey = "VaultSquire.quickSearchShortcutModifiers"
 
-    /// The menu item this store keeps in step, matched by title.
+    /// The menu item's title. The item has no key equivalent of its own any
+    /// more — the chord is registered system-wide, so it already works while
+    /// VaultSquire is frontmost and a second claim on it would be ambiguous.
     static let menuItemTitle = "Quick Search"
 
     private static let modifierNames: [(name: String, flag: NSEvent.ModifierFlags)] = [
@@ -35,6 +39,11 @@ final class QuickSearchShortcutStore: ObservableObject {
     /// chord this app began reserving after it was set. Settings says so rather
     /// than showing the default as though the user had chosen it.
     @Published private(set) var storedValueWasRejected: Bool
+
+    /// The chord is stored and valid, but the system would not give it to us —
+    /// another application registered it first. Settings says so, because the
+    /// symptom otherwise is a shortcut that simply does nothing.
+    @Published private(set) var isUnavailable = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -60,12 +69,13 @@ final class QuickSearchShortcutStore: ObservableObject {
         let hasModifiers = defaults.object(forKey: modifiersDefaultsKey) != nil
         guard hasKey || hasModifiers else { return (.default, false) }
 
-        guard let text = defaults.string(forKey: keyDefaultsKey),
-              text.unicodeScalars.count == 1,
-              let key = text.first,
+        let rawKeyCode = defaults.integer(forKey: keyDefaultsKey)
+        guard rawKeyCode > 0, rawKeyCode <= 0x7F,
               let names = defaults.stringArray(forKey: modifiersDefaultsKey),
               let modifiers = decodeModifiers(names),
-              let shortcut = QuickSearchShortcut(key: key, modifiers: modifiers)
+              let shortcut = QuickSearchShortcut(
+                  keyCode: UInt32(rawKeyCode), modifiers: modifiers
+              )
         else {
             return (.default, true)
         }
@@ -89,15 +99,24 @@ final class QuickSearchShortcutStore: ObservableObject {
     /// Stores a chord and makes it live. Only a validated `QuickSearchShortcut`
     /// can be passed, and this is the only writer, so what a later launch reads
     /// back is always something this build was willing to run.
-    func set(_ shortcut: QuickSearchShortcut) {
-        defaults.set(String(shortcut.key), forKey: Self.keyDefaultsKey)
+    @discardableResult
+    func set(_ shortcut: QuickSearchShortcut) -> Bool {
+        // Claimed before it is stored. A chord the system will not give us is
+        // not a preference worth keeping: the user would restart into a
+        // shortcut that silently does nothing.
+        guard activate(shortcut) else {
+            isUnavailable = true
+            return false
+        }
+        defaults.set(Int(shortcut.keyCode), forKey: Self.keyDefaultsKey)
         defaults.set(
             Self.modifierNames.filter { shortcut.modifiers.contains($0.flag) }.map(\.name),
             forKey: Self.modifiersDefaultsKey
         )
         self.shortcut = shortcut
         storedValueWasRejected = false
-        MainMenuShortcuts.apply(shortcut, toItemTitled: Self.menuItemTitle)
+        isUnavailable = false
+        return true
     }
 
     /// Back to Command-Shift-Space, forgetting the stored chord entirely so a
@@ -107,78 +126,17 @@ final class QuickSearchShortcutStore: ObservableObject {
         defaults.removeObject(forKey: Self.modifiersDefaultsKey)
         shortcut = .default
         storedValueWasRejected = false
-        MainMenuShortcuts.apply(.default, toItemTitled: Self.menuItemTitle)
-    }
-}
-
-/// Direct access to the `NSMenuItem` SwiftUI built for the Quick Search command.
-///
-/// Two jobs, both belt-and-braces around things SwiftUI does not promise.
-///
-/// `apply` exists because whether SwiftUI re-applies a changed
-/// `.keyboardShortcut` to an already-installed `NSMenuItem` when observed state
-/// changes is not contractual. What *is* reliable is the AppKit side: a menu
-/// item's key equivalent is resolved from the live `NSMenuItem` at each
-/// key-down, so writing it takes effect on the next keystroke with no relaunch.
-/// The menu item declares the same stored chord this writes, so the two can
-/// only ever agree — if SwiftUI does re-apply it, this is a no-op writing the
-/// value that is already there.
-///
-/// `owner(ofKey:modifiers:excluding:)` walks what SwiftUI and AppKit actually
-/// installed. `CommandGroup(replacing: .newItem)` replaces only File ▸ New;
-/// every other standard group is still there, and a source-derived list of them
-/// is a guess. This catches whatever is really in the menu bar.
-@MainActor
-enum MainMenuShortcuts {
-    static func apply(_ shortcut: QuickSearchShortcut, toItemTitled title: String) {
-        guard let mainMenu = NSApplication.shared.mainMenu,
-              let item = firstItem(titled: title, in: mainMenu)
-        else { return }
-        // Lowercase character plus an explicit `.shift`. An uppercase key
-        // equivalent makes AppKit imply Shift, which would double it — the same
-        // convention `QuickSearchShortcut` normalises to on the way in.
-        item.keyEquivalent = String(shortcut.key)
-        item.keyEquivalentModifierMask = shortcut.modifiers
+        isUnavailable = !activate(.default)
     }
 
-    /// The title of a live menu item that already owns this chord, if any.
-    static func owner(
-        ofKey key: Character,
-        modifiers: NSEvent.ModifierFlags,
-        excludingItemTitled excluded: String
-    ) -> String? {
-        guard let mainMenu = NSApplication.shared.mainMenu else { return nil }
-        var found: String?
-        walk(mainMenu) { item in
-            guard found == nil,
-                  item.title != excluded,
-                  !item.keyEquivalent.isEmpty
-            else { return }
-            let lowered = item.keyEquivalent.lowercased()
-            guard lowered.unicodeScalars.count == 1, let itemKey = lowered.first else { return }
-            var mask = item.keyEquivalentModifierMask
-                .intersection(QuickSearchShortcut.allowedModifiers)
-            // An uppercase key equivalent means AppKit supplies Shift itself.
-            if item.keyEquivalent != lowered { mask.insert(.shift) }
-            if itemKey == key, mask == modifiers, !item.title.isEmpty {
-                found = item.title
-            }
+    /// Claims the stored chord. Called once at launch and again on every
+    /// change, so the registration and the preference cannot drift apart.
+    @discardableResult
+    func activate(_ shortcut: QuickSearchShortcut? = nil) -> Bool {
+        let claimed = GlobalHotkey.register(shortcut ?? self.shortcut) {
+            ApplicationCoordinator.shared.toggleQuickSearch()
         }
-        return found
-    }
-
-    private static func firstItem(titled title: String, in menu: NSMenu) -> NSMenuItem? {
-        var found: NSMenuItem?
-        walk(menu) { item in
-            if found == nil, item.title == title { found = item }
-        }
-        return found
-    }
-
-    private static func walk(_ menu: NSMenu, _ body: (NSMenuItem) -> Void) {
-        for item in menu.items {
-            body(item)
-            if let submenu = item.submenu { walk(submenu, body) }
-        }
+        if shortcut == nil { isUnavailable = !claimed }
+        return claimed
     }
 }

@@ -39,9 +39,9 @@ final class ShortcutRecorder: ObservableObject {
     @Published private(set) var refusal: String?
 
     private var monitor: Any?
-    private var onCapture: ((QuickSearchShortcut) -> Void)?
+    private var onCapture: ((QuickSearchShortcut) -> Bool)?
 
-    func start(onCapture: @escaping (QuickSearchShortcut) -> Void) {
+    func start(onCapture: @escaping (QuickSearchShortcut) -> Bool) {
         guard monitor == nil else { return }
         self.onCapture = onCapture
         refusal = nil
@@ -79,18 +79,13 @@ final class ShortcutRecorder: ObservableObject {
         case .refused(let reason):
             refusal = reason
         case .accepted(let shortcut):
-            // The static table cannot know what SwiftUI actually installed in
-            // the menu bar, so the live menu gets the last word.
-            if let owner = MainMenuShortcuts.owner(
-                ofKey: shortcut.key,
-                modifiers: shortcut.modifiers,
-                excludingItemTitled: QuickSearchShortcutStore.menuItemTitle
-            ) {
-                refusal = "\(shortcut.displayName) is already the \(owner) command."
-                return
-            }
             refusal = nil
-            callback?(shortcut)
+            // The caller registers it, and the system has the last word: a
+            // chord another application already holds cannot be claimed, and
+            // that answer is authoritative where a table of guesses is not.
+            if callback?(shortcut) == false {
+                refusal = "\(shortcut.displayName) is already used by another app."
+            }
         }
     }
 }

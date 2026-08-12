@@ -95,6 +95,17 @@ final class ApplicationCoordinator {
         )
     }
 
+    /// What the global hotkey runs. Pressing it again takes the panel down,
+    /// which is what every launcher does and what makes the chord safe to lean
+    /// on: the user never has to find the mouse to get rid of it.
+    func toggleQuickSearch() {
+        if quickSearchController?.isVisible == true {
+            quickSearchController?.dismiss()
+        } else {
+            showQuickSearch()
+        }
+    }
+
     /// A lock or a termination must not shove the user into whatever
     /// application happened to be behind the panel.
     func dismissQuickSearch() {

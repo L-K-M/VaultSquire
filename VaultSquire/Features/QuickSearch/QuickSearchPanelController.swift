@@ -25,9 +25,14 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
     private var isDismissing = false
 
     override init() {
-        panel = NSPanel(
+        panel = KeyableQuickSearchPanel(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 366),
-            styleMask: [.titled, .closable, .fullSizeContentView, .utilityWindow],
+            // `.nonactivatingPanel` is what makes this a launcher rather than a
+            // window: summoned from another application by the global chord, it
+            // comes forward without dragging VaultSquire's own windows up with
+            // it and without making VaultSquire the active app — so the app the
+            // user was in is still there to hand focus back to.
+            styleMask: [.titled, .closable, .fullSizeContentView, .utilityWindow, .nonactivatingPanel],
             backing: .buffered,
             defer: true
         )
@@ -84,13 +89,10 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
             // one the user actually came from.
             previousApplication = frontmostOtherApplication()
         }
-        // Still activating. A floating panel can be made key without activating
-        // its application (`.nonactivatingPanel`), which is the shape a launcher
-        // eventually wants, but the search field's focus here is already
-        // delicate — see `QuickSearchView.focusSearchField` — and a
-        // non-activating panel changes where first responder lands. Activation
-        // is what works today; the return trip is what is new.
-        NSApp.activate()
+        // The panel is made key without activating the application: a
+        // non-activating panel can hold first responder for its search field
+        // while the app the user came from stays active underneath. That is
+        // what lets the copy actions end with focus back where it started.
         panel.makeKeyAndOrderFront(nil)
         // Announced only after the panel is key, so the view's focus assignment
         // cannot run while first responder still belongs to the window.
@@ -234,4 +236,13 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         previousApplication = nil
         AppLog.record(.quickSearchDismissed)
     }
+}
+
+/// A panel that can take key status and first responder despite being
+/// non-activating, so the search field accepts typing when the panel was
+/// summoned from another application. `NSPanel` refuses both by default for a
+/// non-activating style mask.
+private final class KeyableQuickSearchPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 }

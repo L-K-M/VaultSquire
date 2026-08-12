@@ -1,8 +1,15 @@
 import AppKit
+import Carbon.HIToolbox
 import XCTest
 @testable import VaultSquire
 
 /// The chord rules: what is refused, and what a corrupt preference reads as.
+///
+/// Registration itself is not exercised here — `RegisterEventHotKey` claims a
+/// chord system-wide, and a test process that grabbed Command-Shift-Space from
+/// the machine running CI would be a poor citizen. What is testable without a
+/// window server is the validation and the round trip, which is where the rules
+/// live.
 @MainActor
 final class QuickSearchShortcutTests: XCTestCase {
     private func makeDefaults() -> UserDefaults {
@@ -19,76 +26,110 @@ final class QuickSearchShortcutTests: XCTestCase {
         XCTAssertEqual(read.shortcut.displayName, "Command-Shift-Space")
     }
 
-    func testAChordWithNoModifiersIsRefused() {
-        XCTAssertNil(QuickSearchShortcut(key: "k", modifiers: []))
-        XCTAssertNil(QuickSearchShortcut(key: "k", modifiers: [.shift]))
-        XCTAssertNil(QuickSearchShortcut(key: "k", modifiers: [.option]),
-                     "Option-k types a character a text field has to receive")
-        XCTAssertNotNil(QuickSearchShortcut(key: "k", modifiers: [.command]))
+    /// The one refusal that matters more for a global chord than it did for a
+    /// menu shortcut: without a modifier it would swallow that key in every
+    /// application on the Mac.
+    func testAChordThatWouldSwallowOrdinaryTypingIsRefused() {
+        let k = UInt32(kVK_ANSI_K)
+        XCTAssertNil(QuickSearchShortcut(keyCode: k, modifiers: []))
+        XCTAssertNil(QuickSearchShortcut(keyCode: k, modifiers: [.shift]),
+                     "Shift alone still types a character")
+        XCTAssertNotNil(QuickSearchShortcut(keyCode: k, modifiers: [.command]))
+        XCTAssertNotNil(QuickSearchShortcut(keyCode: k, modifiers: [.control, .option]))
+        XCTAssertNotNil(QuickSearchShortcut(keyCode: k, modifiers: [.option, .shift]))
     }
 
-    func testSystemAndAppOwnedChordsAreRefused() {
-        XCTAssertNil(QuickSearchShortcut(key: "q", modifiers: [.command]), "Quit")
-        XCTAssertNil(QuickSearchShortcut(key: "w", modifiers: [.command]), "Close Window")
-        XCTAssertNil(QuickSearchShortcut(key: "\t", modifiers: [.command]), "Command-Tab")
-        XCTAssertNil(QuickSearchShortcut(key: "\u{1B}", modifiers: [.command]), "Escape")
-        XCTAssertNil(QuickSearchShortcut(key: "l", modifiers: [.command, .shift]), "Lock Vault")
-        XCTAssertNil(QuickSearchShortcut(key: "n", modifiers: [.command]), "Add Item")
-        XCTAssertNil(QuickSearchShortcut(key: "c", modifiers: [.command, .shift]), "Copy Password")
-        XCTAssertNil(QuickSearchShortcut(key: "c", modifiers: [.command, .option]), "Copy Username")
-    }
-
-    func testTheKeyIsNormalisedToItsUnshiftedLowercaseForm() {
-        // An uppercase key equivalent makes AppKit imply Shift; storing "K"
-        // alongside an explicit .shift would ask for Shift twice.
-        let shortcut = QuickSearchShortcut(key: "K", modifiers: [.command, .shift])
-        XCTAssertEqual(shortcut?.key, "k")
-        XCTAssertEqual(shortcut?.displayName, "Command-Shift-K")
-    }
-
-    func testStrayModifierStateBitsAreStrippedRatherThanRefused() {
-        let shortcut = QuickSearchShortcut(key: "k", modifiers: [.command, .capsLock, .function])
-        XCTAssertEqual(shortcut?.modifiers, [.command])
-    }
-
-    func testACorruptStoredValueReadsAsTheDefaultAndSaysSo() {
-        for (key, modifiers) in [
-            ("kk", ["command"]),        // more than one scalar
-            ("k", [] as [String]),      // no modifiers
-            ("k", ["shift"]),           // no Command
-            ("k", ["comand"]),          // misspelled name
-            ("q", ["command"]),         // Quit
-        ] {
-            let defaults = makeDefaults()
-            defaults.set(key, forKey: QuickSearchShortcutStore.keyDefaultsKey)
-            defaults.set(modifiers, forKey: QuickSearchShortcutStore.modifiersDefaultsKey)
-            let read = QuickSearchShortcutStore.read(from: defaults)
-            XCTAssertEqual(read.shortcut, .default, "\(key) \(modifiers)")
-            XCTAssertTrue(read.wasRejected, "\(key) \(modifiers)")
+    func testKeysThatBelongToSomethingElseAreRefused() {
+        for keyCode in [kVK_Escape, kVK_Tab, kVK_Return, kVK_ANSI_KeypadEnter] {
+            XCTAssertNil(
+                QuickSearchShortcut(keyCode: UInt32(keyCode), modifiers: [.command, .option]),
+                "\(keyCode)"
+            )
         }
     }
 
-    func testAStoredChordRoundTrips() {
-        let defaults = makeDefaults()
-        let store = QuickSearchShortcutStore(defaults: defaults)
-        let chord = QuickSearchShortcut(key: "k", modifiers: [.command, .control])!
-        store.set(chord)
-
-        let reread = QuickSearchShortcutStore(defaults: defaults)
-        XCTAssertEqual(reread.shortcut, chord)
-        XCTAssertFalse(reread.storedValueWasRejected)
-        XCTAssertEqual(reread.shortcut.displayName, "Command-Control-K")
-
-        reread.resetToDefault()
-        XCTAssertNil(defaults.object(forKey: QuickSearchShortcutStore.keyDefaultsKey))
-        XCTAssertEqual(QuickSearchShortcutStore(defaults: defaults).shortcut, .default)
+    /// A global chord does not collide with another app's menu — the system
+    /// refuses the registration instead — but it does collide with ours.
+    func testVaultSquiresOwnChordsAreRefused() {
+        XCTAssertNil(QuickSearchShortcut(keyCode: UInt32(kVK_ANSI_L), modifiers: [.command, .shift]))
+        XCTAssertNil(QuickSearchShortcut(keyCode: UInt32(kVK_ANSI_N), modifiers: [.command]))
+        XCTAssertNil(QuickSearchShortcut(keyCode: UInt32(kVK_ANSI_C), modifiers: [.command, .shift]))
+        XCTAssertNil(QuickSearchShortcut(keyCode: UInt32(kVK_ANSI_Comma), modifiers: [.command]))
+        // Same key, different chord: only the exact combination is taken.
+        XCTAssertNotNil(QuickSearchShortcut(keyCode: UInt32(kVK_ANSI_L), modifiers: [.command, .option]))
     }
 
-    func testNonPrintableKeysKeepTheirAppKitScalarAndGetAName() {
-        let up = QuickSearchShortcut(key: "\u{F700}", modifiers: [.command, .shift])
-        XCTAssertEqual(up?.displayName, "Command-Shift-Up Arrow")
-        XCTAssertEqual(up?.keyEquivalent.character, "\u{F700}")
-        XCTAssertEqual(QuickSearchShortcut.keyName("\u{F704}"), "F1")
-        XCTAssertEqual(QuickSearchShortcut.keyName(" "), "Space")
+    func testStrayModifierStateBitsAreStrippedRatherThanRefused() {
+        let shortcut = QuickSearchShortcut(
+            keyCode: UInt32(kVK_ANSI_K), modifiers: [.command, .capsLock, .function]
+        )
+        XCTAssertEqual(shortcut?.modifiers, [.command])
+    }
+
+    /// Carbon's modifier mask uses different bit positions from Cocoa's, and
+    /// registering with the wrong one silently claims the wrong chord.
+    func testCarbonModifiersAreTranslatedNotReused() {
+        let shortcut = QuickSearchShortcut(
+            keyCode: UInt32(kVK_Space), modifiers: [.command, .shift]
+        )
+        XCTAssertEqual(shortcut?.carbonModifiers, UInt32(cmdKey | shiftKey))
+
+        let all = QuickSearchShortcut(
+            keyCode: UInt32(kVK_ANSI_K), modifiers: [.command, .control, .option, .shift]
+        )
+        XCTAssertEqual(all?.carbonModifiers, UInt32(cmdKey | controlKey | optionKey | shiftKey))
+    }
+
+    func testACorruptStoredValueReadsAsTheDefaultAndSaysSo() {
+        let cases: [(Any, [String])] = [
+            (0, ["command"]),                          // no key code
+            (999, ["command"]),                        // not a virtual key code
+            (Int(kVK_ANSI_K), []),                     // no modifiers
+            (Int(kVK_ANSI_K), ["shift"]),              // shift alone
+            (Int(kVK_ANSI_K), ["comand"]),             // misspelled name
+            (Int(kVK_Escape), ["command", "option"]),  // a key that is spoken for
+        ]
+        for (keyCode, modifiers) in cases {
+            let defaults = makeDefaults()
+            defaults.set(keyCode, forKey: QuickSearchShortcutStore.keyDefaultsKey)
+            defaults.set(modifiers, forKey: QuickSearchShortcutStore.modifiersDefaultsKey)
+            let read = QuickSearchShortcutStore.read(from: defaults)
+            XCTAssertEqual(read.shortcut, .default, "\(keyCode) \(modifiers)")
+            XCTAssertTrue(read.wasRejected, "\(keyCode) \(modifiers)")
+        }
+    }
+
+    /// The stored form is a key code and modifier names, both hand-editable —
+    /// a bit mask spelled `1179648` is the kind of value someone mis-edits.
+    func testAStoredChordRoundTripsThroughItsWrittenForm() {
+        let defaults = makeDefaults()
+        let chord = QuickSearchShortcut(
+            keyCode: UInt32(kVK_ANSI_K), modifiers: [.control, .option]
+        )!
+        defaults.set(Int(chord.keyCode), forKey: QuickSearchShortcutStore.keyDefaultsKey)
+        defaults.set(["control", "option"], forKey: QuickSearchShortcutStore.modifiersDefaultsKey)
+
+        let read = QuickSearchShortcutStore.read(from: defaults)
+        XCTAssertEqual(read.shortcut, chord)
+        XCTAssertFalse(read.wasRejected)
+        XCTAssertEqual(read.shortcut.displayName, "Control-Option-K")
+    }
+
+    /// The default is deliberately not the chord the author's other menu-bar
+    /// app registers: two apps racing for one chord is a bad first run for
+    /// whichever loses.
+    func testTheDefaultIsNotTheSiblingApplicationsChord() {
+        XCTAssertNotEqual(
+            QuickSearchShortcut.default,
+            QuickSearchShortcut(keyCode: UInt32(kVK_Space), modifiers: [.control, .option])
+        )
+        XCTAssertEqual(QuickSearchShortcut.default.keyCode, UInt32(kVK_Space))
+        XCTAssertEqual(QuickSearchShortcut.default.modifiers, [.command, .shift])
+    }
+
+    func testNamedKeysAreSpelledOut() {
+        XCTAssertEqual(QuickSearchShortcut.keyName(UInt32(kVK_Space)), "Space")
+        XCTAssertEqual(QuickSearchShortcut.keyName(UInt32(kVK_F1)), "F1")
+        XCTAssertEqual(QuickSearchShortcut.keyName(UInt32(kVK_UpArrow)), "Up Arrow")
     }
 }
