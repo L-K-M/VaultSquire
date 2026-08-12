@@ -124,6 +124,30 @@ final class CLIProcessExecutorTests: XCTestCase {
         XCTAssertEqual(result.exitCode, 7)
     }
 
+    /// The bound is on bytes, not on how many pieces they arrive in. The byte
+    /// budget is applied before a chunk enters the queue, so the queue can
+    /// never hold more than one invocation limit however far the reader runs
+    /// ahead of the drain — which is why the stream is deliberately unbounded.
+    /// An element cap there would bound nothing further and would evict rather
+    /// than wait, turning a burst that merely outpaced the consumer into an
+    /// `outputLimitExceeded` against a payload nowhere near the limit.
+    func testAPayloadUnderTheBoundArrivesWholeHoweverItIsChunked() async throws {
+        let executor = CLIProcessExecutor()
+        let executableURL = try macOSExecutableURL(at: "/bin/sh")
+        // 512 separate writes of 1 KiB: far more pieces than any element cap
+        // would allow, and half a mebibyte against a four-mebibyte limit.
+        let result = try await executor.execute(
+            CLIInvocation(
+                arguments: ["-c", "i=0; while [ $i -lt 512 ]; do printf '%1024s' ''; i=$((i+1)); done"],
+                timeout: .seconds(30),
+                outputLimit: 4 * 1024 * 1024
+            ),
+            executableURL: executableURL
+        )
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.standardOutput.count, 512 * 1024, "not one chunk may be lost")
+    }
+
     func testFailsClosedWhenOutputExceedsTheBound() async throws {
         let executor = CLIProcessExecutor()
         // Resolved before the assertion: inside the autoclosure, the helper's

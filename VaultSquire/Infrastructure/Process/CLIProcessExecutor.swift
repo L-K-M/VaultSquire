@@ -458,12 +458,18 @@ private actor CLIExecutionState {
         streamLimit: Int
     ) {
         streamBudget = CLIStreamBudget(limit: streamLimit)
-        let outSequence = AsyncStream<Data>.makeStream(
-            bufferingPolicy: .bufferingNewest(64)
-        )
-        let errSequence = AsyncStream<Data>.makeStream(
-            bufferingPolicy: .bufferingNewest(64)
-        )
+        // Deliberately unbounded, because the budget above is what bounds it.
+        // Every chunk is admitted before it is yielded and admission caps the
+        // cumulative bytes per stream at the invocation's own limit, so the
+        // queue can never hold more than that limit however far the reader
+        // runs ahead of the drain. An element cap on top of that would bound
+        // nothing further — the bytes are already bounded — and `.buffering*`
+        // is lossy: it evicts rather than applying backpressure, so a burst
+        // that merely outpaced the consumer would be indistinguishable from a
+        // child that overran its limit. That is a scheduling race reported as
+        // `outputLimitExceeded` against a payload nowhere near the limit.
+        let outSequence = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        let errSequence = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         standardOutputChunks = outSequence.stream
         standardErrorChunks = errSequence.stream
         standardOutputContinuation = outSequence.continuation
@@ -582,9 +588,12 @@ private actor CLIExecutionState {
                 case .enqueued:
                     break
                 case .dropped(var dropped):
-                    // Losing any byte makes JSON and stderr accounting
-                    // incomplete. Mark the invocation failed and dispose of
-                    // the dropped chunk before terminating the producer.
+                    // Unreachable while the policy above is `.unbounded`, and
+                    // kept so it stays unreachable: if anyone bounds the queue
+                    // by element count later, losing a chunk must fail the run
+                    // rather than silently truncate it, because a hole makes
+                    // both JSON parsing and stderr accounting wrong. Dispose
+                    // of the dropped chunk before terminating the producer.
                     dropped.resetBytes(in: dropped.startIndex..<dropped.endIndex)
                     budget.markExceeded()
                     fileHandle.readabilityHandler = nil
