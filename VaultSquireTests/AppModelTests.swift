@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import XCTest
 @testable import VaultSquire
@@ -10,7 +11,8 @@ final class AppModelTests: XCTestCase {
         presence: @escaping () -> AppModel.AccountPresence = { .none },
         descriptors: [AccountDescriptor] = [],
         protonService: ProtonAccountService = ProtonAccountService(),
-        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService()
+        onePasswordService: OnePasswordAccountService = AppModelTests.inertOnePasswordService(),
+        clipboard: ClipboardService = ClipboardService()
     ) -> (AppModel, AccountDescriptorStore) {
         let defaults = UserDefaults(suiteName: "VSQ-appmodel-\(UUID().uuidString)")!
         let store = AccountDescriptorStore(defaults: defaults)
@@ -31,7 +33,8 @@ final class AppModelTests: XCTestCase {
             service: service,
             protonService: protonService,
             onePasswordService: onePasswordService,
-            biometricStore: FakeBiometricVaultKeyStore(available: false)
+            biometricStore: FakeBiometricVaultKeyStore(available: false),
+            clipboard: clipboard
         )
         return (model, store)
     }
@@ -444,6 +447,126 @@ final class AppModelTests: XCTestCase {
         try await pollUntil {
             model.detail(for: id)?.fields.first { $0.label == "Password" }?.value == "VSQ-rotated"
         }
+    }
+
+    // MARK: - Copying from a row
+
+    /// A pasteboard the tests own, so a copy never touches the machine running
+    /// the suite.
+    private final class FakePasteboard: ClipboardPasteboard {
+        var changeCount = 0
+        private(set) var contents: [NSPasteboard.PasteboardType: String] = [:]
+
+        @discardableResult
+        func clearContents() -> Int {
+            contents = [:]
+            changeCount += 1
+            return changeCount
+        }
+
+        @discardableResult
+        func setString(_ string: String, forType type: NSPasteboard.PasteboardType) -> Bool {
+            contents[type] = string
+            if type == .string, !string.isEmpty {
+                changeCount += 1
+            }
+            return true
+        }
+
+        var string: String? { contents[.string] }
+    }
+
+    /// Copying a password from a list row is the most common thing anyone does
+    /// with this app. Both CLI providers list without secrets, so the value is
+    /// not there when the menu is used: the fetch has to be started and the
+    /// copy has to land when it answers, rather than the gesture quietly doing
+    /// nothing.
+    @MainActor
+    func testCopyingAPasswordFromARowFetchesItFirst() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub","content":{"username":"octocat"}}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-secret"}}"#
+        )
+
+        let pasteboard = FakePasteboard()
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor),
+            clipboard: ClipboardService(pasteboard: pasteboard)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let id = try XCTUnwrap(model.items.first?.id)
+
+        // The username is on the row already, so it copies with no fetch.
+        model.copyUsername(id)
+        XCTAssertEqual(pasteboard.string, "octocat")
+
+        // The password is not, so the copy waits on the read.
+        model.copySecret(.password, of: id)
+        try await pollUntil { pasteboard.string == "VSQ-secret" }
+    }
+
+    /// A copy that was waiting on a fetch must not land in a vault the user
+    /// closed while it was in flight.
+    @MainActor
+    func testAPendingCopyIsAbandonedWhenTheVaultLocks() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "view", "--share-id", "S1", "--item-id", "i1", "--output", "json"],
+            stdout: #"{"login":{"password":"VSQ-secret"}}"#
+        )
+
+        let pasteboard = FakePasteboard()
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor),
+            clipboard: ClipboardService(pasteboard: pasteboard)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+
+        let id = try XCTUnwrap(model.items.first?.id)
+        model.copySecret(.password, of: id)
+        model.lock(account)
+
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNil(pasteboard.string, "a closed vault's secret never reaches the clipboard")
+        XCTAssertFalse(model.canCopySecret(id))
     }
 
     /// Scoping narrows the list; All Vaults merges. Quick Search always spans

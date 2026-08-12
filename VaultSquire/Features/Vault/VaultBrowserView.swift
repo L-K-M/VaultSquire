@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The main window once at least one vault is configured: a vault sidebar, the
@@ -23,6 +24,11 @@ struct VaultBrowserView: View {
     @State private var passwords: [AccountID: String] = [:]
     /// Which vaults have their container list expanded in the sidebar.
     @State private var expandedVaults: Set<AccountID> = []
+    /// The website awaiting confirmation to open, shown with the effective
+    /// scheme and host the browser will actually visit — the same confirmation
+    /// the detail pane gives before any URI leaves the app.
+    @State private var pendingOpen: URIOpeningDecision?
+    @State private var showOpenConfirmation = false
 
     /// Wraps a draft so it can drive an item-identified sheet.
     private struct EditSession: Identifiable {
@@ -83,6 +89,22 @@ struct VaultBrowserView: View {
             // so the detail pane never disagrees with the visible list.
             if let selection, !filteredItems.contains(where: { $0.id == selection }) {
                 self.selection = nil
+            }
+        }
+        .confirmationDialog(
+            "Open this link?",
+            isPresented: $showOpenConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let decision = pendingOpen {
+                Button("Open \(decision.display)") {
+                    NSWorkspace.shared.open(decision.url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let decision = pendingOpen {
+                Text(decision.confirmationMessage)
             }
         }
         .task {
@@ -301,6 +323,7 @@ struct VaultBrowserView: View {
                 List(items, selection: $selection) { item in
                     itemRow(item)
                         .tag(item.id)
+                        .contextMenu { itemActions(item) }
                 }
             }
         }
@@ -309,6 +332,55 @@ struct VaultBrowserView: View {
         // On the Group rather than the List, so the identifier is present in
         // both states and a test for it does not fail on an empty vault.
         .accessibilityIdentifier("vault-item-list")
+    }
+
+    /// The row's own actions. Getting a password onto the clipboard is the
+    /// single most common thing anyone does with this app, and it previously
+    /// required selecting the item, waiting for its detail, and aiming at a
+    /// sixteen-point button. Every copy goes through the same clipboard service
+    /// the detail view uses, so a secret copied from a row expires and clears
+    /// on lock exactly as one copied from the item does, and each action is
+    /// gated on the owning vault's capabilities rather than on the row it
+    /// happens to sit beside.
+    @ViewBuilder
+    private func itemActions(_ item: VaultItemProjection) -> some View {
+        if let username = item.username, !username.isEmpty {
+            Button("Copy Username") { appModel.copyUsername(item.id) }
+                .accessibilityIdentifier("context-copy-username")
+        }
+        if appModel.canCopySecret(item.id) {
+            Button("Copy Password") { appModel.copySecret(.password, of: item.id) }
+                .accessibilityIdentifier("context-copy-password")
+            if appModel.hasOneTimeCode(item.id) {
+                Button("Copy One-Time Code") { appModel.copySecret(.oneTimeCode, of: item.id) }
+                    .accessibilityIdentifier("context-copy-totp")
+            }
+        }
+        if let website = item.websites.first,
+           let decision = URIOpeningPolicy.decision(for: website) {
+            Divider()
+            // Behind the same confirmation the detail pane gives: nothing
+            // leaves for a browser without the user seeing where it goes.
+            Button("Open \(decision.display)") {
+                pendingOpen = decision
+                showOpenConfirmation = true
+            }
+            .accessibilityIdentifier("context-open-website")
+        }
+        if appModel.canEdit(item.id) || appModel.canArchive(item.id) {
+            Divider()
+            if appModel.canEdit(item.id) {
+                Button("Edit…") {
+                    guard let draft = appModel.draft(for: item.id) else { return }
+                    editSession = EditSession(draft: draft)
+                }
+                .accessibilityIdentifier("context-edit")
+            }
+            if appModel.canArchive(item.id) {
+                Button("Archive") { appModel.archive(item.id) }
+                    .accessibilityIdentifier("context-archive")
+            }
+        }
     }
 
     /// The empty state for the item list: "no matches" when a filter excludes
@@ -616,6 +688,7 @@ struct VaultBrowserView: View {
                 Label("Edit", systemImage: "pencil")
             }
             .disabled(selection.map { !appModel.canEdit($0) } ?? true || appModel.isWriting)
+            .keyboardShortcut("e", modifiers: .command)
             .accessibilityIdentifier("vault-edit")
 
             Button {
@@ -632,6 +705,7 @@ struct VaultBrowserView: View {
                 Label("Sync", systemImage: "arrow.clockwise")
             }
             .disabled(appModel.isSyncing || !appModel.isUnlocked)
+            .keyboardShortcut("r", modifiers: .command)
             .accessibilityIdentifier("vault-sync")
 
             Button {
