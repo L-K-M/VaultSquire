@@ -235,7 +235,9 @@ final class QuickSearchPanelTests: XCTestCase {
         title: String,
         username: String? = nil,
         websites: [String] = [],
-        folders: [String] = []
+        folders: [String] = [],
+        category: VaultItemCategory = .login,
+        capabilities: Set<ProviderCapability> = [.viewItems, .searchItems]
     ) -> VaultItemProjection {
         let account = AccountID(provider: .vaultwarden, rawValue: "primary")
         return VaultItemProjection(
@@ -245,16 +247,127 @@ final class QuickSearchPanelTests: XCTestCase {
             ),
             displayTitle: title,
             displaySubtitle: username,
-            category: .login,
+            category: category,
             username: username,
             websites: websites,
             groupingLabels: folders,
-            capabilities: [.viewItems, .searchItems],
+            capabilities: capabilities,
             cacheReference: ProviderCacheReference(
                 scope: .wholeAccount(account),
                 captureGeneration: SnapshotGeneration(rawValue: 1)
             )
         )
+    }
+
+    // MARK: - Actions
+
+    /// A card's first `.secret` field is its number, so Copy Password must not
+    /// be the primary action for anything but a login. A panel that shows
+    /// nothing and then dismisses cannot afford to copy a card number under a
+    /// label that says Password.
+    @MainActor
+    func testOnlyALoginOffersCopyPasswordOnReturn() {
+        let copyable: Set<ProviderCapability> = [.viewItems, .searchItems, .copySecret]
+        XCTAssertEqual(
+            QuickSearchPanelModel.primaryAction(
+                for: Self.projection(title: "GitHub", category: .login, capabilities: copyable)
+            ), .copyPassword
+        )
+        for other in [VaultItemCategory.card, .secureNote, .identity, .unsupported] {
+            XCTAssertEqual(
+                QuickSearchPanelModel.primaryAction(
+                    for: Self.projection(title: "x", category: other, capabilities: copyable)
+                ), .show, "\(other)"
+            )
+        }
+    }
+
+    /// A provider that cannot produce a secret must not be offered a copy it
+    /// cannot perform.
+    @MainActor
+    func testAProviderWithoutCopySecretFallsBackToShowing() {
+        let item = Self.projection(title: "GitHub", category: .login, capabilities: [.viewItems])
+        XCTAssertEqual(QuickSearchPanelModel.primaryAction(for: item), .show)
+    }
+
+    /// The panel must not go away while the value is still being fetched. Both
+    /// CLI providers list without secrets, so Return starts a fetch that can
+    /// take seconds; dismissing first would hand focus to another application
+    /// and then change the clipboard under the user.
+    @MainActor
+    func testThePanelStaysUpUntilAPendingCopyLands() async throws {
+        let gate = CopyGate()
+        let model = QuickSearchPanelModel()
+        var finished: [Bool] = []
+        model.present(
+            items: [Self.projection(
+                title: "GitHub", category: .login,
+                capabilities: [.viewItems, .searchItems, .copySecret]
+            )],
+            isUnlocked: true,
+            onOpen: nil,
+            onCopy: { _, _ in await gate.wait(); return .copied },
+            onCancelCopy: { _ in },
+            onFinish: { finished.append($0) }
+        )
+
+        model.perform(.primary)
+        XCTAssertTrue(model.isWorking)
+        XCTAssertTrue(finished.isEmpty, "dismissed before the value existed")
+
+        await gate.open()
+        for _ in 0..<200 where finished.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(finished, [true], "and then dismisses, handing focus back")
+    }
+
+    /// Escaping out of a fetch must withdraw the copy, or the value lands on
+    /// the clipboard seconds later over something the user copied themselves.
+    @MainActor
+    func testEscapingAFetchCancelsThePendingCopy() async {
+        let gate = CopyGate()
+        let item = Self.projection(
+            title: "GitHub", category: .login,
+            capabilities: [.viewItems, .searchItems, .copySecret]
+        )
+        var cancelled: [VaultItemID] = []
+        let model = QuickSearchPanelModel()
+        model.present(
+            items: [item], isUnlocked: true, onOpen: nil,
+            onCopy: { _, _ in await gate.wait(); return .copied },
+            onCancelCopy: { cancelled.append($0) },
+            onFinish: { _ in }
+        )
+
+        model.perform(.primary)
+        model.cancelInFlightWork()
+
+        XCTAssertEqual(cancelled, [item.id])
+        XCTAssertFalse(model.isWorking)
+        await gate.open()
+    }
+
+    /// Asking for a username an item does not have says so rather than
+    /// dismissing into silence.
+    @MainActor
+    func testAMissingUsernameIsReportedRatherThanCopied() {
+        let model = QuickSearchPanelModel()
+        var copies = 0
+        model.present(
+            items: [Self.projection(title: "GitHub", category: .login)],
+            isUnlocked: true, onOpen: nil,
+            onCopy: { _, _ in copies += 1; return .copied },
+            onCancelCopy: { _ in }, onFinish: { _ in }
+        )
+
+        model.perform(.copyUsername)
+
+        XCTAssertEqual(copies, 0, "nothing may be asked for")
+        XCTAssertEqual(model.actionState, .failed(.username, .noSuchValue))
+        // And the message belongs to that one keystroke.
+        model.moveSelection(by: 1)
+        XCTAssertEqual(model.actionState, .idle)
     }
 
     @MainActor
@@ -298,5 +411,22 @@ final class QuickSearchPanelTests: XCTestCase {
 
         ApplicationCoordinator.shared.dismissQuickSearch()
         XCTAssertEqual(panel?.isVisible, false)
+    }
+}
+
+/// Holds an injected copy open so a test can observe the panel mid-fetch.
+private actor CopyGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for waiter in waiters { waiter.resume() }
+        waiters = []
     }
 }

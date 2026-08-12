@@ -1,5 +1,26 @@
 import Foundation
 
+/// What Return does to the highlighted row.
+enum QuickSearchPrimaryAction: Hashable, Sendable {
+    case copyPassword
+    case show
+
+    var title: String {
+        switch self {
+        case .copyPassword: return "Copy Password"
+        case .show: return "Show in VaultSquire"
+        }
+    }
+}
+
+/// Everything Return and its modifiers can ask for.
+enum QuickSearchAction: Hashable, Sendable {
+    case primary
+    case copyUsername
+    case copyOneTimeCode
+    case show
+}
+
 @MainActor
 final class QuickSearchPanelModel: ObservableObject {
     /// The typed query. Results and the highlighted row are recomputed on every
@@ -40,7 +61,29 @@ final class QuickSearchPanelModel: ObservableObject {
     /// this is reached by typing, which is what a launcher is for.
     static let maximumResults = 200
 
+    /// What the panel is doing to the highlighted row.
+    ///
+    /// Cases rather than a formatted string: a message assembled by
+    /// interpolation is one careless edit away from interpolating the value the
+    /// panel is forbidden to render. Nothing here can hold a secret.
+    enum ActionState: Equatable {
+        case idle
+        case fetching(VaultItemID, QuickSearchCopy)
+        case failed(QuickSearchCopy, SecretCopyOutcome)
+    }
+
+    @Published private(set) var actionState: ActionState = .idle
+
+    var isWorking: Bool {
+        if case .fetching = actionState { return true }
+        return false
+    }
+
     private var onOpen: ((VaultItemID) -> Void)?
+    private var onCopy: ((QuickSearchCopy, VaultItemID) async -> SecretCopyOutcome)?
+    private var onCancelCopy: ((VaultItemID) -> Void)?
+    private var onFinish: ((Bool) -> Void)?
+    private var activeCopy: Task<Void, Never>?
     /// The searchable text of each item, lowercased once when the item set is
     /// assigned. Matching re-reads these on every keystroke, and lowercasing a
     /// title, subtitle, username, every address and every folder label per item
@@ -89,12 +132,16 @@ final class QuickSearchPanelModel: ObservableObject {
     /// both land here, so the panel must not keep a locked vault's titles,
     /// usernames, and addresses alive behind an invisible window.
     func clear() {
+        cancelInFlightWork()
         // Before the query, so a didSet-driven recompute cannot repopulate
         // results from an item set that should already be gone.
         items = []
         rows = []
         vaultTitles = [:]
         onOpen = nil
+        onCopy = nil
+        onCancelCopy = nil
+        onFinish = nil
         // The `query` didSet only fires when the value actually changes, so
         // Escape on an untouched panel would otherwise leave the results and
         // the highlight standing. Reset them explicitly afterwards.
@@ -111,13 +158,19 @@ final class QuickSearchPanelModel: ObservableObject {
         items: [VaultItemProjection],
         isUnlocked: Bool,
         vaultTitles: [AccountID: String] = [:],
-        onOpen: ((VaultItemID) -> Void)?
+        onOpen: ((VaultItemID) -> Void)?,
+        onCopy: ((QuickSearchCopy, VaultItemID) async -> SecretCopyOutcome)? = nil,
+        onCancelCopy: ((VaultItemID) -> Void)? = nil,
+        onFinish: ((Bool) -> Void)? = nil
     ) {
         self.items = items
         self.rows = items.map(Row.init)
         self.isUnlocked = isUnlocked
         self.vaultTitles = vaultTitles
         self.onOpen = onOpen
+        self.onCopy = onCopy
+        self.onCancelCopy = onCancelCopy
+        self.onFinish = onFinish
         recomputeResults()
         notePresented()
     }
@@ -150,26 +203,33 @@ final class QuickSearchPanelModel: ObservableObject {
     /// rather than wrapping matches every other search field on the platform:
     /// holding the down arrow settles on the last row instead of cycling.
     func moveSelection(by offset: Int) {
+        clearFailure()
         guard !results.isEmpty else { return }
         let current = selection.flatMap { id in results.firstIndex { $0.id == id } } ?? 0
         let next = min(max(current + offset, 0), results.count - 1)
         selection = results[next].id
     }
 
+    /// Moves the highlight to a row the user clicked, so the action that
+    /// follows applies to it rather than to whatever the keyboard was on.
+    func select(_ id: VaultItemID) {
+        clearFailure()
+        guard results.contains(where: { $0.id == id }) else { return }
+        selection = id
+    }
+
     func selectFirst() {
+        clearFailure()
         selection = results.first?.id
     }
 
     func selectLast() {
+        clearFailure()
         selection = results.last?.id
     }
 
-    func select(_ id: VaultItemID) {
-        selection = id
-    }
-
-    /// Opens the highlighted row. Return runs this, so the panel opens what the
-    /// user is looking at rather than always the first match.
+    /// Shows the highlighted row in VaultSquire. Kept as the name for "take me
+    /// to this item" now that Return no longer always means that.
     func openSelection() {
         guard isUnlocked, let selection else { return }
         open(selection)
@@ -177,6 +237,105 @@ final class QuickSearchPanelModel: ObservableObject {
 
     func open(_ id: VaultItemID) {
         onOpen?(id)
+        onFinish?(false)
+    }
+
+    // MARK: - Actions
+
+    /// What Return does to this row, decided from the projection alone.
+    ///
+    /// Never from the decrypted detail: `detail(for:)` decrypts and the
+    /// highlighted row changes on every arrow key, and it would still answer
+    /// "unknown" for both CLI providers, whose listings carry no secrets — the
+    /// same login would offer Copy Password under Vaultwarden and something
+    /// else under 1Password. Cards and notes are excluded on purpose:
+    /// `AppModel.secretValue` returns the first `.secret` field, which for a
+    /// card is its number, and a panel that shows nothing before it dismisses
+    /// must not copy a card number under a label that says Password.
+    static func primaryAction(for item: VaultItemProjection) -> QuickSearchPrimaryAction {
+        guard item.category == .login, item.capabilities.contains(.copySecret) else {
+            return .show
+        }
+        return .copyPassword
+    }
+
+    func perform(_ action: QuickSearchAction) {
+        guard isUnlocked, let id = selection,
+              let item = results.first(where: { $0.id == id }),
+              !isWorking else {
+            return
+        }
+        switch action {
+        case .primary:
+            switch Self.primaryAction(for: item) {
+            case .copyPassword: copy(.password, of: item)
+            case .show: show(item)
+            }
+        case .copyUsername:
+            guard let username = item.username, !username.isEmpty else {
+                actionState = .failed(.username, .noSuchValue)
+                return
+            }
+            copy(.username, of: item)
+        case .copyOneTimeCode:
+            // False for both CLI providers by construction, so this offers
+            // nothing their listings cannot produce.
+            guard item.hasOneTimeCode else {
+                actionState = .failed(.oneTimeCode, .noSuchValue)
+                return
+            }
+            copy(.oneTimeCode, of: item)
+        case .show:
+            show(item)
+        }
+    }
+
+    /// The panel stays up until the clipboard actually holds the value. Both
+    /// CLI providers list without secrets, so Return on one of their items
+    /// starts a fetch that can take seconds; dismissing first would hand focus
+    /// back to another application and then change the clipboard under the
+    /// user — over whatever they copied in the meantime.
+    private func copy(_ value: QuickSearchCopy, of item: VaultItemProjection) {
+        guard let onCopy else { return }
+        actionState = .fetching(item.id, value)
+        activeCopy = Task { [weak self] in
+            let outcome = await onCopy(value, item.id)
+            guard let self, !Task.isCancelled else { return }
+            self.activeCopy = nil
+            switch outcome {
+            case .copied:
+                self.onFinish?(true)
+            case .cancelled:
+                self.actionState = .idle
+            case .noSuchValue, .notPermitted, .fetchFailed:
+                self.actionState = .failed(value, outcome)
+            }
+        }
+    }
+
+    /// The one action that means "take me into VaultSquire", so it is the one
+    /// dismissal that does not hand focus back to another application.
+    private func show(_ item: VaultItemProjection) {
+        open(item.id)
+    }
+
+    /// Abandons a copy the user walked away from. The provider fetch itself
+    /// keeps running — it belongs to `AppModel`, not to us — but the value it
+    /// produces must not reach the clipboard: by then the user has moved on and
+    /// may have copied something of their own.
+    func cancelInFlightWork() {
+        if case .fetching(let id, _) = actionState {
+            onCancelCopy?(id)
+        }
+        activeCopy?.cancel()
+        activeCopy = nil
+        actionState = .idle
+    }
+
+    /// A failure message belongs to one keystroke, so it never outlives the row
+    /// it was about.
+    private func clearFailure() {
+        if case .failed = actionState { actionState = .idle }
     }
 
     func notePresented() {
@@ -186,6 +345,9 @@ final class QuickSearchPanelModel: ObservableObject {
     // MARK: - Matching
 
     private func recomputeResults() {
+        // A refusal was about the row the user was on when they pressed the
+        // key; a new query is a new question.
+        clearFailure()
         let matches = Self.ranked(rows: rows, query: query)
         totalMatchCount = matches.count
         results = Array(matches.prefix(Self.maximumResults))

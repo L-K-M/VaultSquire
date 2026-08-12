@@ -1,9 +1,43 @@
 # Global Shortcut Candidates
 
-- Status: comparative Workstream 1 spike; not adopted
+- Status: **decided — the Apple no-dependency fallback is adopted; the package
+  candidate is not**
 - Owner: `L-K-M`
 - Required second reviewer: macOS platform or supply-chain reviewer
 - Research baseline: 2026-07-31
+
+## Decision
+
+VaultSquire registers its Quick Search chord through public Carbon/HIToolbox
+`RegisterEventHotKey`, wrapped in `VaultSquire/App/GlobalHotkey.swift`. The
+package candidate below is recorded but not taken.
+
+Two things decided it.
+
+The route asks for **no permission**. This document already rejects global event
+monitors and event taps "because they broaden input observation and permission
+surface", and requires that neither route request Accessibility or Input
+Monitoring. A registered hot key meets that: the window server delivers one
+chord and the app learns nothing else the user types. For a password manager
+that is not a detail — the permission not requested here is precisely the one
+that would let this process read every keystroke on the Mac.
+
+And the package was not buying much. This document already requires VaultSquire
+to own the recorder UI, the serialization, the conflict behaviour, the callback
+lifetime and the accessibility whichever route is taken. That is nearly all of
+the work; what was left is the wrapper named above. Against that, the package's
+integrity row records an unsigned tag and commit with no publisher checksum,
+SBOM or provenance — a supply-chain cost with no offsetting saving.
+
+The app-owned boundary the document asks for is kept: `QuickSearchShortcut` owns
+the representation and the refusal rules, `QuickSearchShortcutStore` owns
+persistence and lifetime, and `GlobalHotkey` is the only file that names a
+Carbon symbol. Replacing the registrar later means replacing that one file.
+
+Conflict behaviour is delegated to the system rather than predicted. A chord
+another application already holds fails registration, and that failure is
+surfaced in Settings. The app keeps a static refusal table only for chords it
+holds itself and for keys that belong to the system outright.
 
 ## Preferred Package Candidate
 
