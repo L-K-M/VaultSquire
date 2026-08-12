@@ -27,6 +27,12 @@ final class AutoLockController {
     static let inactivityMinutesKey = "VaultSquire.autoLockMinutes"
     static let defaultInactivityTimeout: TimeInterval = 15 * 60
 
+    /// The timeouts Settings offers, in minutes. `0` is the explicit "never"
+    /// that disables the idle clock; the system triggers — screen lock,
+    /// screensaver, sleep, session resignation — always apply and are not
+    /// offered as a choice, because they are what makes an unattended Mac safe.
+    static let offeredInactivityMinutes = [1, 5, 15, 30, 60, 0]
+
     /// Distributed notification names for the screen lock and screensaver
     /// triggers. macOS publishes no public constants for these.
     static let screenIsLockedNotification = "com.apple.screenIsLocked"
@@ -64,6 +70,27 @@ final class AutoLockController {
     var inactivityLockEnabled: Bool {
         guard defaults.object(forKey: Self.inactivityMinutesKey) != nil else { return true }
         return defaults.double(forKey: Self.inactivityMinutesKey) > 0
+    }
+
+    /// The configured timeout in whole minutes, for Settings to show and set.
+    /// `0` means the idle clock is off. Absent reads as the default rather than
+    /// as zero, so an installation that has never been configured reports the
+    /// timeout it is actually running.
+    var inactivityMinutes: Int {
+        guard defaults.object(forKey: Self.inactivityMinutesKey) != nil else {
+            return Int(Self.defaultInactivityTimeout / 60)
+        }
+        return max(0, Int(defaults.double(forKey: Self.inactivityMinutesKey)))
+    }
+
+    /// Stores a new timeout and restarts the idle clock, so the choice takes
+    /// effect now rather than at the next launch. The clock restarts from this
+    /// moment: shortening the timeout must not lock the vault retroactively for
+    /// time the user spent reading under the old one.
+    func setInactivityMinutes(_ minutes: Int) {
+        defaults.set(Double(max(0, minutes)), forKey: Self.inactivityMinutesKey)
+        lastActivity = now()
+        armInactivityCheck()
     }
 
     /// Installs the lock closure and starts watching. Idempotent: calling
@@ -106,7 +133,11 @@ final class AutoLockController {
         eventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .mouseMoved]
         ) { [weak self] event in
-            Task { @MainActor [weak self] in
+            // A local monitor is called on the main thread as part of event
+            // dispatch, so the activity note is taken inline. Hopping through a
+            // Task would allocate one per event, and `.mouseMoved` alone
+            // delivers those continuously while the pointer is over the window.
+            MainActor.assumeIsolated {
                 self?.noteActivity()
             }
             return event
@@ -157,14 +188,23 @@ final class AutoLockController {
         onLock?()
     }
 
+    /// How often the idle clock is examined, derived from the timeout so the
+    /// lock lands near its boundary rather than up to a whole timeout late.
+    ///
+    /// Four checks per timeout, floored at five seconds so the one-minute
+    /// choice is honoured to within a few seconds, and capped so the long
+    /// timeouts still wake at most once a minute. Exposed for the test that
+    /// pins this relationship; a fixed one-minute poll would let the shortest
+    /// offered timeout overrun by a further full minute.
+    var inactivityCheckInterval: TimeInterval {
+        min(max(5, inactivityTimeout / 4), max(60, inactivityTimeout / 2))
+    }
+
     private func armInactivityCheck() {
         inactivityTask?.cancel()
         inactivityTask = nil
         guard inactivityLockEnabled else { return }
-        // Check at least twice per timeout so the lock lands close to the
-        // boundary rather than a whole timeout late, but never more often
-        // than once a minute.
-        let interval = max(60, inactivityTimeout / 2)
+        let interval = inactivityCheckInterval
         inactivityTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
