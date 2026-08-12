@@ -396,8 +396,19 @@ struct VaultItemDetailView: View {
     }
 
     private func spacedCode(_ code: String) -> String {
-        guard code.count == 6 else { return code }
-        let middle = code.index(code.startIndex, offsetBy: 3)
+        // Group for legibility: 6 → 3+3, 7 → 3+4, 8 → 4+4. The parser admits
+        // six to eight digits, so the old `count == 6` guard left the longer
+        // ones unspaced. A five-character Steam code falls through ungrouped,
+        // which is how Steam presents it.
+        let count = code.count
+        guard count >= 6 else { return code }
+        let split: Int
+        switch count {
+        case 6, 7: split = 3
+        case 8: split = 4
+        default: split = count / 2
+        }
+        let middle = code.index(code.startIndex, offsetBy: split)
         return "\(code[code.startIndex..<middle]) \(code[middle...])"
     }
 

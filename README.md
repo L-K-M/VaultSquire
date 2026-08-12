@@ -212,7 +212,11 @@ Read the documents in this order:
     documented follow-ups (subordinate evidence).
 23. [`docs/reviews/2026-08-12-open-pr-consolidation.md`](docs/reviews/2026-08-12-open-pr-consolidation.md):
     what was taken from forty concurrently open pull requests, what was
-    superseded, and the backlog left open (subordinate evidence).
+    superseded, and why one of them must not be merged (subordinate evidence).
+24. [`docs/reviews/2026-08-12-consolidated-backlog.md`](docs/reviews/2026-08-12-consolidated-backlog.md):
+    the merged product, correctness, performance, interaction, visual, and
+    accessibility backlog from the 2026-08 parallel reviews (subordinate
+    evidence).
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and
