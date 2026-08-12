@@ -12,6 +12,79 @@ final class VaultwardenTransportTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Refusing a destination before it reaches Foundation
+
+    /// A credential in the URL would be handed to Foundation and could end up
+    /// in its own state before any header is set. The request is refused
+    /// instead of built.
+    func testRejectsAURLCarryingEmbeddedCredentials() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        let url = try XCTUnwrap(URL(string: "https://user:secret@vault.example.com/api/config"))
+        await assertTransportFailure { try await transport.send(.get, url: url) }
+    }
+
+    func testRejectsAURLCarryingAFragment() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        let url = try XCTUnwrap(URL(string: "https://vault.example.com/api/config#frag"))
+        await assertTransportFailure { try await transport.send(.get, url: url) }
+    }
+
+    /// An encoded dot or slash makes the path Foundation resolves differ from
+    /// the one the redirect policy and the origin check reasoned about.
+    func testRejectsANonCanonicalPath() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        for raw in [
+            "https://vault.example.com/api/%2e%2e/admin",
+            "https://vault.example.com/api/%2fadmin",
+            "https://vault.example.com/api/..%5cadmin",
+            "https://vault.example.com/api/../admin"
+        ] {
+            let url = try XCTUnwrap(URL(string: raw))
+            await assertTransportFailure(raw) { try await transport.send(.get, url: url) }
+        }
+    }
+
+    /// Plain HTTP is admitted only for the origin the user already approved,
+    /// which is how the documented loopback development exception works.
+    func testRejectsPlainHTTPToAnUnapprovedOrigin() async throws {
+        let transport = try VaultwardenTestFactory.stubbedTransport()
+        let url = try XCTUnwrap(URL(string: "http://elsewhere.example.com/api/config"))
+        await assertTransportFailure { try await transport.send(.get, url: url) }
+    }
+
+    /// The classification exists so a proxy interposing on the connection is
+    /// not reported as an ordinary "couldn't reach the server".
+    func testTLSFailureCodesAreClassifiedApartFromOtherTransportFailures() {
+        for code: URLError.Code in [
+            .secureConnectionFailed,
+            .serverCertificateUntrusted,
+            .serverCertificateHasBadDate,
+            .serverCertificateHasUnknownRoot,
+            .serverCertificateNotYetValid
+        ] {
+            XCTAssertTrue(VaultwardenTransport.isTLSFailure(code), "\(code)")
+        }
+        for code: URLError.Code in [.timedOut, .notConnectedToInternet, .cannotFindHost] {
+            XCTAssertFalse(VaultwardenTransport.isTLSFailure(code), "\(code)")
+        }
+    }
+
+    private func assertTransportFailure(
+        _ label: String = "",
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ body: () async throws -> Void
+    ) async {
+        do {
+            try await body()
+            XCTFail("expected the request to be refused \(label)", file: file, line: line)
+        } catch let error as VaultwardenTransportError {
+            XCTAssertEqual(error, .transportFailure, label, file: file, line: line)
+        } catch {
+            XCTFail("unexpected error \(error) \(label)", file: file, line: line)
+        }
+    }
+
     func testEphemeralSessionHasNoCacheCookieOrCredentialStore() {
         let session = VaultwardenTransport.makeEphemeralSession()
         let configuration = session.configuration

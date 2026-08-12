@@ -11,13 +11,34 @@ struct VaultwardenHTTPResponse: Sendable {
 /// downgrades HTTPS. A discovered cross-origin service must be approved
 /// separately; a redirect never expands the allowlist. Immutable and
 /// therefore safe to hand to URLSession as a per-task delegate.
-final class VaultwardenRedirectPolicy: NSObject, URLSessionTaskDelegate, Sendable {
+final class VaultwardenRedirectPolicy: NSObject, URLSessionTaskDelegate,
+                                        URLSessionDataDelegate, Sendable {
     let origin: VaultwardenOrigin
     let basePath: String
+    /// The bound the body is refused at. Checked against the declared content
+    /// length before any of it is buffered; the post-download check in `send`
+    /// still catches a server that declares nothing or lies.
+    let maximumResponseBytes: Int
 
-    init(origin: VaultwardenOrigin, basePath: String) {
+    init(origin: VaultwardenOrigin, basePath: String, maximumResponseBytes: Int) {
         self.origin = origin
         self.basePath = basePath
+        self.maximumResponseBytes = maximumResponseBytes
+    }
+
+    /// Cancels a transfer whose declared length already exceeds the bound, so a
+    /// hostile or misconfigured server cannot make the client buffer the whole
+    /// body first just to have it rejected afterwards.
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse
+    ) async -> URLSession.ResponseDisposition {
+        guard response.expectedContentLength != NSURLSessionTransferSizeUnknown,
+              response.expectedContentLength > Int64(maximumResponseBytes) else {
+            return .allow
+        }
+        return .cancel
     }
 
     func urlSession(
@@ -41,6 +62,11 @@ enum VaultwardenTransportError: Error, Equatable, Sendable {
     case responseTooLarge
     case notHTTP
     case cancelled
+    /// The TLS handshake or trust evaluation failed. Distinguished from a
+    /// generic transport failure because it is the one network outcome a user
+    /// must not be told to retry past: it is what a proxy interposing on the
+    /// connection looks like.
+    case tlsFailure
     case transportFailure
 }
 
@@ -76,9 +102,28 @@ struct VaultwardenTransport: Sendable {
         self.userAgent = userAgent
         self.redirectPolicy = VaultwardenRedirectPolicy(
             origin: environment.origin,
-            basePath: environment.redirectBasePath
+            basePath: environment.redirectBasePath,
+            maximumResponseBytes: maximumResponseBytes
         )
         self.session = session ?? Self.makeEphemeralSession()
+    }
+
+    /// The `URLError` codes that mean the connection was not trustworthy,
+    /// rather than merely unavailable.
+    static func isTLSFailure(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .secureConnectionFailed,
+             .serverCertificateHasBadDate,
+             .serverCertificateUntrusted,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .clientCertificateRejected,
+             .clientCertificateRequired,
+             .appTransportSecurityRequiresSecureConnection:
+            return true
+        default:
+            return false
+        }
     }
 
     static func makeEphemeralSession() -> URLSession {
@@ -117,6 +162,43 @@ struct VaultwardenTransport: Sendable {
         body: Body = .none,
         bearer: String? = nil
     ) async throws -> VaultwardenHTTPResponse {
+        // Reject a malformed destination before constructing a request that
+        // could transiently associate it — or a credential embedded in it —
+        // with Foundation's own state.
+        //
+        // The path checks are for a URL assembled from server-supplied strings:
+        // an encoded dot, slash or backslash, or a traversal segment, can make
+        // the path Foundation resolves differ from the one the redirect policy
+        // and the origin check were reasoning about.
+        let scheme = url.scheme?.lowercased()
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let encodedPath = components?.percentEncodedPath.lowercased() ?? ""
+        let hasTraversalSegment = components?.path
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .contains { $0 == "." || $0 == ".." } ?? true
+        let pathIsCanonical = components != nil
+            && !encodedPath.contains("%25")
+            && !encodedPath.contains("%2e")
+            && !encodedPath.contains("%2f")
+            && !encodedPath.contains("%5c")
+            && !encodedPath.contains("\\")
+            && !hasTraversalSegment
+        // Plain HTTP is admitted only for the origin the user already approved,
+        // which is how a self-hosted instance on a development host works.
+        let isApprovedOrigin = scheme == environment.origin.scheme
+            && url.host?.lowercased() == environment.origin.host.lowercased()
+            && (url.port ?? (scheme == "https" ? 443 : 80)) == environment.origin.port
+        guard url.absoluteString.utf8.count <= 4_096,
+              url.host != nil,
+              url.user == nil,
+              url.password == nil,
+              url.fragment == nil,
+              pathIsCanonical,
+              scheme == "https" || isApprovedOrigin,
+              maximumResponseBytes > 0 else {
+            throw VaultwardenTransportError.transportFailure
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -180,6 +262,11 @@ struct VaultwardenTransport: Sendable {
             throw VaultwardenTransportError.cancelled
         } catch let error as URLError where error.code == .cancelled {
             throw VaultwardenTransportError.cancelled
+        } catch let error as URLError where Self.isTLSFailure(error.code) {
+            // Named rather than folded into the generic case: this is what an
+            // interposing proxy looks like, and it is the one network outcome
+            // the user must not be told to simply retry past.
+            throw VaultwardenTransportError.tlsFailure
         } catch {
             // Never surface the underlying error object; it can carry the full
             // failing URL. The category alone crosses the boundary.
