@@ -10,6 +10,11 @@ struct ItemIconIdentity: Equatable, Sendable {
     /// The lowercased host the item's first usable website points at, with any
     /// `www.` prefix dropped. Nil for every item without an `http(s)` URL,
     /// which is most non-logins and some logins.
+    ///
+    /// Naming a host here does not mean it may be asked for an icon: an entry
+    /// for the router names `192.168.1.1`, and that is what the row's letter
+    /// and colour come from even though nothing is ever requested from it.
+    /// `iconURL` is what decides that.
     let host: String?
     /// The single character drawn when there is no artwork. Never empty.
     let monogram: String
@@ -56,12 +61,22 @@ struct ItemIconIdentity: Equatable, Sendable {
 
     // MARK: - Derivation
 
-    /// The first website that yields a usable public host.
+    /// The first website that yields a usable host.
+    ///
+    /// A host that may actually be asked for an icon wins over one that may
+    /// not, so an entry listing the router first and a real site second still
+    /// gets artwork. When nothing on the item is askable the first parseable
+    /// host is still returned, because this is also what the monogram and the
+    /// colour are derived from: five LAN logins should look like five
+    /// different sites, not collapse into one identical category badge.
     static func host(from websites: [String]) -> String? {
+        var firstParseable: String?
         for website in websites {
-            if let host = host(from: website) { return host }
+            guard let host = host(from: website) else { continue }
+            if isSafeIconHost(host) { return host }
+            if firstParseable == nil { firstParseable = host }
         }
-        return nil
+        return firstParseable
     }
 
     static func host(from website: String) -> String? {
@@ -84,7 +99,11 @@ struct ItemIconIdentity: Equatable, Sendable {
         if host.hasPrefix("www.") {
             host = String(host.dropFirst(4))
         }
-        return isSafeIconHost(host) ? host : nil
+        // Not filtered by `isSafeIconHost` here. This is the row's identity —
+        // its letter and its colour — and a host that may not be *asked* is
+        // still the site the item names. `iconURL(forHost:)` is the one place
+        // that decides what may be requested.
+        return host.isEmpty ? nil : host
     }
 
     /// Whether a host may be asked for an icon at all.
@@ -96,8 +115,9 @@ struct ItemIconIdentity: Equatable, Sendable {
     /// name hosts on the user's own network — turning the icon switch on must
     /// not quietly start probing them.
     ///
-    /// Everything refused here falls back to the monogram, which is the same
-    /// thing the row shows for the many items that have no website at all.
+    /// A host refused here keeps its row's letter and colour — it is still the
+    /// site the item names — and simply never has artwork fetched for it. Only
+    /// the request is refused, not the identity.
     ///
     /// This does not defeat DNS rebinding: a public name whose record points
     /// inside the network still resolves inside the network. That residual is

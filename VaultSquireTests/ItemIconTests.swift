@@ -123,8 +123,26 @@ final class ItemIconTests: XCTestCase {
             "https://192.168.1.1/", "http://10.0.0.1", "172.16.4.9",
             "https://127.0.0.1:8080/admin", "8.8.8.8", "https://169.254.169.254/"
         ] {
-            XCTAssertNil(ItemIconIdentity.host(from: website), website)
+            let host = ItemIconIdentity.host(from: website)
+            XCTAssertNotNil(host, "\(website) still names a site to the row")
+            XCTAssertFalse(ItemIconIdentity.isSafeIconHost(host ?? ""), website)
+            XCTAssertNil(host.flatMap(ItemIconIdentity.iconURL(forHost:)), website)
         }
+    }
+
+    /// Only the request is refused, never the row's identity. Five LAN logins
+    /// have to stay five distinguishable rows rather than collapse into one
+    /// identical category badge, which is what a nil host would do to them.
+    func testARefusedHostKeepsItsLetterAndItsColour() {
+        let router = ItemIconIdentity(title: "Home Router", websites: ["https://192.168.1.1"])
+        let nas = ItemIconIdentity(title: "Synology NAS", websites: ["https://nas.local"])
+
+        XCTAssertNotNil(router.host)
+        XCTAssertNotNil(nas.host)
+        XCTAssertNil(router.iconURL, "and neither is ever asked for artwork")
+        XCTAssertNil(nas.iconURL)
+        XCTAssertNotEqual(router.hue, nas.hue)
+        XCTAssertEqual(nas.monogram, "N")
     }
 
     /// The octal and hexadecimal spellings of an address exist to slip past a
@@ -154,7 +172,7 @@ final class ItemIconTests: XCTestCase {
             "abcdefgh.onion"
         ] {
             XCTAssertFalse(ItemIconIdentity.isSafeIconHost(host), host)
-            XCTAssertNil(ItemIconIdentity.host(from: "https://\(host)/"), host)
+            XCTAssertNil(ItemIconIdentity.iconURL(forHost: host), host)
         }
     }
 

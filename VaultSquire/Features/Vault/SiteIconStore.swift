@@ -267,8 +267,12 @@ final class SiteIconStore: ObservableObject {
 /// learn the vault's list, which is the reason icons come from each site
 /// directly and never from an aggregator.
 ///
-/// Only the originally addressed host may redirect, which bounds a chain to a
-/// single hop without keeping per-task state.
+/// Only the address the app itself chose may redirect, which bounds a chain to
+/// a single hop with no per-task state. The comparison is against the whole
+/// original URL rather than only its host: on the second hop the redirecting
+/// response is the first hop's destination, so a differing path is what ends
+/// the chain when a site redirects to itself. Comparing hosts alone would let
+/// `/favicon.ico` → `/a` → `/b` → … run to URLSession's own limit.
 private final class SiteIconRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
@@ -276,8 +280,9 @@ private final class SiteIconRedirectPolicy: NSObject, URLSessionTaskDelegate, @u
         willPerformHTTPRedirection response: HTTPURLResponse,
         newRequest request: URLRequest
     ) async -> URLRequest? {
-        guard let origin = task.originalRequest?.url?.host?.lowercased(),
-              response.url?.host?.lowercased() == origin,
+        guard let original = task.originalRequest?.url,
+              response.url == original,
+              let origin = original.host?.lowercased(),
               let destination = request.url,
               destination.scheme?.lowercased() == "https",
               let host = destination.host?.lowercased(),
