@@ -27,6 +27,10 @@ final class SiteIconStore: ObservableObject {
 
     /// The most icons held at once. A pathological vault cannot grow this
     /// without bound, and the cap is far above any realistic screenful.
+    ///
+    /// A full cache does not freeze: the oldest resolved icon is evicted for
+    /// a newly resolved one, so icons keep loading after the cap is reached
+    /// and scrolling back simply re-fetches what was evicted.
     static let maximumCachedIcons = 500
 
     /// The most hosts asked in one session. The cache bound above counts what
@@ -35,6 +39,22 @@ final class SiteIconStore: ObservableObject {
     /// requests, which is the number that matters — each one tells a site the
     /// vault has an entry for it.
     static let maximumAttemptedHosts = 2_000
+
+    /// The most fetches in flight at once. Rows ask as their hosts scroll
+    /// past, and without this a fast scroll through a vault of many hosts
+    /// bursts dozens of concurrent transfers at once — a burst of load on the
+    /// network and on the main actor, which each completion wakes. A host
+    /// refused because the slots are full is deliberately NOT marked
+    /// attempted, so the next time its row renders it asks again: the cap
+    /// delays icons, it never loses them.
+    static let maximumConcurrentFetches = 6
+
+    /// How many times one host may fail before it is left alone for the rest
+    /// of the session. The first failure is forgiven — a transient network
+    /// blip or a server hiccup must not cost a host its icon until the next
+    /// launch — and the second keeps the original ask-once behaviour for
+    /// hosts that reliably have nothing.
+    static let maximumAttemptsPerHost = 2
 
     /// The largest icon body accepted. Real favicons are a few kilobytes; this
     /// bounds what a hostile or misconfigured host can hand back. Nonisolated
@@ -78,6 +98,15 @@ final class SiteIconStore: ObservableObject {
     /// icon is asked once and then left alone; without this, scrolling past it
     /// would re-request forever.
     private var attemptedHosts: Set<String> = []
+    /// Hosts with a transfer in flight, so the concurrency cap can count them.
+    private var inFlightHosts: Set<String> = []
+    /// How many times each host has already failed this session. A host whose
+    /// count has not reached `maximumAttemptsPerHost` is asked again on the
+    /// next render; one that has is left alone.
+    private var failureCounts: [String: Int] = [:]
+    /// The order hosts were successfully resolved in, oldest first, so the cap
+    /// evicts the icon the user has not needed for the longest.
+    private var insertionOrder: [String] = []
     /// Icons resolved since the last publish, held for one short window so a
     /// vault's worth of them lands as a few updates rather than hundreds.
     private var pendingImages: [String: NSImage] = [:]
@@ -126,16 +155,20 @@ final class SiteIconStore: ObservableObject {
               !isKnown(host),
               !attemptedHosts.contains(host),
               attemptedHosts.count < Self.maximumAttemptedHosts,
-              images.count + pendingImages.count < Self.maximumCachedIcons,
               // Refuses an address literal and a local-only name before a
               // request exists, so the switch never starts probing the
               // router and NAS entries a vault holds alongside its websites.
               let url = ItemIconIdentity.iconURL(forHost: host) else {
             return
         }
+        // The concurrency cap is checked before anything is claimed, and a
+        // host that loses the slot race is not marked attempted: its row
+        // asks again the next time it renders.
+        guard inFlightHosts.count < Self.maximumConcurrentFetches else { return }
         // Claimed before the suspension point, so two rows for the same site
         // make one request rather than two.
         attemptedHosts.insert(host)
+        inFlightHosts.insert(host)
 
         let requestedGeneration = generation
         let data = await fetchCancellably(url, for: host)
@@ -143,6 +176,7 @@ final class SiteIconStore: ObservableObject {
         // the dictionary, and a later load for the same host owns the entry.
         if generation == requestedGeneration {
             fetchTasks[host] = nil
+            inFlightHosts.remove(host)
         }
 
         guard let data else {
@@ -151,6 +185,17 @@ final class SiteIconStore: ObservableObject {
             // fast scroll would leave every row it passed permanently blank.
             if Task.isCancelled, generation == requestedGeneration {
                 attemptedHosts.remove(host)
+            } else if generation == requestedGeneration {
+                // A genuine failure — timeout, refused connection, a dropped
+                // route — is forgiven a bounded number of times, so one blip
+                // does not cost the host its icon for the whole session,
+                // while a host that reliably has nothing is still asked only
+                // a handful of times.
+                let failures = failureCounts[host, default: 0] + 1
+                failureCounts[host] = failures
+                if failures < Self.maximumAttemptsPerHost {
+                    attemptedHosts.remove(host)
+                }
             }
             return
         }
@@ -167,8 +212,26 @@ final class SiteIconStore: ObservableObject {
         guard let image = NSImage(data: data), image.isValid, image.size.width > 0 else { return }
         // Held rather than published, so a vault's worth of icons resolving at
         // once does not invalidate every row in the window once each.
+        evictIfNeeded()
         pendingImages[host] = image
+        insertionOrder.removeAll { $0 == host }
+        insertionOrder.append(host)
         schedulePublish()
+    }
+
+    /// Makes room at the cap by dropping the oldest resolved icon. Runs only
+    /// once a new icon has actually resolved, so a full cache never refuses a
+    /// host whose fetch would have succeeded, and a fetch that fails never
+    /// costs an icon that was already on screen. An evicted host may be asked
+    /// again later — it left the cache, not the session.
+    private func evictIfNeeded() {
+        while images.count + pendingImages.count >= Self.maximumCachedIcons,
+              let oldest = insertionOrder.first {
+            insertionOrder.removeFirst()
+            images[oldest] = nil
+            pendingImages[oldest] = nil
+            attemptedHosts.remove(oldest)
+        }
     }
 
     /// Runs one fetch as a task the store can cancel, while still stopping if
@@ -219,6 +282,9 @@ final class SiteIconStore: ObservableObject {
         pendingImages = [:]
         images = [:]
         attemptedHosts = []
+        inFlightHosts = []
+        failureCounts = [:]
+        insertionOrder = []
     }
 
     /// Whether the bytes describe an image small enough to be worth decoding.
