@@ -220,6 +220,12 @@ Read the documents in this order:
     the merged product, correctness, performance, interaction, visual, and
     accessibility backlog from the 2026-08 parallel reviews (subordinate
     evidence).
+25. [`ANALYSIS.md`](ANALYSIS.md): the working backlog derived from the
+    consolidated backlog and the sol review pass, with everything done since
+    cleared out and traced to what closed it (subordinate evidence).
+26. [`sol.md`](sol.md): the 2026-08 sol review pass in full — status
+    re-derived from `905d76d`/`f48084e`, the mid-pass #79 reconciliation,
+    and the plan behind the `sol/*` pull requests (subordinate evidence).
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and
