@@ -406,6 +406,39 @@ the request.
   still in flight. Clearing what is on screen is not enough on its own: a late
   response would repopulate the window with the sites the lock removed.
 
+### Typing A Credential Into Another Application
+
+Quick Search delivers a credential by synthesising keystrokes into the
+application it was summoned from, falling back to the clipboard when it may not.
+This is the one place VaultSquire asks for a TCC permission, and the trade is
+stated here rather than left implicit.
+
+- Post events only; never observe them. No `CGEventTap`, no global `NSEvent`
+  monitor, no keyboard hook. The Accessibility grant would permit observation;
+  this app's use of it is write-only, and any change to that is a change to this
+  document first.
+- The permission is never requested implicitly. It is asked for from an explicit
+  Settings control that says what it is for, never at the moment a user pressed
+  a shortcut expecting a credential.
+- Delivery falls back to the clipboard when the grant is absent, and the user is
+  told which of the two happened. A silent fallback would leave a secret on the
+  pasteboard while the user believed it had been typed.
+- Typed values never touch the pasteboard. This is the security argument for the
+  feature rather than a convenience: no clipboard-history manager can retain the
+  value, nothing syncs it to another device, and there is no interval in which
+  another process can read it. The clipboard route has all three exposures,
+  which is why it carries an expiry and a concealed-type hint.
+- The panel is dismissed and the target application activated before any event
+  is posted. Events go to whatever is frontmost when they are posted, so this
+  ordering is what stops a password reaching the wrong window.
+- The value is held for one delivery, zeroed after the event is posted, and is
+  never rendered, logged, or given to the search panel — the panel receives an
+  outcome, never a value.
+- Residual, stated plainly: the app cannot verify which field receives the
+  keystrokes. If focus moved between the user pressing the shortcut and the
+  event landing, the credential goes wherever focus went. This is inherent to
+  synthetic input and is why the confirmation names what was delivered.
+
 ### CLI Process Boundary
 
 These invariants bind every provider that executes an external CLI — currently

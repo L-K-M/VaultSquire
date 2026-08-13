@@ -5,7 +5,11 @@ import Foundation
 /// this — the window it was invoked from is still on screen if nothing
 /// happens. Quick Search cannot: it dismisses and hands focus to another
 /// application, and the user's next keystroke is Command-V.
-enum SecretCopyOutcome: Hashable, Sendable {
+enum SecretDeliveryOutcome: Hashable, Sendable {
+    /// Typed straight into the application the user came from. The pasteboard
+    /// was never involved, so there is nothing to expire and nothing for a
+    /// clipboard-history manager to have taken.
+    case typed
     case copied
     /// The item has no such field: a login stored without a password.
     case noSuchValue
@@ -90,7 +94,7 @@ final class AppModel: ObservableObject {
     /// copy, and who is waiting to be told how it ended.
     private struct PendingCopy {
         var kind: CopyableSecret
-        var observers: [@MainActor (SecretCopyOutcome) -> Void] = []
+        var observers: [@MainActor (Result<String, SecretDeliveryOutcome>) -> Void] = []
     }
 
     private var pendingCopies: [VaultItemID: PendingCopy] = [:]
@@ -951,22 +955,26 @@ final class AppModel: ObservableObject {
     ///
     /// The fire-and-forget `copySecret(_:of:)` stays as it is for the browser's
     /// context menu. This variant exists for Quick Search, which must not take
-    /// itself down and hand focus to another application until the clipboard
-    /// really holds the value — there is no window left afterwards to explain a
-    /// copy that quietly did nothing, and a value that lands twenty seconds
-    /// late would overwrite whatever the user copied in the meantime.
-    func copySecretAwaitingFetch(
+    /// itself down and hand focus to another application until the value really
+    /// exists — there is no window left afterwards to explain a delivery that
+    /// quietly did nothing, and a value that arrives twenty seconds late would
+    /// be typed into whatever the user is doing by then.
+    ///
+    /// Returns the value rather than acting on it, because the caller decides
+    /// between typing it and the clipboard.
+    func resolveSecretAwaitingFetch(
         _ kind: CopyableSecret,
         of itemID: VaultItemID
-    ) async -> SecretCopyOutcome {
-        guard canCopySecret(itemID) else { return .notPermitted }
+    ) async -> Result<String, SecretDeliveryOutcome> {
+        guard canCopySecret(itemID) else { return .failure(.notPermitted) }
         if let value = secretValue(kind, of: itemID) {
-            clipboard.copySecret(value)
-            return .copied
+            return .success(value)
         }
         // A Vaultwarden item is decrypted already, so a missing value means the
         // item has no such field. There is nothing to wait for.
-        guard session(for: itemID.account)?.kind != .vaultwarden else { return .noSuchValue }
+        guard session(for: itemID.account)?.kind != .vaultwarden else {
+            return .failure(.noSuchValue)
+        }
 
         return await withCheckedContinuation { continuation in
             var pending = pendingCopies[itemID] ?? PendingCopy(kind: kind)
@@ -1000,11 +1008,24 @@ final class AppModel: ObservableObject {
     @discardableResult
     private func resolvePendingCopy(
         _ itemID: VaultItemID,
-        _ outcome: SecretCopyOutcome
+        _ outcome: SecretDeliveryOutcome
+    ) -> Bool {
+        resolvePendingCopy(itemID, .failure(outcome))
+    }
+
+    @discardableResult
+    private func resolvePendingCopy(_ itemID: VaultItemID, success value: String) -> Bool {
+        resolvePendingCopy(itemID, .success(value))
+    }
+
+    @discardableResult
+    private func resolvePendingCopy(
+        _ itemID: VaultItemID,
+        _ result: Result<String, SecretDeliveryOutcome>
     ) -> Bool {
         guard let pending = pendingCopies.removeValue(forKey: itemID) else { return false }
         for observer in pending.observers {
-            observer(outcome)
+            observer(result)
         }
         return true
     }
@@ -1012,7 +1033,7 @@ final class AppModel: ObservableObject {
     /// The keys are snapshotted: `resolvePendingCopy` mutates the dictionary
     /// the lazy `keys` view is reading.
     private func resolvePendingCopies(
-        _ outcome: SecretCopyOutcome,
+        _ outcome: SecretDeliveryOutcome,
         where predicate: (VaultItemID) -> Bool
     ) {
         for itemID in Array(pendingCopies.keys) where predicate(itemID) {
@@ -1052,8 +1073,12 @@ final class AppModel: ObservableObject {
             resolvePendingCopy(itemID, .noSuchValue)
             return
         }
-        clipboard.copySecret(value)
-        resolvePendingCopy(itemID, .copied)
+        // The fire-and-forget path still copies here; the awaiting path hands
+        // the value back and decides for itself.
+        if pending.observers.isEmpty {
+            clipboard.copySecret(value)
+        }
+        resolvePendingCopy(itemID, success: value)
     }
 
     // MARK: - Writes
@@ -1424,22 +1449,50 @@ extension AppModel: QuickSearchDataSource {
         quickSearchSelection = id
     }
 
-    func copyFromQuickSearch(
+    func deliverFromQuickSearch(
         _ value: QuickSearchCopy,
-        of id: VaultItemID
-    ) async -> SecretCopyOutcome {
+        of id: VaultItemID,
+        via delivery: SecretDelivery,
+        beforeDelivery: @escaping @MainActor () -> Void
+    ) async -> SecretDeliveryOutcome {
+        let resolved: String
         switch value {
-        case .password:
-            return await copySecretAwaitingFetch(.password, of: id)
-        case .oneTimeCode:
-            return await copySecretAwaitingFetch(.oneTimeCode, of: id)
         case .username:
-            // Deliberately not through `copySecret`: a username is not a secret,
-            // it is already legible on the panel row, and expiring it thirty
-            // seconds later would destroy a value the user still wants for no
-            // security gain.
-            return copyUsername(id) ? .copied : .noSuchValue
+            // Not a secret, always present without a fetch, and already legible
+            // on the row the user is looking at.
+            guard let owner = session(for: id.account), owner.isOpen,
+                  let username = owner.items.first(where: { $0.id == id })?.username,
+                  !username.isEmpty else {
+                return .noSuchValue
+            }
+            resolved = username
+        case .password, .oneTimeCode:
+            let kind: CopyableSecret = value == .password ? .password : .oneTimeCode
+            switch await resolveSecretAwaitingFetch(kind, of: id) {
+            case .success(let secret): resolved = secret
+            case .failure(let outcome): return outcome
+            }
         }
+
+        // The panel comes down and the target application comes forward before
+        // anything is delivered. Keystrokes go to whatever is frontmost when
+        // they are posted, so this ordering is the difference between a
+        // password reaching the login field and reaching the search panel that
+        // was on its way out.
+        beforeDelivery()
+
+        if case .typed(let process) = delivery,
+           await SecretInjector.type(resolved, into: process) {
+            return .typed
+        }
+        // No Accessibility grant, or nowhere to type into. The clipboard is
+        // what this did before typing existed, and it still works.
+        if value == .username {
+            clipboard.copyPlain(resolved)
+        } else {
+            clipboard.copySecret(resolved)
+        }
+        return .copied
     }
 
     func cancelQuickSearchCopy(of id: VaultItemID) {

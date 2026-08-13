@@ -189,13 +189,17 @@ for a later, separately reviewed feature.
    explicit Archived filter.
 4. Passwords, TOTP seeds, card numbers, private keys, and hidden fields are not
    indexed by default.
-5. Return copies the selected login's password, because getting a credential
-   out is what the panel is for and the password is the one field not already
-   legible on the row. Shift-Return copies the username, Option-Return the
-   one-time code, and Command-Return shows the record in VaultSquire — which
-   remains Return's behaviour for anything that is not a login the provider
-   will produce a secret for. The panel stays up until the clipboard holds the
-   value, so a provider fetch cannot land on it after the user has moved on.
+5. Return delivers the selected login's password into the application Quick
+   Search was summoned from, because getting a credential out is what the panel
+   is for and the password is the one field not already legible on the row.
+   Shift-Return delivers the username, Option-Return the one-time code, and
+   Command-Return shows the record in VaultSquire — which remains Return's
+   behaviour for anything that is not a login the provider will produce a
+   secret for. Delivery is by synthesised keystroke where macOS permits it,
+   which keeps the value off the pasteboard entirely, and by clipboard where it
+   does not. The panel stays up until the value exists, so a provider fetch
+   cannot land after the user has moved on, and what happened is confirmed
+   afterwards because the panel is gone by then.
 6. Secret clipboard values expire after a finite default interval and are
    cleared only if the pasteboard change count shows VaultSquire still owns
    the current value.

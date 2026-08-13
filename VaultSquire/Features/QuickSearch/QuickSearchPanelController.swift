@@ -77,7 +77,9 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
         isUnlocked: Bool = false,
         vaultTitles: [AccountID: String] = [:],
         onOpen: ((VaultItemID) -> Void)? = nil,
-        onCopy: ((QuickSearchCopy, VaultItemID) async -> SecretCopyOutcome)? = nil,
+        onDeliver: ((
+            QuickSearchCopy, VaultItemID, SecretDelivery, @escaping @MainActor () -> Void
+        ) async -> SecretDeliveryOutcome)? = nil,
         onCancelCopy: ((VaultItemID) -> Void)? = nil
     ) {
         model.clear()
@@ -101,13 +103,18 @@ final class QuickSearchPanelController: NSObject, NSWindowDelegate {
             isUnlocked: isUnlocked,
             vaultTitles: vaultTitles,
             onOpen: onOpen,
-            onCopy: onCopy,
+            onDeliver: onDeliver,
+            // Typing needs somewhere to type. When VaultSquire was already
+            // frontmost there is no previous application, and the clipboard is
+            // the only thing that makes sense.
+            deliveryTarget: previousApplication.map { .typed(intoProcess: $0.processIdentifier) }
+                ?? .clipboard,
             onCancelCopy: onCancelCopy,
             onFinish: { [weak self] restoringFocus in
                 self?.dismiss(restoringFocus: restoringFocus)
             },
-            onCopied: { copied in
-                CopyConfirmationPanel.show(copied)
+            onCopied: { copied, outcome in
+                CopyConfirmationPanel.show(copied, outcome)
             }
         )
         PerformanceTrace.record(.quickSearchVisible)

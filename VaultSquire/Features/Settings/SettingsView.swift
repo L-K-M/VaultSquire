@@ -37,6 +37,10 @@ struct SettingsView: View {
 
                 Divider()
 
+                typingSection
+
+                Divider()
+
                 autoLockSection
 
                 Divider()
@@ -141,6 +145,34 @@ struct SettingsView: View {
                 .font(.caption)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: Self.proseWidth, alignment: .leading)
+            }
+        }
+    }
+
+    /// Whether Quick Search can type a credential into the app you came from.
+    ///
+    /// The permission is macOS's, not VaultSquire's, so this states what is
+    /// true and offers the system prompt rather than pretending to a switch it
+    /// does not own. Without it nothing breaks: delivery falls back to the
+    /// clipboard, which is what the app did before.
+    @ViewBuilder
+    private var typingSection: some View {
+        LabeledContent("Typing") {
+            VStack(alignment: .leading, spacing: 6) {
+                if SecretInjector.hasPermission() {
+                    Text("Quick Search types the credential straight into the app you came from.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: Self.proseWidth, alignment: .leading)
+                    caption("Nothing goes on the clipboard that way, so no clipboard-history manager can keep it and there is nothing to expire.")
+                } else {
+                    Button("Allow VaultSquire to Type…") {
+                        SecretInjector.requestPermission()
+                    }
+                    .accessibilityIdentifier("settings-allow-typing")
+                    caption("Needs macOS's Accessibility permission, which is what lets one app send keystrokes to another. VaultSquire only sends them — it installs no event tap and no keyboard monitor, so it never observes what you type. Until you grant it, Quick Search copies to the clipboard instead.")
+                }
             }
         }
     }

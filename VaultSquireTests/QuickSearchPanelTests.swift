@@ -306,7 +306,7 @@ final class QuickSearchPanelTests: XCTestCase {
             )],
             isUnlocked: true,
             onOpen: nil,
-            onCopy: { _, _ in await gate.wait(); return .copied },
+            onDeliver: { _, _, _, before in await gate.wait(); before(); return .copied },
             onCancelCopy: { _ in },
             onFinish: { finished.append($0) }
         )
@@ -335,7 +335,7 @@ final class QuickSearchPanelTests: XCTestCase {
         let model = QuickSearchPanelModel()
         model.present(
             items: [item], isUnlocked: true, onOpen: nil,
-            onCopy: { _, _ in await gate.wait(); return .copied },
+            onDeliver: { _, _, _, before in await gate.wait(); before(); return .copied },
             onCancelCopy: { cancelled.append($0) },
             onFinish: { _ in }
         )
@@ -357,7 +357,7 @@ final class QuickSearchPanelTests: XCTestCase {
         model.present(
             items: [Self.projection(title: "GitHub", category: .login)],
             isUnlocked: true, onOpen: nil,
-            onCopy: { _, _ in copies += 1; return .copied },
+            onDeliver: { _, _, _, before in copies += 1; before(); return .copied },
             onCancelCopy: { _ in }, onFinish: { _ in }
         )
 

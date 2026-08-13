@@ -278,7 +278,7 @@ struct QuickSearchView: View {
 
     private static func message(
         for value: QuickSearchCopy,
-        _ outcome: SecretCopyOutcome
+        _ outcome: SecretDeliveryOutcome
     ) -> String {
         switch outcome {
         case .noSuchValue: return "This item has no \(value.name.lowercased())."

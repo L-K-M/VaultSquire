@@ -9,9 +9,10 @@ import SwiftUI
 /// so. That reads as a shortcut that did nothing.
 ///
 /// Two rules it lives by. It never shows a value, only which kind of value was
-/// copied: the strings come from `QuickSearchCopy.name` and are fixed. And it
-/// is non-activating and click-through, so the focus Quick Search just handed
-/// back is not taken away again by the thing announcing the handover.
+/// delivered and by which route: the strings come from `QuickSearchCopy.name`
+/// and are fixed. And it is non-activating and click-through, so the focus
+/// Quick Search just handed back is not taken away again by the thing
+/// announcing the handover.
 @MainActor
 enum CopyConfirmationPanel {
     private static var current: NSPanel?
@@ -19,17 +20,29 @@ enum CopyConfirmationPanel {
 
     static let visibleDuration: Duration = .seconds(2)
 
-    /// Says what was copied, and how long a secret will last.
+    /// Says what was delivered and how.
     ///
-    /// The expiry is worth saying because it is short and the user cannot see
-    /// it anywhere else; a username carries none, and claiming one would be a
-    /// lie in the safe direction rather than a harmless simplification.
-    static func show(_ copied: QuickSearchCopy) {
-        let expires = copied != .username
-        let detail = expires
-            ? "Press Command-V to paste. Clears in \(Int(ClipboardService.defaultSecretExpiry)) seconds."
-            : "Press Command-V to paste."
-        present(title: "\(copied.name) copied", detail: detail)
+    /// The distinction matters: typed means the value went into the field and
+    /// the pasteboard was never involved, so there is nothing to expire and
+    /// nothing a clipboard-history manager could have taken. Copied means the
+    /// opposite, and then the expiry is worth saying because it is short and is
+    /// stated nowhere else the user can see.
+    static func show(_ delivered: QuickSearchCopy, _ outcome: SecretDeliveryOutcome) {
+        switch outcome {
+        case .typed:
+            // Nothing to add: it is already in the field. Saying so at all is
+            // what distinguishes "typed" from "the shortcut did nothing".
+            present(title: "\(delivered.name) typed", detail: "Straight into the app — nothing was copied.")
+        case .copied where delivered == .username:
+            present(title: "Username copied", detail: "Press Command-V to paste.")
+        case .copied:
+            present(
+                title: "\(delivered.name) copied",
+                detail: "Press Command-V to paste. Clears in \(Int(ClipboardService.defaultSecretExpiry)) seconds."
+            )
+        case .noSuchValue, .notPermitted, .fetchFailed, .cancelled:
+            break
+        }
     }
 
     static func dismiss() {
