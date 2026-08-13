@@ -20,12 +20,6 @@ struct VaultItemDetailView: View {
     static let revealTimeout: TimeInterval = 30
 
     @State private var revealed: Set<String> = []
-    /// The last generated one-time code per field, kept so the per-second
-    /// `TimelineView` only re-runs the HMAC when the cached code's window has
-    /// actually ended. The code changes once per period — recomputing it every
-    /// tick re-parses the seed and re-derives the code thirty times for every
-    /// time the answer changes.
-    @State private var totpCache: [String: VaultwardenTOTP.Generated] = [:]
     /// The live re-conceal timer per field.
     ///
     /// Held so it can be cancelled, for two reasons. A re-reveal must not be
@@ -227,12 +221,16 @@ struct VaultItemDetailView: View {
         }
     }
 
-    /// The live code and its countdown. The code is regenerated only when the
-    /// cached one's window has ended; the countdown ticks every second either
-    /// way.
+    /// The live code and its countdown, both derived from the tick's date.
+    ///
+    /// Deliberately not memoized. Caching the last code across ticks means
+    /// writing to `@State` from inside a view body, which is undefined
+    /// behaviour in SwiftUI, and it buys nothing worth that: one Base32
+    /// decode and one HMAC-SHA1 over eight bytes, once a second, is not a
+    /// cost this pane can measure.
     @ViewBuilder
     private func totpContent(_ field: VaultItemDetail.DetailField, at date: Date) -> some View {
-        if let generated = totpGenerated(field, at: date) {
+        if let generated = VaultwardenTOTP.generate(seed: field.value, at: date) {
             let remaining = max(
                 0, Int(generated.periodEnd.timeIntervalSince(date).rounded(.up))
             )
@@ -254,24 +252,6 @@ struct VaultItemDetailView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    /// The generated code for `field` at `date`: the cached one while its
-    /// window is still live, a freshly derived one once it has rolled over.
-    /// The seed is re-parsed and the HMAC re-run only at that rollover, not on
-    /// every one-second tick.
-    private func totpGenerated(
-        _ field: VaultItemDetail.DetailField,
-        at date: Date
-    ) -> VaultwardenTOTP.Generated? {
-        if let cached = totpCache[field.id], date < cached.periodEnd {
-            return cached
-        }
-        guard let fresh = VaultwardenTOTP.generate(seed: field.value, at: date) else {
-            return nil
-        }
-        totpCache[field.id] = fresh
-        return fresh
     }
 
     /// The window the current code is still good for. A ring drains where a
@@ -409,7 +389,6 @@ struct VaultItemDetailView: View {
         copyResetTask = nil
         revealed = []
         lastCopy = nil
-        totpCache = [:]
     }
 
     /// Shortcuts for the two copies that make up nearly every use of this app.
