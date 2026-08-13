@@ -985,6 +985,126 @@ final class AppModelTests: XCTestCase {
         XCTFail("condition did not hold within the timeout", file: file, line: line)
     }
 
+    // MARK: - Browser filter
+
+    /// The list filter the browser's search field drives. It lives on the model
+    /// so the answer is computed once per query rather than once per body pass,
+    /// and so the whole-corpus scan is testable without standing up a view.
+    @MainActor
+    func testTheFilterNarrowsTheListAndKeepsItsOrder() async throws {
+        // "Digital" contains "git" mid-word and "Gitea" begins with it, so the
+        // two orders disagree: alphabetical puts Digital first, Quick Search's
+        // ranking would put the title prefix first. The list is not a launcher.
+        let model = try await makeOpenProtonModel(titles: [
+            "Bank", "Digital", "Gitea", "Zebra",
+        ])
+
+        XCTAssertEqual(model.filteredItems.count, 4, "no filter shows the whole scope")
+
+        model.searchQuery = "git"
+        XCTAssertEqual(
+            model.filteredItems.map(\.displayTitle),
+            ["Digital", "Gitea"],
+            "matches keep the list's alphabetical order rather than being ranked"
+        )
+
+        model.searchQuery = "zzz"
+        XCTAssertTrue(model.filteredItems.isEmpty)
+    }
+
+    /// A query of nothing but whitespace is not a filter. A `contains` matcher
+    /// gets this wrong on its own — an empty needle is inside every string — so
+    /// it would silently show everything while looking like a filter applied.
+    @MainActor
+    func testABlankQueryShowsEveryItem() async throws {
+        let model = try await makeOpenProtonModel(titles: ["Bank", "GitHub"])
+
+        model.searchQuery = "   "
+
+        XCTAssertEqual(model.filteredItems.count, 2)
+    }
+
+    /// Changing scope is a fresh list. The filter typed for the old one must
+    /// not carry into it — and the model has to clear it itself, or it
+    /// publishes one pass of the new scope narrowed by the old scope's query.
+    @MainActor
+    func testChangingScopeClearsTheFilter() async throws {
+        let account = ProtonAccountService.accountID
+        let model = try await makeOpenProtonModel(titles: ["Bank", "GitHub"])
+
+        model.searchQuery = "git"
+        XCTAssertEqual(model.filteredItems.count, 1)
+
+        model.scope = .vault(account)
+
+        XCTAssertEqual(model.searchQuery, "")
+        XCTAssertEqual(model.filteredItems.count, 2)
+    }
+
+    /// The browser drops a selection the filter has hidden, so the detail pane
+    /// never disagrees with the visible list.
+    @MainActor
+    func testFilterShowsAnswersFromTheNarrowedList() async throws {
+        let model = try await makeOpenProtonModel(titles: ["Bank", "GitHub"])
+        let bank = try XCTUnwrap(model.items.first { $0.displayTitle == "Bank" }).id
+        let github = try XCTUnwrap(model.items.first { $0.displayTitle == "GitHub" }).id
+
+        model.searchQuery = "git"
+
+        XCTAssertTrue(model.filterShows(github))
+        XCTAssertFalse(model.filterShows(bank))
+    }
+
+    /// The haystacks are built beside the item set in `rebuildItems`. A lock or
+    /// a sync that changes the items while a filter is applied has to rebuild
+    /// both, or the filter answers from text describing items that are gone.
+    @MainActor
+    func testTheFilterFollowsTheItemSetWhenTheVaultCloses() async throws {
+        let account = ProtonAccountService.accountID
+        let model = try await makeOpenProtonModel(titles: ["Bank", "GitHub"])
+
+        model.searchQuery = "git"
+        XCTAssertEqual(model.filteredItems.count, 1)
+
+        model.lock(account)
+
+        XCTAssertTrue(model.filteredItems.isEmpty, "a closed vault's items leave the filter too")
+    }
+
+    /// One open Proton vault holding a login per title, which is the cheapest
+    /// way to get a populated `items` through the real open path.
+    @MainActor
+    private func makeOpenProtonModel(titles: [String]) async throws -> AppModel {
+        let items = titles.enumerated()
+            .map { #"{"id":"i\#($0.offset)","type":"login","title":"\#($0.element)"}"# }
+            .joined(separator: ",")
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[\#(items)]}"#
+        )
+
+        let account = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: account, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                )
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+        model.open(account)
+        try await pollUntil { model.session(for: account)?.isOpen == true }
+        return model
+    }
+
     // MARK: - Browser scope hand-off
 
     private static func itemID(vault: String, provider: ProviderID = .vaultwarden) -> VaultItemID {
