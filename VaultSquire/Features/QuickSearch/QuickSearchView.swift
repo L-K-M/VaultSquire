@@ -284,7 +284,10 @@ struct QuickSearchView: View {
         case .noSuchValue: return "This item has no \(value.name.lowercased())."
         case .notPermitted: return "That vault is no longer open."
         case .fetchFailed: return "\(value.name) could not be read from the provider."
-        case .copied, .cancelled: return ""
+        // A delivery that worked says so on the confirmation panel, over the
+        // application the value went into — not here, where the panel it
+        // would appear in has already gone.
+        case .typed, .copied, .cancelled: return ""
         }
     }
 
