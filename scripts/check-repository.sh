@@ -4,6 +4,44 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Preflight the tools the checks below shell out to, so an unsupported
+# environment fails with one actionable message instead of a bare
+# "command not found" from whichever check happens to run first. `python3`
+# in particular is used twice — it parses the SBOM generator and validates
+# its JSON output — and a failure mid-script would make a missing tool look
+# like a product defect.
+missing_tools=()
+require_tool() {
+    command -v "$1" >/dev/null 2>&1 || missing_tools+=("$1")
+}
+require_tool git
+require_tool python3
+require_tool mktemp
+require_tool chmod
+require_tool cp
+require_tool tail
+# The absolute paths the checks below actually invoke, so a preflight pass
+# cannot be followed by a "no such file" from the very same tool.
+require_tool /usr/bin/cut
+require_tool /usr/bin/grep
+require_tool /usr/bin/head
+# JSON validation uses jq when present and plutil otherwise.
+if ! command -v jq >/dev/null 2>&1 && ! command -v plutil >/dev/null 2>&1; then
+    missing_tools+=("jq (or plutil)")
+fi
+# The icon hash is computed with sha256sum when present and shasum otherwise.
+if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+    missing_tools+=("sha256sum (or shasum)")
+fi
+if [[ ${#missing_tools[@]} -gt 0 ]]; then
+    printf 'check-repository.sh needs tools that are not installed:\n' >&2
+    for tool in "${missing_tools[@]}"; do
+        printf '  - %s\n' "$tool" >&2
+    done
+    printf 'Install the missing tools and run this script again. They are present on every macOS and mainstream Linux distribution; on Debian/Ubuntu the package is coreutils plus python3.\n' >&2
+    exit 1
+fi
+
 required_files=(
     AGENTS.md
     CICD.md

@@ -100,6 +100,13 @@ final class AppModel: ObservableObject {
     }
 
     private var pendingCopies: [VaultItemID: PendingCopy] = [:]
+    /// CLI vaults the user locked by hand this session. The unlock gesture
+    /// that opens credential-free vaults must not undo a deliberate per-vault
+    /// lock: "one unlock opens the app" is about vaults the user has not
+    /// chosen to close. Cleared when the user opens the vault again, when the
+    /// vault is removed, and by a global lock, which ends the session the
+    /// mark belonged to.
+    private var lockedByUser: Set<AccountID> = []
     /// Bumped whenever fetched secrets are discarded. The detail pane keys its
     /// hydration on this as well as on the selection, so a sync that drops the
     /// secrets of the item currently open re-reads them instead of leaving the
@@ -191,6 +198,20 @@ final class AppModel: ObservableObject {
     /// which is the only time the answer can differ.
     @Published private(set) var items: [VaultItemProjection] = []
 
+    /// Every open vault's items, for Quick Search — it always searches
+    /// everything that is open, regardless of the browser's scope.
+    /// Sorted by title, not left in vault-by-vault blocks. Quick Search ranks
+    /// these and breaks ties by the order it was given them, so an unsorted
+    /// merge would make two equally good matches from different vaults arrive
+    /// grouped by provider rather than alphabetically.
+    ///
+    /// Cached for the same reason `items` is: the sidebar's open summary reads
+    /// this on every body pass, so as a computed property it re-sorted the
+    /// entire open corpus — a localized comparison per element — on every
+    /// keystroke in the search field and every model publish. Rebuilt beside
+    /// `items` in `rebuildItems`, which is the only time the answer can differ.
+    @Published private(set) var allOpenItems: [VaultItemProjection] = []
+
     private func rebuildItems() {
         let scoped: [VaultItemProjection]
         if case .group(_, let group) = scope {
@@ -201,18 +222,12 @@ final class AppModel: ObservableObject {
         items = scoped.sorted { lhs, rhs in
             lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
         }
-    }
-
-    /// Every open vault's items, for Quick Search — it always searches
-    /// everything that is open, regardless of the browser's scope.
-    /// Sorted by title, not left in vault-by-vault blocks. Quick Search ranks
-    /// these and breaks ties by the order it was given them, so an unsorted
-    /// merge would make two equally good matches from different vaults arrive
-    /// grouped by provider rather than alphabetically.
-    var allOpenItems: [VaultItemProjection] {
-        sessions.filter(\.isOpen).flatMap(\.items).sorted { lhs, rhs in
-            lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
-        }
+        allOpenItems = sessions
+            .filter(\.isOpen)
+            .flatMap(\.items)
+            .sorted { lhs, rhs in
+                lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            }
     }
 
     /// The sync timestamp shown for the current scope: the oldest across the
@@ -265,6 +280,11 @@ final class AppModel: ObservableObject {
             rebuilt.append(previous)
         }
         sessions = rebuilt
+        // A vault removed and re-added is a fresh installation of it, so the
+        // deliberate-lock mark does not carry over from its previous life.
+        lockedByUser = lockedByUser.filter { id in
+            accounts.contains { $0.account == id }
+        }
         rebuildItems()
 
         if let account = scope.account, session(for: account) == nil {
@@ -371,6 +391,9 @@ final class AppModel: ObservableObject {
     /// prompt; its path is `unlock(_:password:)` or `unlockWithBiometrics()`.
     func open(_ account: AccountID) {
         guard let existing = session(for: account), !existing.isOpening, !existing.isOpen else { return }
+        // The user asked for this vault specifically: whatever earlier lock
+        // mark it carried is spent.
+        lockedByUser.remove(account)
         switch existing.kind {
         case .proton:
             openProton(account)
@@ -445,6 +468,10 @@ final class AppModel: ObservableObject {
         syncNow(account)
         // One unlock gesture opens the app, not just this vault.
         openCredentialFreeVaults()
+        // A vault just became open (and more may follow), so a visible Quick
+        // Search panel must stop searching only the vaults that were open
+        // before the gesture.
+        ApplicationCoordinator.shared.refreshQuickSearch()
     }
 
     /// Opens every configured vault that needs no credential of its own.
@@ -459,8 +486,16 @@ final class AppModel: ObservableObject {
     /// This is deliberately not run on launch: a CLI vault opening with no
     /// gesture at all would put vault contents on screen for whoever opened the
     /// window. The unlock is the gate.
+    ///
+    /// The gate does not override a deliberate choice: a vault the user locked
+    /// by hand this session is left closed until they open it themselves, even
+    /// though it could open with no credential. The gesture exists for vaults
+    /// the user has not chosen to close, not as an undo for a lock they asked
+    /// for.
     func openCredentialFreeVaults() {
-        for account in sessions.filter({ !$0.needsCredentialToOpen }).map(\.account) {
+        for account in sessions
+        .filter({ !$0.needsCredentialToOpen && !lockedByUser.contains($0.account) })
+        .map(\.account) {
             open(account)
         }
     }
@@ -490,10 +525,15 @@ final class AppModel: ObservableObject {
                     $0.lastSyncedAt = refresh.snapshot.capturedAt
                     $0.syncError = nil
                 }
+                self.refreshQuickSearchAfterOpenOrSync()
             case .failure(let error):
                 self.failProtonOpenOrShowOfflineSnapshot(
                     account, generation: generation, error: error
                 )
+                // The failure path may have opened the vault from its offline
+                // snapshot, which changes the item set too. The coordinator
+                // answers for itself when no panel is visible.
+                self.refreshQuickSearchAfterOpenOrSync()
             }
         }
     }
@@ -579,10 +619,14 @@ final class AppModel: ObservableObject {
                     $0.lastSyncedAt = refresh.snapshot.capturedAt
                     $0.syncError = nil
                 }
+                self.refreshQuickSearchAfterOpenOrSync()
             case .failure(let error):
                 self.failOnePasswordOpenOrShowOfflineSnapshot(
                     account, generation: generation, accountUUID: accountUUID, error: error
                 )
+                // The failure path may have opened the vault from its offline
+                // snapshot, which changes the item set too.
+                self.refreshQuickSearchAfterOpenOrSync()
             }
         }
     }
@@ -612,6 +656,9 @@ final class AppModel: ObservableObject {
     /// its in-flight work.
     func lock(_ account: AccountID) {
         guard session(for: account) != nil else { return }
+        // A lock the user asked for on this vault, not one the unlock gesture
+        // opened them into: the gesture must not quietly reopen it later.
+        lockedByUser.insert(account)
         cancelTrackedTasks(for: account)
         mutate(account) { $0.close() }
         dropFetchedContent(for: account)
@@ -635,6 +682,11 @@ final class AppModel: ObservableObject {
             cancelTrackedTasks(for: account)
             mutate(account) { $0.close() }
         }
+        // A global lock ends the session the marks belonged to: the next
+        // unlock gesture is a fresh "open the app" and may reopen every
+        // credential-free vault, including one that was locked by hand under
+        // the session that just ended.
+        lockedByUser = []
         contentEpoch &+= 1
         protonContent = [:]
         onePasswordContent = [:]
@@ -793,6 +845,29 @@ final class AppModel: ObservableObject {
 
     // MARK: - Item detail
 
+    /// The last Vaultwarden item whose detail and draft were decrypted, with
+    /// the snapshot generation they were decrypted from.
+    ///
+    /// The detail pane reads `detail(for:)` from its body and the toolbar
+    /// reads `draft(for:)` through `canEdit` on every redraw — each call runs
+    /// an AES-CBC decrypt plus HMAC verify per field and a linear cipher scan.
+    /// Memoizing the selected item's answers turns both redraw reads into a
+    /// dictionary-sized comparison. The key includes the snapshot generation,
+    /// so a sync that re-seals the snapshot invalidates the memo the moment
+    /// its content can have changed; a lock drops it with the session.
+    ///
+    /// One item's plaintext is retained this way for the life of the session,
+    /// which matches how the app already treats fetched CLI content: in
+    /// memory, session-scoped, never persisted.
+    private struct DecryptedItemMemo {
+        let itemID: VaultItemID
+        let snapshotGeneration: UInt64
+        let detail: VaultItemDetail?
+        let draft: VaultItemDraft?
+    }
+
+    private var decryptedItemMemo: DecryptedItemMemo?
+
     /// The decrypted detail for an item, routed to the vault that owns it.
     /// Returns nil when that vault is closed, so a locked vault's items can
     /// never be read out of a stale list.
@@ -811,7 +886,25 @@ final class AppModel: ObservableObject {
             )
         case .vaultwarden:
             guard let vault = owner.vaultwarden else { return nil }
-            return service.detail(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+            if let memo = decryptedItemMemo,
+               memo.itemID == itemID,
+               memo.snapshotGeneration == vault.snapshot.generation {
+                return memo.detail
+            }
+            guard let detail = service.detail(
+                for: itemID, keyring: vault.keyring, snapshot: vault.snapshot
+            ) else {
+                return nil
+            }
+            // Computed together so the next body pass (detail pane and toolbar
+            // alike) pays no decrypt at all for this item.
+            decryptedItemMemo = DecryptedItemMemo(
+                itemID: itemID,
+                snapshotGeneration: vault.snapshot.generation,
+                detail: detail,
+                draft: service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+            )
+            return detail
         }
     }
 
@@ -1121,7 +1214,26 @@ final class AppModel: ObservableObject {
               let vault = owner.vaultwarden else {
             return nil
         }
-        return service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+        if let memo = decryptedItemMemo,
+           memo.itemID == itemID,
+           memo.snapshotGeneration == vault.snapshot.generation {
+            return memo.draft
+        }
+        let draft = service.draft(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot)
+        if let draft {
+            // Both answers memoized together, so a later `detail(for:)` for
+            // the same item and snapshot pays no decrypt either. `draft`
+            // succeeded, so the cipher is live; its detail resolves under the
+            // same guard (an undecryptable field never aborts the detail —
+            // individual fields fail independently).
+            decryptedItemMemo = DecryptedItemMemo(
+                itemID: itemID,
+                snapshotGeneration: vault.snapshot.generation,
+                detail: service.detail(for: itemID, keyring: vault.keyring, snapshot: vault.snapshot),
+                draft: draft
+            )
+        }
+        return draft
     }
 
     /// Whether a given item can be edited. Builds the draft, so it decrypts.
@@ -1218,10 +1330,12 @@ final class AppModel: ObservableObject {
             spawnTracked(account) {
                 let result = await self.service.sync()
                 guard self.isCurrent(account, generation) else { return }
+                var succeeded = false
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
                     case .success(let snapshot):
+                        succeeded = true
                         session.lastSyncedAt = snapshot.syncedAt
                         session.syncError = nil
                         if var vault = session.vaultwarden {
@@ -1254,6 +1368,11 @@ final class AppModel: ObservableObject {
                         session.syncError = Self.message(for: error)
                     }
                 }
+                if succeeded {
+                    // A sync can add or remove items while the panel is up;
+                    // the panel must not keep searching the list it opened on.
+                    self.refreshQuickSearchAfterOpenOrSync()
+                }
             }
         case .proton:
             spawnTracked(account) {
@@ -1278,6 +1397,9 @@ final class AppModel: ObservableObject {
                         session.syncError = Self.message(for: error)
                     }
                 }
+                if case .success = result {
+                    self.refreshQuickSearchAfterOpenOrSync()
+                }
             }
         case .onePassword:
             let accountUUID = account.rawValue
@@ -1299,6 +1421,9 @@ final class AppModel: ObservableObject {
                         session.syncError = Self.message(for: error)
                     }
                 }
+                if case .success = result {
+                    self.refreshQuickSearchAfterOpenOrSync()
+                }
             }
         }
     }
@@ -1307,13 +1432,34 @@ final class AppModel: ObservableObject {
 
     /// The one funnel every session change goes through, which is also where
     /// the two derived collections are refreshed: the vault's container list
-    /// and the scoped item list. Rebuilding them here costs one pass per
-    /// mutation instead of several passes per redraw.
+    /// and the scoped item list.
+    ///
+    /// Rebuilding costs a pass over the vault plus a localized sort each, so
+    /// the rebuilds are gated on the values they actually derive from: groups
+    /// on the item set and the folder names, the item lists on the item set
+    /// and the open state. A mutation that only toggles `isSyncing` or clears
+    /// a `syncError` now costs a few equality comparisons instead of two
+    /// full passes — which matters when every mutation republishes and the
+    /// whole window redraws once per change.
     private func mutate(_ account: AccountID, _ body: (inout VaultSlot) -> Void) {
         guard let index = sessions.firstIndex(where: { $0.account == account }) else { return }
+        let before = sessions[index]
         body(&sessions[index])
-        sessions[index].refreshGroups()
-        rebuildItems()
+        let after = sessions[index]
+        if before.isOpen && !after.isOpen,
+           decryptedItemMemo?.itemID.account == account {
+            // The memo's plaintext belongs to the session that just ended.
+            // Done here rather than in the lock callers so every close path —
+            // including a future one — drops it.
+            decryptedItemMemo = nil
+        }
+        let itemsChanged = before.items != after.items
+        if itemsChanged || before.vaultwarden?.folderNames != after.vaultwarden?.folderNames {
+            sessions[index].refreshGroups()
+        }
+        if itemsChanged || before.isOpen != after.isOpen {
+            rebuildItems()
+        }
     }
 
     /// Whether a vault is still on the generation an async task started under.
@@ -1321,6 +1467,14 @@ final class AppModel: ObservableObject {
     /// into a vault the user closed.
     private func isCurrent(_ account: AccountID, _ generation: UInt64) -> Bool {
         session(for: account)?.generation == generation
+    }
+
+    /// Re-reads the model into a visible Quick Search panel after an open or a
+    /// successful sync, so the panel never keeps searching an item set that
+    /// changed underneath it. Cheap when no panel is up: the coordinator
+    /// answers for itself.
+    private func refreshQuickSearchAfterOpenOrSync() {
+        ApplicationCoordinator.shared.refreshQuickSearch()
     }
 
     // MARK: - Messages

@@ -59,7 +59,7 @@ struct VaultItemDetailView: View {
                     if index > 0 {
                         Divider()
                     }
-                    fieldRow(field)
+                    fieldRow(field, index: index)
                 }
             }
             .padding(28)
@@ -123,7 +123,7 @@ struct VaultItemDetailView: View {
     }
 
     @ViewBuilder
-    private func fieldRow(_ field: VaultItemDetail.DetailField) -> some View {
+    private func fieldRow(_ field: VaultItemDetail.DetailField, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(field.label)
                 .font(.caption.weight(.semibold))
@@ -134,9 +134,9 @@ struct VaultItemDetailView: View {
             case .totpSeed:
                 totpRow(field)
             case .secret:
-                secretRow(field)
+                secretRow(field, index: index)
             case .uri:
-                uriRow(field)
+                uriRow(field, index: index)
             case .plain:
                 plainRow(field)
             }
@@ -158,7 +158,7 @@ struct VaultItemDetailView: View {
         }
     }
 
-    private func uriRow(_ field: VaultItemDetail.DetailField) -> some View {
+    private func uriRow(_ field: VaultItemDetail.DetailField, index: Int) -> some View {
         HStack(alignment: .firstTextBaseline) {
             selectable(Text(field.value), field)
                 .fixedSize(horizontal: false, vertical: true)
@@ -171,17 +171,20 @@ struct VaultItemDetailView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Open \(decision.display)")
-                .accessibilityIdentifier("open-uri-\(field.label)")
+                // Index-based, not label-based: the label can be a user's
+                // custom-field name, and vault-derived strings must not enter
+                // accessibility identifiers or UI-test traces.
+                .accessibilityIdentifier("open-uri-field-\(index)")
             }
             Spacer(minLength: 12)
             copyButton(field, isSecret: false)
         }
     }
 
-    private func secretRow(_ field: VaultItemDetail.DetailField) -> some View {
+    private func secretRow(_ field: VaultItemDetail.DetailField, index: Int) -> some View {
         HStack {
             selectable(
-                Text(revealed.contains(field.id) ? field.value : "••••••••••")
+                Text(revealed.contains(field.id) ? field.value : Self.mask(for: field.value))
                     .font(.body.monospaced()),
                 field
             )
@@ -195,35 +198,59 @@ struct VaultItemDetailView: View {
             .help(revealed.contains(field.id)
                 ? "Hide"
                 : "Reveal for \(Int(Self.revealTimeout)) seconds")
-            .accessibilityIdentifier("reveal-\(field.label)")
+            .accessibilityLabel(revealed.contains(field.id)
+                ? "Hide \(field.label)"
+                : "Reveal \(field.label)")
+            // Index-based, for the same reason as the URI button above.
+            .accessibilityIdentifier("reveal-field-\(index)")
             copyButton(field, isSecret: true)
         }
     }
 
+    /// The concealed form of a secret. Length-aware — a four-digit PIN should
+    /// not look identical to a thirty-character password, which is what a
+    /// fixed ten-bullet mask claimed — but capped so a long value does not
+    /// become a wall of bullets. Reveal stays the only way to read it.
+    static func mask(for value: String) -> String {
+        String(repeating: "•", count: min(max(value.count, 1), 12))
+    }
+
     private func totpRow(_ field: VaultItemDetail.DetailField) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            if let generated = VaultwardenTOTP.generate(seed: field.value, at: context.date) {
-                let remaining = max(
-                    0, Int(generated.periodEnd.timeIntervalSince(context.date).rounded(.up))
+            totpContent(field, at: context.date)
+        }
+    }
+
+    /// The live code and its countdown, both derived from the tick's date.
+    ///
+    /// Deliberately not memoized. Caching the last code across ticks means
+    /// writing to `@State` from inside a view body, which is undefined
+    /// behaviour in SwiftUI, and it buys nothing worth that: one Base32
+    /// decode and one HMAC-SHA1 over eight bytes, once a second, is not a
+    /// cost this pane can measure.
+    @ViewBuilder
+    private func totpContent(_ field: VaultItemDetail.DetailField, at date: Date) -> some View {
+        if let generated = VaultwardenTOTP.generate(seed: field.value, at: date) {
+            let remaining = max(
+                0, Int(generated.periodEnd.timeIntervalSince(date).rounded(.up))
+            )
+            HStack(spacing: 12) {
+                Text(spacedCode(generated.code))
+                    .font(.title3.monospaced())
+                countdownRing(
+                    remaining: remaining,
+                    period: max(1, generated.period)
                 )
-                HStack(spacing: 12) {
-                    Text(spacedCode(generated.code))
-                        .font(.title3.monospaced())
-                    countdownRing(
-                        remaining: remaining,
-                        period: max(1, generated.period)
-                    )
-                    Text("\(remaining)s")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(remaining <= 5 ? Color.orange : Color.secondary)
-                    Spacer(minLength: 12)
-                    copyButton(field, value: generated.code, isSecret: true)
-                }
-            } else {
-                Text("Unreadable one-time code seed")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text("\(remaining)s")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(remaining <= 5 ? Color.orange : Color.secondary)
+                Spacer(minLength: 12)
+                copyButton(field, value: generated.code, isSecret: true)
             }
+        } else {
+            Text("Unreadable one-time code seed")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 

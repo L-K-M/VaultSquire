@@ -258,7 +258,8 @@ struct VaultBrowserView: View {
     private var openSummary: String {
         let open = appModel.sessions.filter(\.isOpen).count
         guard open > 0 else { return "Nothing open" }
-        return "\(appModel.allOpenItems.count) items in \(open) open"
+        let vaults = open == 1 ? "1 vault open" : "\(open) vaults open"
+        return "\(appModel.allOpenItems.count) items · \(vaults)"
     }
 
     private func vaultRow(_ session: VaultSlot) -> some View {
@@ -592,6 +593,29 @@ struct VaultBrowserView: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        // The Finder gesture: one click selects, two clicks go. The item's
+        // first website opens behind the same confirmation the context menu
+        // and the detail pane use, so nothing leaves the app unconfirmed.
+        //
+        // Simultaneous rather than `onTapGesture(count: 2)`: a gesture
+        // attached to a List row competes with the row's own click handling,
+        // and selecting by single click is the thing this must not cost.
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            openWebsite(of: item)
+        })
+    }
+
+    /// Stages the item's first website for the confirmation dialog and shows
+    /// it. The dialog's presentation is derived from `pendingOpen`, exactly as
+    /// the context menu's Open action stages it.
+    private func openWebsite(of item: VaultItemProjection) {
+        guard let website = item.websites.first,
+              let decision = URIOpeningPolicy.decision(for: website) else {
+            return
+        }
+        pendingOpen = decision
+        showOpenConfirmation = true
     }
 
     // MARK: - Locked vault pane
@@ -755,10 +779,13 @@ struct VaultBrowserView: View {
             ContentUnavailableView {
                 Label("Select an item", systemImage: "list.bullet.rectangle")
             } description: {
+                // The count lives in the sidebar's summary, where a count
+                // belongs; here it was the placeholder's description, which is
+                // the one place a count should never live. The sync error
+                // stays: it is the pane's one honest status line when nothing
+                // is selected.
                 if let error = appModel.syncError {
-                    Text("\(appModel.items.count) items in this scope.\n\(error)")
-                } else {
-                    Text("\(appModel.items.count) items in this scope.")
+                    Text(error)
                 }
             }
         }

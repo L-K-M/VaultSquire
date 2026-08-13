@@ -294,9 +294,10 @@ final class SiteIconStoreTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 
-    /// A site with no icon is asked once. Without that, every scroll past the
-    /// row would send another request to a host that already said no.
-    func testAFailedFetchIsNotRetried() async {
+    /// A host whose fetch failed is forgiven once — a transient network blip
+    /// must not cost it its icon until the next launch — and a host that
+    /// reliably has nothing is asked only the bounded number of times.
+    func testAFailedFetchIsRetriedOnceThenLeftAlone() async {
         let requested = Counter()
         let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
             await requested.increment()
@@ -307,10 +308,52 @@ final class SiteIconStoreTests: XCTestCase {
         await store.load("nothing.example")
         await store.load("nothing.example")
         await store.load("nothing.example")
+        await store.load("nothing.example")
 
         let count = await requested.value
-        XCTAssertEqual(count, 1)
+        XCTAssertEqual(
+            count, SiteIconStore.maximumAttemptsPerHost,
+            "one transient failure is forgiven; the last leaves the host alone"
+        )
         XCTAssertNil(store.image(for: "nothing.example"))
+    }
+
+    /// The forgiveness is real: a host that failed once can resolve later in
+    /// the same session.
+    func testAHostThatFailedOnceCanResolveLater() async {
+        let attempts = Counter()
+        let png = pngData
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
+            let attempt = await attempts.increment()
+            return attempt == 1 ? nil : png
+        })
+        store.isEnabled = true
+
+        await store.load("flaky.example")
+        XCTAssertNil(store.image(for: "flaky.example"))
+
+        await store.load("flaky.example")
+        store.publishPendingImages()
+        XCTAssertNotNil(store.image(for: "flaky.example"))
+    }
+
+    /// A full cache evicts its oldest icon for a new one instead of refusing
+    /// every new host for the rest of the session.
+    func testAFullCacheEvictsTheOldestIcon() async {
+        let png = pngData
+        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in png })
+        store.isEnabled = true
+
+        for index in 0...(SiteIconStore.maximumCachedIcons + 2) {
+            await store.load("site\(index).example")
+            store.publishPendingImages()
+        }
+
+        XCTAssertNil(store.image(for: "site0.example"), "the oldest icon made room")
+        XCTAssertNotNil(
+            store.image(for: "site\(SiteIconStore.maximumCachedIcons + 2).example")
+        )
+        XCTAssertLessThanOrEqual(store.images.count, SiteIconStore.maximumCachedIcons)
     }
 
     /// A host that answers 200 with an HTML error page is not an icon, and is
@@ -533,7 +576,11 @@ final class SiteIconStoreTests: XCTestCase {
 /// A counter the injected fetch closure can bump from any isolation.
 private actor Counter {
     private(set) var value = 0
-    func increment() { value += 1 }
+    @discardableResult
+    func increment() -> Int {
+        value += 1
+        return value
+    }
 }
 
 /// A rendezvous that holds an injected fetch suspended, so a test can lock the
