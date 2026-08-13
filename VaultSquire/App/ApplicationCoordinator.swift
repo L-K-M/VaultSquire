@@ -22,6 +22,16 @@ enum QuickSearchCopy: Hashable, Sendable {
     }
 }
 
+/// Where a value asked for from Quick Search should go.
+enum SecretDelivery: Sendable {
+    /// Typed into the application Quick Search was summoned from, which is the
+    /// route that never touches the pasteboard.
+    case typed(intoProcess: pid_t?)
+    /// The clipboard — what happens when typing is not permitted, and what a
+    /// launcher invoked from VaultSquire itself has to fall back to.
+    case clipboard
+}
+
 @MainActor
 protocol QuickSearchDataSource: AnyObject {
     var quickSearchItems: [VaultItemProjection] { get }
@@ -30,12 +40,21 @@ protocol QuickSearchDataSource: AnyObject {
     /// merged search can name the vault it came from.
     var quickSearchVaultTitles: [AccountID: String] { get }
     func openFromQuickSearch(_ id: VaultItemID)
-    /// Puts a value on the clipboard and reports what happened, so the panel
+    /// Resolves a value and delivers it, reporting what happened so the panel
     /// can say "this item has no password" instead of dismissing into silence.
+    ///
     /// Async because a CLI-backed item's secret does not exist yet at the
-    /// moment the user presses Return.
-    func copyFromQuickSearch(_ value: QuickSearchCopy, of id: VaultItemID) async -> SecretCopyOutcome
-    /// Abandons an in-flight copy the user escaped out of.
+    /// moment the user presses Return. `beforeDelivery` runs once the value is
+    /// in hand and before it goes anywhere: keystrokes land in whatever is
+    /// frontmost when they are posted, so the panel has to be gone and the
+    /// target application forward by then.
+    func deliverFromQuickSearch(
+        _ value: QuickSearchCopy,
+        of id: VaultItemID,
+        via delivery: SecretDelivery,
+        beforeDelivery: @escaping @MainActor () -> Void
+    ) async -> SecretDeliveryOutcome
+    /// Abandons an in-flight delivery the user escaped out of.
     func cancelQuickSearchCopy(of id: VaultItemID)
 }
 
@@ -72,9 +91,11 @@ final class ApplicationCoordinator {
             onOpen: { [weak self] id in
                 self?.quickSearchDataSource?.openFromQuickSearch(id)
             },
-            onCopy: { [weak self] value, id in
+            onDeliver: { [weak self] value, id, delivery, beforeDelivery in
                 guard let source = self?.quickSearchDataSource else { return .notPermitted }
-                return await source.copyFromQuickSearch(value, of: id)
+                return await source.deliverFromQuickSearch(
+                    value, of: id, via: delivery, beforeDelivery: beforeDelivery
+                )
             },
             onCancelCopy: { [weak self] id in
                 self?.quickSearchDataSource?.cancelQuickSearchCopy(of: id)

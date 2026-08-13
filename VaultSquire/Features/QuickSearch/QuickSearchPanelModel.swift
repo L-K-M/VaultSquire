@@ -69,7 +69,7 @@ final class QuickSearchPanelModel: ObservableObject {
     enum ActionState: Equatable {
         case idle
         case fetching(VaultItemID, QuickSearchCopy)
-        case failed(QuickSearchCopy, SecretCopyOutcome)
+        case failed(QuickSearchCopy, SecretDeliveryOutcome)
     }
 
     @Published private(set) var actionState: ActionState = .idle
@@ -80,9 +80,15 @@ final class QuickSearchPanelModel: ObservableObject {
     }
 
     private var onOpen: ((VaultItemID) -> Void)?
-    private var onCopy: ((QuickSearchCopy, VaultItemID) async -> SecretCopyOutcome)?
+    private var onDeliver: ((
+        QuickSearchCopy, VaultItemID, SecretDelivery, @escaping @MainActor () -> Void
+    ) async -> SecretDeliveryOutcome)?
+    /// Where a delivered value should go, supplied by the controller because it
+    /// is the thing that knows which application the panel was summoned from.
+    private var deliveryTarget: SecretDelivery = .clipboard
     private var onCancelCopy: ((VaultItemID) -> Void)?
     private var onFinish: ((Bool) -> Void)?
+    private var onCopied: ((QuickSearchCopy, SecretDeliveryOutcome) -> Void)?
     private var activeCopy: Task<Void, Never>?
     /// The searchable text of each item, lowercased once when the item set is
     /// assigned. Matching re-reads these on every keystroke, and lowercasing a
@@ -139,9 +145,10 @@ final class QuickSearchPanelModel: ObservableObject {
         rows = []
         vaultTitles = [:]
         onOpen = nil
-        onCopy = nil
+        onDeliver = nil
         onCancelCopy = nil
         onFinish = nil
+        onCopied = nil
         // The `query` didSet only fires when the value actually changes, so
         // Escape on an untouched panel would otherwise leave the results and
         // the highlight standing. Reset them explicitly afterwards.
@@ -159,18 +166,24 @@ final class QuickSearchPanelModel: ObservableObject {
         isUnlocked: Bool,
         vaultTitles: [AccountID: String] = [:],
         onOpen: ((VaultItemID) -> Void)?,
-        onCopy: ((QuickSearchCopy, VaultItemID) async -> SecretCopyOutcome)? = nil,
+        onDeliver: ((
+            QuickSearchCopy, VaultItemID, SecretDelivery, @escaping @MainActor () -> Void
+        ) async -> SecretDeliveryOutcome)? = nil,
+        deliveryTarget: SecretDelivery = .clipboard,
         onCancelCopy: ((VaultItemID) -> Void)? = nil,
-        onFinish: ((Bool) -> Void)? = nil
+        onFinish: ((Bool) -> Void)? = nil,
+        onCopied: ((QuickSearchCopy, SecretDeliveryOutcome) -> Void)? = nil
     ) {
         self.items = items
         self.rows = items.map(Row.init)
         self.isUnlocked = isUnlocked
         self.vaultTitles = vaultTitles
         self.onOpen = onOpen
-        self.onCopy = onCopy
+        self.onDeliver = onDeliver
+        self.deliveryTarget = deliveryTarget
         self.onCancelCopy = onCancelCopy
         self.onFinish = onFinish
+        self.onCopied = onCopied
         recomputeResults()
         notePresented()
     }
@@ -296,19 +309,29 @@ final class QuickSearchPanelModel: ObservableObject {
     /// back to another application and then change the clipboard under the
     /// user — over whatever they copied in the meantime.
     private func copy(_ value: QuickSearchCopy, of item: VaultItemProjection) {
-        guard let onCopy else { return }
+        guard let onDeliver else { return }
+        // Captured by value: `beforeDelivery` takes the panel down, which
+        // clears these, and the announcement still has to happen afterwards.
+        let finish = onFinish
+        let announce = onCopied
         actionState = .fetching(item.id, value)
         activeCopy = Task { [weak self] in
-            let outcome = await onCopy(value, item.id)
-            guard let self, !Task.isCancelled else { return }
-            self.activeCopy = nil
+            let outcome = await onDeliver(value, item.id, self?.deliveryTarget ?? .clipboard) {
+                // The value is in hand. Take the panel down and hand focus
+                // back before it is delivered — and clear the task first, so
+                // the teardown does not cancel the task it is running inside.
+                self?.activeCopy = nil
+                self?.actionState = .idle
+                finish?(true)
+            }
             switch outcome {
-            case .copied:
-                self.onFinish?(true)
+            case .typed, .copied:
+                announce?(value, outcome)
             case .cancelled:
-                self.actionState = .idle
+                self?.actionState = .idle
             case .noSuchValue, .notPermitted, .fetchFailed:
-                self.actionState = .failed(value, outcome)
+                self?.activeCopy = nil
+                self?.actionState = .failed(value, outcome)
             }
         }
     }
