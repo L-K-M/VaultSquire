@@ -40,15 +40,6 @@ final class SiteIconStore: ObservableObject {
     /// vault has an entry for it.
     static let maximumAttemptedHosts = 2_000
 
-    /// The most fetches in flight at once. Rows ask as their hosts scroll
-    /// past, and without this a fast scroll through a vault of many hosts
-    /// bursts dozens of concurrent transfers at once — a burst of load on the
-    /// network and on the main actor, which each completion wakes. A host
-    /// refused because the slots are full is deliberately NOT marked
-    /// attempted, so the next time its row renders it asks again: the cap
-    /// delays icons, it never loses them.
-    static let maximumConcurrentFetches = 6
-
     /// How many times one host may fail before it is left alone for the rest
     /// of the session. The first failure is forgiven — a transient network
     /// blip or a server hiccup must not cost a host its icon until the next
@@ -98,8 +89,6 @@ final class SiteIconStore: ObservableObject {
     /// icon is asked once and then left alone; without this, scrolling past it
     /// would re-request forever.
     private var attemptedHosts: Set<String> = []
-    /// Hosts with a transfer in flight, so the concurrency cap can count them.
-    private var inFlightHosts: Set<String> = []
     /// How many times each host has already failed this session. A host whose
     /// count has not reached `maximumAttemptsPerHost` is asked again on the
     /// next render; one that has is left alone.
@@ -161,14 +150,9 @@ final class SiteIconStore: ObservableObject {
               let url = ItemIconIdentity.iconURL(forHost: host) else {
             return
         }
-        // The concurrency cap is checked before anything is claimed, and a
-        // host that loses the slot race is not marked attempted: its row
-        // asks again the next time it renders.
-        guard inFlightHosts.count < Self.maximumConcurrentFetches else { return }
         // Claimed before the suspension point, so two rows for the same site
         // make one request rather than two.
         attemptedHosts.insert(host)
-        inFlightHosts.insert(host)
 
         let requestedGeneration = generation
         let data = await fetchCancellably(url, for: host)
@@ -176,7 +160,6 @@ final class SiteIconStore: ObservableObject {
         // the dictionary, and a later load for the same host owns the entry.
         if generation == requestedGeneration {
             fetchTasks[host] = nil
-            inFlightHosts.remove(host)
         }
 
         guard let data else {
@@ -282,7 +265,6 @@ final class SiteIconStore: ObservableObject {
         pendingImages = [:]
         images = [:]
         attemptedHosts = []
-        inFlightHosts = []
         failureCounts = [:]
         insertionOrder = []
     }

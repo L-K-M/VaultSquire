@@ -356,53 +356,6 @@ final class SiteIconStoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(store.images.count, SiteIconStore.maximumCachedIcons)
     }
 
-    /// Scrolling past many hosts at once must not burst an unbounded number of
-    /// concurrent transfers. A host refused while the slots are full is not
-    /// marked attempted, so once slots free its next render asks and succeeds.
-    func testInFlightFetchesAreCappedWithoutLosingTheRefusedHost() async {
-        let requested = Counter()
-        let gate = Gate()
-        let png = pngData
-        let store = SiteIconStore(defaults: makeDefaults(), fetch: { _ in
-            await requested.increment()
-            await gate.waitUntilOpened()
-            return png
-        })
-        store.isEnabled = true
-
-        var loads: [Task<Void, Never>] = []
-        for index in 0..<SiteIconStore.maximumConcurrentFetches {
-            loads.append(Task { await store.load("slot\(index).example") })
-        }
-        // Wait until all six are genuinely in flight, not merely spawned:
-        // the tasks hop through the main actor one at a time.
-        for _ in 0..<400 where await requested.value < SiteIconStore.maximumConcurrentFetches {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let beforeExtra = await requested.value
-        XCTAssertEqual(beforeExtra, SiteIconStore.maximumConcurrentFetches)
-
-        // The slots are full; the extra host is turned away without a fetch.
-        await store.load("extra.example")
-        var count = await requested.value
-        XCTAssertEqual(
-            count, SiteIconStore.maximumConcurrentFetches,
-            "the extra host is not fetched while every slot is in flight"
-        )
-
-        await gate.open()
-        for load in loads {
-            await load.value
-        }
-
-        // And it was not marked attempted, so it is not lost to the session.
-        await store.load("extra.example")
-        store.publishPendingImages()
-        XCTAssertNotNil(store.image(for: "extra.example"))
-        count = await requested.value
-        XCTAssertEqual(count, SiteIconStore.maximumConcurrentFetches + 1)
-    }
-
     /// A host that answers 200 with an HTML error page is not an icon, and is
     /// treated exactly like having none.
     func testUndecodableBodyIsIgnored() async {
