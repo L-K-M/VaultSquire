@@ -225,6 +225,65 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.isUnlocked)
     }
 
+    /// "One unlock opens the app" opens the vaults that need no credential —
+    /// but it must not undo a per-vault lock the user asked for. A CLI vault
+    /// locked by hand stays closed through later unlock gestures until the
+    /// user opens it again; opening it again spends the mark.
+    @MainActor
+    func testUnlockGestureDoesNotReopenADeliberatelyLockedCLIVault() async throws {
+        let executor = FakeCLIExecutor()
+        await executor.stub(arguments: ["--version"], stdout: "pass-cli 2.2.4\n")
+        await executor.stub(
+            arguments: ["vault", "list", "--output", "json"],
+            stdout: #"{"vaults":[{"shareId":"S1","name":"Personal"}]}"#
+        )
+        await executor.stub(
+            arguments: ["item", "list", "--share-id", "S1", "--output", "json"],
+            stdout: #"{"items":[{"id":"i1","type":"login","title":"GitHub"}]}"#
+        )
+
+        let proton = ProtonAccountService.accountID
+        let (model, _) = makeModel(
+            presence: { .present },
+            descriptors: [
+                AccountDescriptor(
+                    account: .vaultwardenPrimary,
+                    serverDisplay: "vault.example.com",
+                    email: "user@example.com"
+                ),
+                AccountDescriptor(
+                    account: proton, serverDisplay: "Proton Pass", email: "Official Proton Pass CLI"
+                ),
+            ],
+            protonService: makeProtonService(executor: executor)
+        )
+        model.refreshAccountPresence()
+
+        // The unlock gesture opens the credential-free vaults …
+        model.openCredentialFreeVaults()
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+
+        // … but not one the user locked by hand.
+        model.lock(proton)
+        model.openCredentialFreeVaults()
+        // Give an unwanted reopen time to land if the guard is missing.
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertFalse(
+            model.session(for: proton)?.isOpen == true,
+            "the unlock gesture reopened a vault the user deliberately locked"
+        )
+
+        // Opening it by hand spends the mark, so the gesture works again.
+        model.open(proton)
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+
+        // A global lock ends the session; the next gesture is a fresh one.
+        model.lock()
+        XCTAssertFalse(model.isUnlocked)
+        model.openCredentialFreeVaults()
+        try await pollUntil { model.session(for: proton)?.isOpen == true }
+    }
+
     /// The sidebar hierarchy: a vault's containers come from the items' own
     /// grouping labels, and scoping to one narrows the list to it.
     @MainActor

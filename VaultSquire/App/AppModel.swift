@@ -100,6 +100,13 @@ final class AppModel: ObservableObject {
     }
 
     private var pendingCopies: [VaultItemID: PendingCopy] = [:]
+    /// CLI vaults the user locked by hand this session. The unlock gesture
+    /// that opens credential-free vaults must not undo a deliberate per-vault
+    /// lock: "one unlock opens the app" is about vaults the user has not
+    /// chosen to close. Cleared when the user opens the vault again, when the
+    /// vault is removed, and by a global lock, which ends the session the
+    /// mark belonged to.
+    private var lockedByUser: Set<AccountID> = []
     /// Bumped whenever fetched secrets are discarded. The detail pane keys its
     /// hydration on this as well as on the selection, so a sync that drops the
     /// secrets of the item currently open re-reads them instead of leaving the
@@ -265,6 +272,11 @@ final class AppModel: ObservableObject {
             rebuilt.append(previous)
         }
         sessions = rebuilt
+        // A vault removed and re-added is a fresh installation of it, so the
+        // deliberate-lock mark does not carry over from its previous life.
+        lockedByUser = lockedByUser.filter { id in
+            accounts.contains { $0.account == id }
+        }
         rebuildItems()
 
         if let account = scope.account, session(for: account) == nil {
@@ -371,6 +383,9 @@ final class AppModel: ObservableObject {
     /// prompt; its path is `unlock(_:password:)` or `unlockWithBiometrics()`.
     func open(_ account: AccountID) {
         guard let existing = session(for: account), !existing.isOpening, !existing.isOpen else { return }
+        // The user asked for this vault specifically: whatever earlier lock
+        // mark it carried is spent.
+        lockedByUser.remove(account)
         switch existing.kind {
         case .proton:
             openProton(account)
@@ -445,6 +460,10 @@ final class AppModel: ObservableObject {
         syncNow(account)
         // One unlock gesture opens the app, not just this vault.
         openCredentialFreeVaults()
+        // A vault just became open (and more may follow), so a visible Quick
+        // Search panel must stop searching only the vaults that were open
+        // before the gesture.
+        ApplicationCoordinator.shared.refreshQuickSearch()
     }
 
     /// Opens every configured vault that needs no credential of its own.
@@ -459,8 +478,16 @@ final class AppModel: ObservableObject {
     /// This is deliberately not run on launch: a CLI vault opening with no
     /// gesture at all would put vault contents on screen for whoever opened the
     /// window. The unlock is the gate.
+    ///
+    /// The gate does not override a deliberate choice: a vault the user locked
+    /// by hand this session is left closed until they open it themselves, even
+    /// though it could open with no credential. The gesture exists for vaults
+    /// the user has not chosen to close, not as an undo for a lock they asked
+    /// for.
     func openCredentialFreeVaults() {
-        for account in sessions.filter({ !$0.needsCredentialToOpen }).map(\.account) {
+        for account in sessions
+        .filter({ !$0.needsCredentialToOpen && !lockedByUser.contains($0.account) })
+        .map(\.account) {
             open(account)
         }
     }
@@ -490,10 +517,15 @@ final class AppModel: ObservableObject {
                     $0.lastSyncedAt = refresh.snapshot.capturedAt
                     $0.syncError = nil
                 }
+                self.refreshQuickSearchAfterOpenOrSync()
             case .failure(let error):
                 self.failProtonOpenOrShowOfflineSnapshot(
                     account, generation: generation, error: error
                 )
+                // The failure path may have opened the vault from its offline
+                // snapshot, which changes the item set too. The coordinator
+                // answers for itself when no panel is visible.
+                self.refreshQuickSearchAfterOpenOrSync()
             }
         }
     }
@@ -579,10 +611,14 @@ final class AppModel: ObservableObject {
                     $0.lastSyncedAt = refresh.snapshot.capturedAt
                     $0.syncError = nil
                 }
+                self.refreshQuickSearchAfterOpenOrSync()
             case .failure(let error):
                 self.failOnePasswordOpenOrShowOfflineSnapshot(
                     account, generation: generation, accountUUID: accountUUID, error: error
                 )
+                // The failure path may have opened the vault from its offline
+                // snapshot, which changes the item set too.
+                self.refreshQuickSearchAfterOpenOrSync()
             }
         }
     }
@@ -612,6 +648,9 @@ final class AppModel: ObservableObject {
     /// its in-flight work.
     func lock(_ account: AccountID) {
         guard session(for: account) != nil else { return }
+        // A lock the user asked for on this vault, not one the unlock gesture
+        // opened them into: the gesture must not quietly reopen it later.
+        lockedByUser.insert(account)
         cancelTrackedTasks(for: account)
         mutate(account) { $0.close() }
         dropFetchedContent(for: account)
@@ -635,6 +674,11 @@ final class AppModel: ObservableObject {
             cancelTrackedTasks(for: account)
             mutate(account) { $0.close() }
         }
+        // A global lock ends the session the marks belonged to: the next
+        // unlock gesture is a fresh "open the app" and may reopen every
+        // credential-free vault, including one that was locked by hand under
+        // the session that just ended.
+        lockedByUser = []
         contentEpoch &+= 1
         protonContent = [:]
         onePasswordContent = [:]
@@ -1218,10 +1262,12 @@ final class AppModel: ObservableObject {
             spawnTracked(account) {
                 let result = await self.service.sync()
                 guard self.isCurrent(account, generation) else { return }
+                var succeeded = false
                 self.mutate(account) { session in
                     session.isSyncing = false
                     switch result {
                     case .success(let snapshot):
+                        succeeded = true
                         session.lastSyncedAt = snapshot.syncedAt
                         session.syncError = nil
                         if var vault = session.vaultwarden {
@@ -1254,6 +1300,11 @@ final class AppModel: ObservableObject {
                         session.syncError = Self.message(for: error)
                     }
                 }
+                if succeeded {
+                    // A sync can add or remove items while the panel is up;
+                    // the panel must not keep searching the list it opened on.
+                    self.refreshQuickSearchAfterOpenOrSync()
+                }
             }
         case .proton:
             spawnTracked(account) {
@@ -1278,6 +1329,9 @@ final class AppModel: ObservableObject {
                         session.syncError = Self.message(for: error)
                     }
                 }
+                if case .success = result {
+                    self.refreshQuickSearchAfterOpenOrSync()
+                }
             }
         case .onePassword:
             let accountUUID = account.rawValue
@@ -1298,6 +1352,9 @@ final class AppModel: ObservableObject {
                     case .failure(let error):
                         session.syncError = Self.message(for: error)
                     }
+                }
+                if case .success = result {
+                    self.refreshQuickSearchAfterOpenOrSync()
                 }
             }
         }
@@ -1321,6 +1378,14 @@ final class AppModel: ObservableObject {
     /// into a vault the user closed.
     private func isCurrent(_ account: AccountID, _ generation: UInt64) -> Bool {
         session(for: account)?.generation == generation
+    }
+
+    /// Re-reads the model into a visible Quick Search panel after an open or a
+    /// successful sync, so the panel never keeps searching an item set that
+    /// changed underneath it. Cheap when no panel is up: the coordinator
+    /// answers for itself.
+    private func refreshQuickSearchAfterOpenOrSync() {
+        ApplicationCoordinator.shared.refreshQuickSearch()
     }
 
     // MARK: - Messages
