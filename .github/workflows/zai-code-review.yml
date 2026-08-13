@@ -21,7 +21,7 @@ jobs:
   review:
     name: Review PR with GLM 5.2
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     # Review non-draft same-repository PRs by default. pull_request_target has secrets
     # and a write-capable token, so fork PRs are never eligible and the workflow never
     # checks out or executes PR code.
