@@ -1,9 +1,11 @@
 # ANALYSIS — VaultSquire working backlog
 
 Merged from the sol review pass on 2026-08-12. It combines the pass's full
-review ([`sol.md`](sol.md), review base `905d76d`, status re-derived against
+review ([`2026-08-12-sol-review.md`](2026-08-12-sol-review.md), review base
+`905d76d`, status re-derived against
 `f48084e`) with the eight parallel reviews recorded in
-[`docs/reviews/2026-08-12-consolidated-backlog.md`](docs/reviews/2026-08-12-consolidated-backlog.md).
+[`2026-08-12-consolidated-backlog.md`](2026-08-12-consolidated-backlog.md), which
+this document supersedes as the live list.
 Nothing from either source is discarded: entries that are now done are
 recorded in the Done table below with what closed them, and every open entry
 keeps its origin codes (`VS-…`, `B…`, `#72`, `S-…`, …) so a reader can trace
@@ -16,7 +18,7 @@ any item back to the review that found it.
 - **Clean-room attestation:** this pass inspected no production vault
   material, no vendor credentials, no CLI output from a real machine, and no
   Keyguard-derived or pre-export history. All examples are synthetic. The
-  attestation travels with this document and with `sol.md`.
+  attestation travels with this document and with the sol review.
 - **Conflict rule:** `PLAN.md` controls scope and sequence,
   `SECURITY_AND_TESTING.md` controls security invariants and release gates,
   `ARCHITECTURE.md` controls component/data boundaries. A conflict among

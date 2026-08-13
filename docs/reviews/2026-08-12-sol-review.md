@@ -14,7 +14,7 @@
   Keyguard-derived or pre-export history. All examples are synthetic. The
   attestation travels with this document.
 - **Companion documents:** the consolidated backlog
-  ([`docs/reviews/2026-08-12-consolidated-backlog.md`](docs/reviews/2026-08-12-consolidated-backlog.md))
+  ([`2026-08-12-consolidated-backlog.md`](2026-08-12-consolidated-backlog.md))
   remains the canonical home of the eight parallel reviews. This document
   re-derives status from the current code, carries forward everything still
   open, and adds what a fresh pass found. Entries keep their backlog origins

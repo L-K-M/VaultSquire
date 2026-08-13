@@ -1,5 +1,11 @@
 # VaultSquire consolidated backlog — 2026-08-12
 
+> **Superseded as the live list by**
+> [`2026-08-13-working-backlog.md`](2026-08-13-working-backlog.md), which merges
+> this document with the sol review pass and clears out what has since been
+> done. This file stays as the record of what the eight parallel reviews found
+> at base `0c05294`; work from the one that supersedes it.
+
 Eight pull requests each proposed adding a review document to this repository.
 Seven of them added a file called `ANALYSIS.md`, so they conflicted with one
 another by construction, and five also added a per-pass file at the repository
