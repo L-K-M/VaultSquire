@@ -224,6 +224,14 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
 - Recently used / recently viewed, feeding both the list and Quick Search's
   empty state. *(M12, N9, #72)*
 - Search qualifiers: `type:card`, `fav:`, `vault:Work`. *(M13)*
+- **Diacritic-insensitive matching**, so `cafe` finds `Café`. Neither search
+  has ever folded accents — `localizedCaseInsensitiveContains` passes only
+  `.caseInsensitive`, so this is a gap, not a regression from moving the
+  browser onto `ItemSearchRow`. What changed is the price: with the haystacks
+  precomputed per item set, `folding(options:locale:)` is affordable once per
+  item at build time, where per-keystroke ICU folding never was. Applying it
+  to the row and to the needle is most of the work. Raised by the GLM 5.2
+  review of #90. *(new)*
 - Fuzzy or subsequence matching with ranking and typo tolerance.
   *(M11, VS-028)*
 - Multi-select and bulk actions. *(#72)*
