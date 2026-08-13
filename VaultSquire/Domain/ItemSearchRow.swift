@@ -60,8 +60,15 @@ struct ItemSearchRow: Sendable {
     /// Returning nil rather than an empty string makes "no filter" a case the
     /// caller has to handle, which is what keeps an all-whitespace query from
     /// matching every row on a `contains("")`.
+    ///
+    /// Newlines count as whitespace here, which neither search field used to
+    /// do — both trimmed with `.whitespaces`, which is space and tab only. A
+    /// search field is single-line, so nobody types a newline into one; a
+    /// paste carries them in. A query of "github\n" pasted out of a text file
+    /// matched nothing at all, and a query of nothing but a newline read as a
+    /// filter that excluded the entire vault.
     static func normalize(_ query: String) -> String? {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed.lowercased()
     }

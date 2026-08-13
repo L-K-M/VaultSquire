@@ -531,8 +531,12 @@ struct VaultBrowserView: View {
     private var emptyItemList: some View {
         // The applied query, not the one still being typed: this names the
         // filter that actually produced the empty list, so the message cannot
-        // quote characters the list has not been narrowed by yet.
-        let trimmed = appModel.searchQuery.trimmingCharacters(in: .whitespaces)
+        // quote characters the list has not been narrowed by yet. Trimmed the
+        // way `ItemSearchRow.normalize` trims, so "there is no filter" cannot
+        // mean one thing to the matcher and another to the message — but not
+        // lowercased the way it lowercases, because this one is quoted back to
+        // the user and should read as they typed it.
+        let trimmed = appModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         ContentUnavailableView {
             Label(
                 trimmed.isEmpty ? "No items" : "No matches",
