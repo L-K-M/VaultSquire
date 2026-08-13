@@ -43,9 +43,17 @@ enum SecretInjector {
     /// user pressed Return expecting a credential, is how a permission dialog
     /// gets clicked through rather than read.
     static func hasPermission(prompt: Bool = false) -> Bool {
-        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        return AXIsProcessTrustedWithOptions([key: prompt] as CFDictionary)
+        AXIsProcessTrustedWithOptions([promptOptionKey: prompt] as CFDictionary)
     }
+
+    /// The key `kAXTrustedCheckOptionPrompt` names.
+    ///
+    /// The framework constant is imported as a mutable global, which Swift 6
+    /// refuses to read from a concurrency-checked context — there is no way to
+    /// promise the C library will not reassign it. The string it holds is
+    /// stable public API, so it is spelled out rather than read through the
+    /// symbol.
+    private static let promptOptionKey = "AXTrustedCheckOptionPrompt"
 
     /// Shows the system prompt and opens the pane, for the Settings button that
     /// says what it is about to ask for.
