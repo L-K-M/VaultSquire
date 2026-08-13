@@ -15,13 +15,14 @@ require_tool() {
     command -v "$1" >/dev/null 2>&1 || missing_tools+=("$1")
 }
 require_tool git
-require_tool bash
 require_tool python3
 require_tool mktemp
 require_tool chmod
 require_tool cp
 require_tool tail
-require_tool cut
+# The absolute paths the checks below actually invoke, so a preflight pass
+# cannot be followed by a "no such file" from the very same tool.
+require_tool /usr/bin/cut
 require_tool /usr/bin/grep
 require_tool /usr/bin/head
 # JSON validation uses jq when present and plutil otherwise.

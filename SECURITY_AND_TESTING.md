@@ -147,7 +147,7 @@ VaultSquire necessarily trusts:
 | Malicious vault record | Parser crash, URI abuse, resource exhaustion | Bounded tolerant parser, safe URI confirmation, fuzzing | Legitimate extreme data may hit limits |
 | Concurrent client | Overwrite newer record | Revision precondition, no blind retry, conflict UI | Some server objects remain last-write-wins |
 | Local rollback attacker | Restore old cache and Keychain snapshot | Authenticated envelopes detect tampering; visible snapshot age | A valid older database can be replayed; no complete rollback defense in MVP |
-| Shoulder/screen observer | Capture revealed secret | Mask by default, explicit reveal, clear on inactivity | Cameras and privileged capture remain |
+| Shoulder/screen observer | Capture revealed secret | Mask by default, explicit reveal, clear on inactivity | Cameras and privileged capture remain; the mask is one bullet per character up to twelve, so an observer learns a short secret's exact length |
 | Support workflow | Leak vault in logs/bundle | Allowlist diagnostics, preview, canary scans | User can manually share a screenshot |
 
 ## 5. Core Security Invariants

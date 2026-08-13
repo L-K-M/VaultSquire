@@ -597,9 +597,13 @@ struct VaultBrowserView: View {
         // The Finder gesture: one click selects, two clicks go. The item's
         // first website opens behind the same confirmation the context menu
         // and the detail pane use, so nothing leaves the app unconfirmed.
-        .onTapGesture(count: 2) {
+        //
+        // Simultaneous rather than `onTapGesture(count: 2)`: a gesture
+        // attached to a List row competes with the row's own click handling,
+        // and selecting by single click is the thing this must not cost.
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
             openWebsite(of: item)
-        }
+        })
     }
 
     /// Stages the item's first website for the confirmation dialog and shows
