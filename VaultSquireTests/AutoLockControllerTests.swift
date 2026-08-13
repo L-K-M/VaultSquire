@@ -165,6 +165,23 @@ final class AutoLockControllerTests: XCTestCase {
         XCTAssertEqual(lockCount(), 1, "the system triggers are not a preference")
     }
 
+    /// Pointer motion is not activity. Counting `.mouseMoved` means the idle
+    /// clock never fires while the pointer happens to sit over the app — the
+    /// one posture where the vault is on screen — so the mask must exclude it.
+    /// Keystrokes, clicks, and scrolling stay, because those need a hand on
+    /// the machine.
+    func testActivityMaskExcludesPassivePointerMotion() {
+        let mask = AutoLockController.activityEventMask
+        XCTAssertTrue(mask.contains(.keyDown))
+        XCTAssertTrue(mask.contains(.leftMouseDown))
+        XCTAssertTrue(mask.contains(.rightMouseDown))
+        XCTAssertTrue(mask.contains(.scrollWheel))
+        XCTAssertFalse(
+            mask.contains(.mouseMoved),
+            "ambient hover must not defeat the inactivity lock"
+        )
+    }
+
     /// The poll interval has to scale with the timeout. A fixed one-minute
     /// poll would let the shortest offered choice overrun by another whole
     /// minute — a one-minute timeout that can take two is not the setting the
