@@ -8,9 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		C00000000000000000000084 /* ItemIconIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000087 /* ItemIconIdentity.swift */; };
+		C000000000000000000000E1 /* ItemSearchRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000E1 /* ItemSearchRow.swift */; };
 		C00000000000000000000085 /* SiteIconStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000088 /* SiteIconStore.swift */; };
 		C00000000000000000000086 /* ItemIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000089 /* ItemIconView.swift */; };
 		C00000000000000000000087 /* ItemIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000008A /* ItemIconTests.swift */; };
+		C000000000000000000000E2 /* ItemSearchRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000E2 /* ItemSearchRowTests.swift */; };
 		C000000000000000000000B4 /* QuickSearchShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000B4 /* QuickSearchShortcutTests.swift */; };
 		C00000000000000000000093 /* VaultItemDetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000096 /* VaultItemDetailTests.swift */; };
 		C000000000000000000000A0 /* AccountDescriptorStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000000A0 /* AccountDescriptorStoreTests.swift */; };
@@ -179,9 +181,11 @@
 
 /* Begin PBXFileReference section */
 		B00000000000000000000087 /* ItemIconIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconIdentity.swift; path = VaultSquire/Domain/ItemIconIdentity.swift; sourceTree = SOURCE_ROOT; };
+		B000000000000000000000E1 /* ItemSearchRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemSearchRow.swift; path = VaultSquire/Domain/ItemSearchRow.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000088 /* SiteIconStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SiteIconStore.swift; path = VaultSquire/Features/Vault/SiteIconStore.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000089 /* ItemIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconView.swift; path = VaultSquire/Features/Vault/ItemIconView.swift; sourceTree = SOURCE_ROOT; };
 		B0000000000000000000008A /* ItemIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemIconTests.swift; path = VaultSquireTests/ItemIconTests.swift; sourceTree = SOURCE_ROOT; };
+		B000000000000000000000E2 /* ItemSearchRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ItemSearchRowTests.swift; path = VaultSquireTests/ItemSearchRowTests.swift; sourceTree = SOURCE_ROOT; };
 		B000000000000000000000B4 /* QuickSearchShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickSearchShortcutTests.swift; path = VaultSquireTests/QuickSearchShortcutTests.swift; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000096 /* VaultItemDetailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VaultItemDetailTests.swift; path = VaultSquireTests/VaultItemDetailTests.swift; sourceTree = SOURCE_ROOT; };
 		B000000000000000000000A0 /* AccountDescriptorStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AccountDescriptorStoreTests.swift; path = VaultSquireTests/AccountDescriptorStoreTests.swift; sourceTree = SOURCE_ROOT; };
@@ -531,6 +535,7 @@
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000087 /* ItemIconIdentity.swift */,
+				B000000000000000000000E1 /* ItemSearchRow.swift */,
 				B00000000000000000000063 /* VaultItemDraft.swift */,
 				B00000000000000000000094 /* PasswordGenerator.swift */,
 				B00000000000000000000057 /* VaultItemDetail.swift */,
@@ -663,6 +668,7 @@
 			isa = PBXGroup;
 			children = (
 				B0000000000000000000008A /* ItemIconTests.swift */,
+				B000000000000000000000E2 /* ItemSearchRowTests.swift */,
 				B000000000000000000000B4 /* QuickSearchShortcutTests.swift */,
 				B00000000000000000000096 /* VaultItemDetailTests.swift */,
 				B000000000000000000000A0 /* AccountDescriptorStoreTests.swift */,
@@ -861,6 +867,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C00000000000000000000084 /* ItemIconIdentity.swift in Sources */,
+				C000000000000000000000E1 /* ItemSearchRow.swift in Sources */,
 				C00000000000000000000085 /* SiteIconStore.swift in Sources */,
 				C00000000000000000000086 /* ItemIconView.swift in Sources */,
 				C00000000000000000000076 /* VaultSlot.swift in Sources */,
@@ -956,6 +963,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C00000000000000000000087 /* ItemIconTests.swift in Sources */,
+				C000000000000000000000E2 /* ItemSearchRowTests.swift in Sources */,
 				C000000000000000000000B4 /* QuickSearchShortcutTests.swift in Sources */,
 				C00000000000000000000093 /* VaultItemDetailTests.swift in Sources */,
 				C000000000000000000000A0 /* AccountDescriptorStoreTests.swift in Sources */,

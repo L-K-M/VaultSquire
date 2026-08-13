@@ -170,11 +170,28 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
   the main-actor `mutate`. Compute projections off-actor and swap in. The
   merged content-unchanged skip avoids the common case, not the real one.
   *(VS-021, #66 P3, #48 21)*
-- **There are two search implementations.** Quick Search ranks over
-  precomputed haystacks; the browser filters with substring `contains`,
-  allocating a haystack array per item per keystroke. Unify on the ranked
-  matcher so the list orders by relevance while searching, and add debounce
-  or cancellation. *(S-04, #72, VS-019/028/033, M11)*
+- **There are two search implementations.** The expensive half is now shared:
+  both read `ItemSearchRow`, so the browser's filter no longer runs an ICU
+  collation per field per item per keystroke over a haystack array it
+  allocated on the spot, and both fold case the same way. The browser's query
+  is debounced and its result cached on `AppModel` rather than recomputed per
+  body pass. What remains open is the *ranked* half — the list still orders
+  alphabetically while searching, deliberately, because reordering rows under
+  a user who is typing is a product change and not a fix for the cost.
+  *(S-04, #72, VS-019/028/033, M11)*
+- **A large list diff is superlinear, and typing the first filter character is
+  the largest diff there is.** A user-supplied `sample` of a one-minute hang
+  (macOS 26.6.1, `0.1.0`) put every main-thread sample inside one
+  `NSTableView.endUpdates` under `OutlineListCoordinator.diffRows`: removing
+  each row view deregisters nine notification observers and three KVO
+  observations, and rebuilds a `PreferenceBridge` entry list by linear scan —
+  each a scan of a registry sized by the rows still alive. Debouncing turns a
+  typing burst into one such pass and keeping the `List` mounted across the
+  empty state stops the worst one, but the single whole-vault-to-few-matches
+  diff is unchanged. If it is still slow on a large vault, the next lever is a
+  rendered-row cap like Quick Search's `maximumResults`, which is a product
+  decision about whether a browser may refuse to scroll its whole corpus.
+  *(new; found by measurement, not review)*
 - **`QuickSearchPanelModel.present` maps the whole open corpus into `Row`s on
   the main actor when the panel opens** — a launch stall for the panel on a
   very large vault. Build rows off-actor. *(S-05-adjacent)*

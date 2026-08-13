@@ -52,11 +52,18 @@ struct VaultBrowserView: View {
         let draft: VaultItemDraft
     }
 
-    private var filteredItems: [VaultItemProjection] {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return appModel.items }
-        return appModel.items.filter { Self.matches($0, query: trimmed) }
-    }
+    /// How long the field waits for the next keystroke before the list is
+    /// asked to change.
+    ///
+    /// Handing `List` a new array is not free: SwiftUI diffs it against the old
+    /// one and applies the delta to the backing `NSTableView` in a single
+    /// update, and the cost of that update grows faster than the number of rows
+    /// it touches — every row view removed deregisters a dozen KVO and
+    /// notification observers, each a linear scan of a registry sized by the
+    /// rows still alive. Typing "github" used to be six of those; this makes it
+    /// one. Short enough not to be felt between keystrokes, long enough to
+    /// cover a fast typist's gaps.
+    private static let filterDebounce: Duration = .milliseconds(150)
 
     var body: some View {
         NavigationSplitView {
@@ -92,18 +99,20 @@ struct VaultBrowserView: View {
             // A filter left in the search field can hide the handed-off item
             // even once the scope is right, which would select a row the list
             // does not render. Quick Search asked for this item by name, so the
-            // filter is what gives way.
-            if !filteredItems.contains(where: { $0.id == newValue }) {
-                query = ""
+            // filter is what gives way. Applied at once rather than through the
+            // debounce: the selection below is made in the same pass, and a row
+            // that is still filtered out when it lands is a selection the list
+            // does not show.
+            if !appModel.filterShows(newValue) {
+                clearFilter()
             }
             selection = newValue
             appModel.clearQuickSearchSelection()
         }
         .onChange(of: appModel.scope) { _, _ in
             discardUnsubmittedPasswords()
-            // A new scope is a fresh list, so the filter typed for the old one
-            // does not carry into it — the same thing Finder and Mail do when
-            // the sidebar selection changes.
+            // The model clears its own filter for the new scope; this is the
+            // field's copy of it, which has to empty with it.
             query = ""
             // Clear the selection only when it is not visible in the new
             // scope. This handler also fires for the Quick Search jump above,
@@ -112,13 +121,10 @@ struct VaultBrowserView: View {
                 self.selection = nil
             }
         }
-        .onChange(of: query) { _, _ in
-            // A narrower filter can hide the selected row; drop the selection
-            // so the detail pane never disagrees with the visible list.
-            if let selection, !filteredItems.contains(where: { $0.id == selection }) {
-                self.selection = nil
-            }
-        }
+        // Rather than `onChange`: a `task` keyed on the query is cancelled and
+        // restarted by the next keystroke, which is exactly the debounce, and
+        // it is torn down with the view instead of outliving it.
+        .task(id: query) { await applyFilter() }
         .confirmationDialog(
             "Archive this item?",
             isPresented: archiveConfirmationPresented,
@@ -159,6 +165,40 @@ struct VaultBrowserView: View {
                 appModel.unlockWithBiometrics()
             }
         }
+    }
+
+    // MARK: - Filtering
+
+    /// Hands the typed query to the model once the typing has stopped.
+    ///
+    /// Emptying is not debounced. Clearing the field asks for the whole list
+    /// back, and making the user wait for a list they can already see the
+    /// bottom of reads as the app being stuck — which is the complaint this
+    /// whole path exists to answer.
+    private func applyFilter() async {
+        if ItemSearchRow.normalize(query) == nil {
+            clearFilter()
+            return
+        }
+        try? await Task.sleep(for: Self.filterDebounce)
+        guard !Task.isCancelled else { return }
+        appModel.searchQuery = query
+        dropSelectionHiddenByFilter()
+    }
+
+    /// Drops the filter now, without waiting out the debounce. For the paths
+    /// that are not a keystroke: a scope change, and Quick Search handing over
+    /// an item the filter would otherwise hide.
+    private func clearFilter() {
+        query = ""
+        appModel.searchQuery = ""
+    }
+
+    /// A narrower filter can hide the selected row; drop the selection so the
+    /// detail pane never disagrees with the visible list.
+    private func dropSelectionHiddenByFilter() {
+        guard let selection, !appModel.filterShows(selection) else { return }
+        self.selection = nil
     }
 
     // MARK: - Sidebar
@@ -408,24 +448,26 @@ struct VaultBrowserView: View {
         }
     }
 
-    @ViewBuilder
     private var itemList: some View {
-        let items = filteredItems
-        Group {
-            if items.isEmpty {
-                emptyItemList
-            } else {
-                List(items, selection: $selection) { item in
-                    itemRow(item)
-                        .tag(item.id)
-                        .contextMenu { itemActions(item) }
-                }
-            }
+        let items = appModel.filteredItems
+        // One `List`, kept mounted across the empty state rather than swapped
+        // for the placeholder. The swap destroyed the whole table and every row
+        // view in it the moment a query stopped matching, and built a fresh one
+        // when the next keystroke matched again — the most expensive thing this
+        // list can do, on the most ordinary thing a user does while typing. The
+        // placeholder goes over the top instead.
+        return List(items, selection: $selection) { item in
+            itemRow(item)
+                .tag(item.id)
+                .contextMenu { itemActions(item) }
+        }
+        .overlay {
+            if items.isEmpty { emptyItemList }
         }
         .searchable(text: $query, prompt: searchPrompt)
         .navigationTitle(scopeTitle)
-        // On the Group rather than the List, so the identifier is present in
-        // both states and a test for it does not fail on an empty vault.
+        // Outside the overlay, so the identifier is present in both states and
+        // a test for it does not fail on an empty vault.
         .accessibilityIdentifier("vault-item-list")
     }
 
@@ -487,7 +529,10 @@ struct VaultBrowserView: View {
     /// said neither.
     @ViewBuilder
     private var emptyItemList: some View {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        // The applied query, not the one still being typed: this names the
+        // filter that actually produced the empty list, so the message cannot
+        // quote characters the list has not been narrowed by yet.
+        let trimmed = appModel.searchQuery.trimmingCharacters(in: .whitespaces)
         ContentUnavailableView {
             Label(
                 trimmed.isEmpty ? "No items" : "No matches",
@@ -883,9 +928,4 @@ struct VaultBrowserView: View {
         }
     }
 
-    private static func matches(_ item: VaultItemProjection, query: String) -> Bool {
-        let haystacks = [item.displayTitle, item.displaySubtitle ?? item.username ?? ""]
-            + item.websites + item.groupingLabels
-        return haystacks.contains { $0.localizedCaseInsensitiveContains(query) }
-    }
 }
