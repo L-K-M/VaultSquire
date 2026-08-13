@@ -5,7 +5,9 @@ import Foundation
 /// this — the window it was invoked from is still on screen if nothing
 /// happens. Quick Search cannot: it dismisses and hands focus to another
 /// application, and the user's next keystroke is Command-V.
-enum SecretDeliveryOutcome: Hashable, Sendable {
+/// Conforms to `Error` because it is the failure half of the `Result` a
+/// resolution returns: the value or the reason there is none.
+enum SecretDeliveryOutcome: Error, Hashable, Sendable {
     /// Typed straight into the application the user came from. The pasteboard
     /// was never involved, so there is nothing to expire and nothing for a
     /// clipboard-history manager to have taken.
