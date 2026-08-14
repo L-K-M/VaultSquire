@@ -263,11 +263,16 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
   AppKit control for the exact behaviour SwiftUI's `TapGesture(count: 2)`
   gave no say over, and holding the first click is what made single-click
   selection unreliable in the first place. Set it explicitly rather than
-  relying on the default. The discovery walk and the `clickedRow` mapping
-  are still needed either way — and the walk is not one-shot. `contentColumn`
-  swaps this list out for the locked-vault pane and for the no-vault
-  placeholder, so the table that comes back after a lock is a new one with
-  nothing attached to it. Discovery and attachment have to re-run on every
+  relying on the default. The discovery walk and the row mapping are still
+  needed either way, but the mapping changes with the route: `clickedRow` is
+  only dependable while the table is dispatching its own action, and a
+  recognizer fires outside that, so it can read stale or `-1`. Resolve the
+  row from the recognizer's own `location(in:)` through `row(at:)` instead.
+  `clickedRow` belongs to the `doubleAction` sketch this paragraph replaces.
+
+  The walk is also not one-shot. `contentColumn` swaps this list out for the
+  locked-vault pane and for the no-vault placeholder, so the table that comes
+  back after a lock is a new one with nothing attached to it. Discovery and attachment have to re-run on every
   `updateNSView`, and dismantling has to take the recognizer back off the
   table it found. #90's "keep one `List` mounted" does not cover this: that
   was about the empty-filter state within a live list, and locking still
