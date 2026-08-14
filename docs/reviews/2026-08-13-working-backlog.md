@@ -255,6 +255,17 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
   - The backing table is not API. It needs re-checking per macOS release,
     which argues for failing soft — no double-click — rather than wrong.
 
+  The second of those has a way around it. An `NSClickGestureRecognizer`
+  with `numberOfClicksRequired = 2`, added to the found table from the same
+  representable, fires on the second click without touching `target` or
+  `doubleAction`, so nothing SwiftUI keeps there is disturbed. The property
+  that makes it safe is `delaysPrimaryMouseButtonEvents = false`: it is the
+  AppKit control for the exact behaviour SwiftUI's `TapGesture(count: 2)`
+  gave no say over, and holding the first click is what made single-click
+  selection unreliable in the first place. Set it explicitly rather than
+  relying on the default. The discovery walk and the `clickedRow` mapping
+  are still needed either way.
+
   Raised as a Major finding by the GLM 5.3 review of #93 and deferred there:
   it adds an event-intercepting mechanism to the same list whose clicks were
   the bug, and none of it could be run in the authoring environment. *(new)*
