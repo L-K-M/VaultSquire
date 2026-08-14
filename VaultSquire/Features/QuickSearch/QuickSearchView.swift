@@ -6,6 +6,11 @@ struct QuickSearchView: View {
 
     @FocusState private var searchFocused: Bool
 
+    /// The keycap glyph size, scaled with the user's text size so the chips
+    /// keep their lead over the labels rather than clipping against them at
+    /// accessibility sizes.
+    @ScaledMetric(relativeTo: .callout) private var keyCapSize: CGFloat = 18
+
     /// The text colour for the highlighted row. Taken from the system rather
     /// than hardcoded white: the highlight is drawn in the selection colour,
     /// and white on a light or high-contrast accent is unreadable.
@@ -227,10 +232,10 @@ struct QuickSearchView: View {
                 if let item = selectedItem {
                     let primary = QuickSearchPanelModel.primaryAction(for: item)
                     hint("↩", primary.title)
-                    if let username = item.username, !username.isEmpty {
+                    if QuickSearchPanelModel.offersUsername(item) {
                         hint("⇧↩", "Username")
                     }
-                    if item.hasOneTimeCode {
+                    if QuickSearchPanelModel.offersOneTimeCode(item) {
                         hint("⌥↩", "One-time code")
                     }
                     if primary != .show {
@@ -246,11 +251,15 @@ struct QuickSearchView: View {
         .font(.callout)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 22)
-        .frame(height: 38)
+        .frame(minHeight: 38)
         .accessibilityIdentifier("quick-search-footer")
     }
 
-    /// The row the keyboard acts on, when there is one.
+    /// The row the keyboard acts on, when there is one. Nil exactly when the
+    /// result list is empty — `recomputeResults` re-seats the highlight on
+    /// the first row after every change — so a blank footer only ever
+    /// accompanies the no-matches or locked content, where no key works
+    /// anyway.
     private var selectedItem: VaultItemProjection? {
         guard let id = model.selection else { return nil }
         return model.results.first(where: { $0.id == id })
@@ -275,7 +284,7 @@ struct QuickSearchView: View {
     /// to guess them from. The search field's `esc` shares the shape.
     private func keyCap(_ keys: String) -> some View {
         Text(keys)
-            .font(.system(size: 18, weight: .semibold, design: .monospaced))
+            .font(.system(size: keyCapSize, weight: .semibold, design: .monospaced))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
