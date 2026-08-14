@@ -652,29 +652,26 @@ struct VaultBrowserView: View {
             }
         }
         .padding(.vertical, 2)
+        // For the `.contextMenu` the list attaches to this row, not for the
+        // gesture below that no longer exists. The Spacer above makes the
+        // HStack fill the row; this makes the empty part of that fill
+        // hit-testable, so a right-click past the title finds the menu
+        // instead of missing it — the same reach the left-click needed.
         .contentShape(Rectangle())
-        // The Finder gesture: one click selects, two clicks go. The item's
-        // first website opens behind the same confirmation the context menu
-        // and the detail pane use, so nothing leaves the app unconfirmed.
+        // No SwiftUI tap gesture on these rows, at any count. One here races
+        // the row's own selection and drops single clicks — and reaching for
+        // `simultaneousGesture` does not help, because the selection it
+        // races is NSTableView's rather than another SwiftUI gesture, so
+        // there is nothing for it to compose with. That was already tried,
+        // and is why the bug outlived a fix.
         //
-        // Simultaneous rather than `onTapGesture(count: 2)`: a gesture
-        // attached to a List row competes with the row's own click handling,
-        // and selecting by single click is the thing this must not cost.
-        .simultaneousGesture(TapGesture(count: 2).onEnded {
-            openWebsite(of: item)
-        })
-    }
-
-    /// Stages the item's first website for the confirmation dialog and shows
-    /// it. The dialog's presentation is derived from `pendingOpen`, exactly as
-    /// the context menu's Open action stages it.
-    private func openWebsite(of item: VaultItemProjection) {
-        guard let website = item.websites.first,
-              let decision = URIOpeningPolicy.decision(for: website) else {
-            return
-        }
-        pendingOpen = decision
-        showOpenConfirmation = true
+        // Opening a website lives on the context menu and the detail pane.
+        // Restoring the double-click (removed in #93) means one representable
+        // over the list reading the backing table's click count — by
+        // recognizer, not by `doubleAction`, which overwrites what SwiftUI
+        // keeps there. See the "Double-click a row to open its website" entry
+        // in the working backlog for the design and its caveats. By title
+        // rather than by path: those files are dated and roll over.
     }
 
     // MARK: - Locked vault pane

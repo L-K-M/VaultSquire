@@ -43,7 +43,7 @@ claim of support. Items re-enter the backlog if their PRs are rejected.
 | #80 | Pointer motion no longer counts as idle activity; `AutoLockController.activityEventMask` excludes `.mouseMoved`, pinned by a test; Settings copy updated (#72, VS-023). |
 | #81 | The unlock gesture honors deliberate per-vault locks — a hand-locked CLI vault is not reopened by an unrelated unlock (`lockedByUser`, VS-068); a visible Quick Search panel refreshes after every successful open and sync (B8). |
 | #82 | `allOpenItems` cached instead of re-sorted per access (S-05); `mutate` gates its group/list rebuilds on the values they derive from (S-06); the selected Vaultwarden item's detail and draft are memoized per snapshot generation, dropped on close (S-07, the per-redraw half of P4). |
-| #83 | Double-click a row opens its first website behind the URI confirmation (U2); sidebar summary reads "142 items · 2 vaults open" (#72); the detail placeholder no longer puts an item count in its description (#72). |
+| #83 | ~~Double-click a row opens its first website behind the URI confirmation (U2)~~ — **reverted in #93**: the gesture raced the row's own selection and made single clicks land only sometimes. Back in the backlog under Product gaps, with a design that does not use a SwiftUI gesture. Sidebar summary reads "142 items · 2 vaults open" (#72); the detail placeholder no longer puts an item count in its description (#72). |
 | #84 | Length-aware secret mask, capped at twelve bullets (V6); index-based accessibility identifiers for reveal/open-URI buttons, no vault content in identifiers (VS-067); distinguishing reveal-button accessibility labels (#47); TOTP regenerated once per period instead of once per second (VS-025). |
 | #85 | Site icons: one transient failure per host is forgiven, then the host is left alone (B9); a full cache evicts the oldest icon instead of freezing (B8); in-flight fetches capped at six without losing refused hosts (VS-024). |
 | #86 | `scripts/check-repository.sh` preflights every tool it uses with one actionable message (VS-048). |
@@ -232,6 +232,65 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
   item at build time, where per-keystroke ICU folding never was. Applying it
   to the row and to the needle is most of the work. Raised by the GLM 5.2
   review of #90. *(new)*
+- **Double-click a row to open its website.** Removed in #93, which took the
+  SwiftUI `TapGesture(count: 2)` off `itemRow` because it raced the row's own
+  selection and made single clicks land only sometimes. The capability is
+  intact on the context menu and the detail pane; the shortcut is not, and on
+  macOS it is the expected affordance in a Finder-shaped browser.
+
+  The way back is AppKit's click count, from **one** representable over the
+  list rather than a view per row: find the backing `NSTableView`, attach an
+  `NSClickGestureRecognizer` with `numberOfClicksRequired = 2`, resolve the
+  row under the click, and stage `URIOpeningPolicy.decision(for:)` into
+  `pendingOpen` exactly as the context menu does.
+
+  A recognizer rather than the table's `doubleAction`, which is the obvious
+  route and the wrong one: setting `target`/`doubleAction` overwrites
+  whatever SwiftUI's own coordinator keeps there, and what it uses them for
+  is undocumented. A recognizer touches neither. Set
+  `delaysPrimaryMouseButtonEvents = false` explicitly rather than relying on
+  the default — it is the AppKit control for the exact behaviour
+  `TapGesture(count: 2)` gave no say over, and holding the first click is
+  what made single-click selection unreliable in the first place.
+
+  Resolve the row from the recognizer's own `location(in:)` through
+  `row(at:)`, not from `clickedRow`: that is only dependable while the table
+  is dispatching its own action, and a recognizer fires outside that window,
+  so it can read stale or `-1`. The failure that buys is a double-click
+  opening the wrong entry's URL, which is the one worth avoiding hardest
+  here.
+
+  Three things then need care, and none were resolvable in the PR that
+  raised this:
+
+  - A representable placed in the list's `.background` is not reliably inside
+    the table's superview chain, so the walk that finds the table can come
+    back empty. Where it is attached decides whether this works at all.
+  - Mapping a row index onto `filteredItems` holds only while the list stays
+    flat. A section or a group header breaks it silently.
+  - The backing table is not API. It needs re-checking per macOS release,
+    which argues for failing soft — no double-click — rather than wrong.
+
+  The attachment is not one-shot either. `contentColumn` swaps this list out
+  for the locked-vault pane and for the no-vault placeholder, so the table
+  that comes back after a lock is a new one with nothing on it. Discovery and
+  attachment have to re-run on every `updateNSView` — and idempotently, since
+  that fires on any state change rather than only after a lock, so an
+  unguarded re-run stacks a second recognizer on a table that already has one
+  and opens the item twice. Check for the one already installed, and let
+  dismantling take it back off the table it found. #90's "keep one `List`
+  mounted" does not cover this: that was about the empty-filter state within
+  a live list, and locking still tears the list down.
+
+  Worth re-extracting a shared staging helper while doing it. `VaultBrowserView`
+  and `VaultItemDetailView` each hand-roll the `URIOpeningPolicy.decision(for:)`
+  into `pendingOpen` into `showOpenConfirmation` sequence today, and a third
+  copy for the double-click is where a security-relevant path starts drifting
+  between call sites.
+
+  Raised as a Major finding by the GLM 5.3 review of #93 and deferred there:
+  it adds an event-intercepting mechanism to the same list whose clicks were
+  the bug, and none of it could be run in the authoring environment. *(new)*
 - Fuzzy or subsequence matching with ranking and typo tolerance.
   *(M11, VS-028)*
 - Multi-select and bulk actions. *(#72)*
