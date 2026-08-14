@@ -633,8 +633,17 @@ struct VaultBrowserView: View {
                     }
                 }
             }
+            // Outside the `if`, as it is in every other row in this file. An
+            // HStack with no flexible child is as wide as its content, not as
+            // wide as the row it was offered — so without this the shape below
+            // covers the icon and the text and nothing else, and the rest of
+            // the row, which is most of it, does not respond to a click. The
+            // keyboard was unaffected throughout, because arrowing through a
+            // List is NSTableView selecting by row index and never consults
+            // this shape, which is what made the failure look arbitrary: it
+            // was never about which row, only about where in the row.
+            Spacer(minLength: 4)
             if item.favorite {
-                Spacer(minLength: 4)
                 Image(systemName: "star.fill")
                     .font(.caption2)
                     .foregroundStyle(.yellow)
