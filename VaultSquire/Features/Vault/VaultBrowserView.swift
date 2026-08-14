@@ -653,22 +653,17 @@ struct VaultBrowserView: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        // No double-click-to-open here, and no SwiftUI tap gesture of any
-        // count: one raced with the row's own selection and made single
-        // clicks land only sometimes. `TapGesture(count: 2)` cannot resolve
-        // until the double-click interval passes without a second tap, so it
-        // holds every single click for that window — and a List row's
-        // selection on macOS is NSTableView's, not a SwiftUI gesture, so
-        // `simultaneousGesture` has nothing to compose with and the
-        // recognizer stays in front of AppKit either way.
+        // No SwiftUI tap gesture on these rows, at any count. One here races
+        // the row's own selection and drops single clicks — and reaching for
+        // `simultaneousGesture` does not help, because the selection it
+        // races is NSTableView's rather than another SwiftUI gesture, so
+        // there is nothing for it to compose with. That was already tried,
+        // and is why the bug outlived a fix.
         //
-        // Opening a website lives on the context menu, which shares the
-        // detail pane's confirmation flow, so only the shortcut is gone.
-        // Bringing it back means AppKit's click count rather than SwiftUI's,
-        // and it does not need a view per row: one representable over the
-        // whole list, reaching the backing table's `doubleAction` and
-        // mapping `clickedRow`, would do it without touching the per-row
-        // view count. Worth trying that way; not worth another gesture here.
+        // Opening a website lives on the context menu. Restoring the
+        // double-click means the backing table's `doubleAction`, from one
+        // representable over the list — the working backlog carries the
+        // design and the parts of it that need care.
     }
 
     // MARK: - Locked vault pane

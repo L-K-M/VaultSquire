@@ -232,6 +232,32 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
   item at build time, where per-keystroke ICU folding never was. Applying it
   to the row and to the needle is most of the work. Raised by the GLM 5.2
   review of #90. *(new)*
+- **Double-click a row to open its website.** Removed in #93, which took the
+  SwiftUI `TapGesture(count: 2)` off `itemRow` because it raced the row's own
+  selection and made single clicks land only sometimes. The capability is
+  intact on the context menu and the detail pane; the shortcut is not, and on
+  macOS it is the expected affordance in a Finder-shaped browser.
+
+  The way back is AppKit's click count, from **one** representable over the
+  list rather than a view per row: find the backing `NSTableView`, drive its
+  `doubleAction`, map `clickedRow` to the item, and stage
+  `URIOpeningPolicy.decision(for:)` into `pendingOpen` exactly as the context
+  menu does. Four things need care, and none were resolvable in the PR that
+  raised this:
+
+  - A representable placed in the list's `.background` is not reliably inside
+    the table's superview chain, so the walk that finds the table can come
+    back empty. Where it is attached decides whether this works at all.
+  - Setting `target`/`doubleAction` overwrites whatever SwiftUI's own
+    coordinator has on the table. What it uses them for is undocumented.
+  - Mapping `clickedRow` to an index in `filteredItems` holds only while the
+    list stays flat. A section or a group header breaks it silently.
+  - The backing table is not API. It needs re-checking per macOS release,
+    which argues for failing soft — no double-click — rather than wrong.
+
+  Raised as a Major finding by the GLM 5.3 review of #93 and deferred there:
+  it adds an event-intercepting mechanism to the same list whose clicks were
+  the bug, and none of it could be run in the authoring environment. *(new)*
 - Fuzzy or subsequence matching with ranking and typo tolerance.
   *(M11, VS-028)*
 - Multi-select and bulk actions. *(#72)*
