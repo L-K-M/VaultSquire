@@ -94,36 +94,12 @@ final class QuickSearchPanelModel: ObservableObject {
     /// assigned. Matching re-reads these on every keystroke, and lowercasing a
     /// title, subtitle, username, every address and every folder label per item
     /// per character is the one cost in this panel that scales with vault size.
-    private var rows: [Row] = []
-
-    /// One item's precomputed haystacks. `title` is ranked ahead of `others`.
-    fileprivate struct Row {
-        let item: VaultItemProjection
-        let title: String
-        let others: [String]
-
-        // Built with explicit types and a plain loop rather than a chain of
-        // `+` and `map`: overload resolution across concatenated arrays is one
-        // of the shapes the Swift type checker takes exponential time on.
-        init(_ item: VaultItemProjection) {
-            self.item = item
-            self.title = item.displayTitle.lowercased()
-
-            var haystacks: [String] = []
-            haystacks.reserveCapacity(item.websites.count + item.groupingLabels.count + 2)
-            if let subtitle = item.displaySubtitle { haystacks.append(subtitle) }
-            if let username = item.username { haystacks.append(username) }
-            haystacks.append(contentsOf: item.websites)
-            haystacks.append(contentsOf: item.groupingLabels)
-
-            var lowered: [String] = []
-            lowered.reserveCapacity(haystacks.count)
-            for value in haystacks where !value.isEmpty {
-                lowered.append(value.lowercased())
-            }
-            self.others = lowered
-        }
-    }
+    ///
+    /// `ItemSearchRow` rather than a private type of the panel's own, so the
+    /// browser's list filter reads the same haystacks and folds case the same
+    /// way. Ranking stays here: it is what makes this a launcher rather than a
+    /// list, and the browser deliberately does not want it.
+    private var rows: [ItemSearchRow] = []
 
     /// One scored match. A named type rather than a labelled tuple: inferring
     /// the tuple through `compactMap`/`Optional.map`/`sorted` in one chain is
@@ -175,7 +151,7 @@ final class QuickSearchPanelModel: ObservableObject {
         onCopied: ((QuickSearchCopy, SecretDeliveryOutcome) -> Void)? = nil
     ) {
         self.items = items
-        self.rows = items.map(Row.init)
+        self.rows = items.map(ItemSearchRow.init)
         self.isUnlocked = isUnlocked
         self.vaultTitles = vaultTitles
         self.onOpen = onOpen
@@ -198,7 +174,7 @@ final class QuickSearchPanelModel: ObservableObject {
         vaultTitles: [AccountID: String] = [:]
     ) {
         self.items = items
-        self.rows = items.map(Row.init)
+        self.rows = items.map(ItemSearchRow.init)
         self.isUnlocked = isUnlocked
         self.vaultTitles = vaultTitles
         recomputeResults()
@@ -396,14 +372,16 @@ final class QuickSearchPanelModel: ObservableObject {
         _ items: [VaultItemProjection],
         query: String
     ) -> [VaultItemProjection] {
-        ranked(rows: items.map(Row.init), query: query)
+        ranked(rows: items.map(ItemSearchRow.init), query: query)
     }
 
     /// The ranking the panel actually runs, over haystacks lowercased once when
     /// the item set was assigned rather than once per keystroke.
-    fileprivate static func ranked(rows: [Row], query: String) -> [VaultItemProjection] {
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return rows.map(\.item) }
+    fileprivate static func ranked(rows: [ItemSearchRow], query: String) -> [VaultItemProjection] {
+        // The same normalization the browser's filter applies, so a query that
+        // is all whitespace means "no filter" in both places rather than
+        // matching every row on a `contains("")` in one of them.
+        guard let needle = ItemSearchRow.normalize(query) else { return rows.map(\.item) }
 
         var scored: [Scored] = []
         scored.reserveCapacity(rows.count)
@@ -426,10 +404,10 @@ final class QuickSearchPanelModel: ObservableObject {
     /// How well one item matches an already-lowercased, non-empty needle, or
     /// nil for no match at all. Lower is better.
     static func score(_ item: VaultItemProjection, needle: String) -> Int? {
-        score(row: Row(item), needle: needle)
+        score(row: ItemSearchRow(item), needle: needle)
     }
 
-    fileprivate static func score(row: Row, needle: String) -> Int? {
+    fileprivate static func score(row: ItemSearchRow, needle: String) -> Int? {
         let title = row.title
         if title == needle { return 0 }
         if title.hasPrefix(needle) { return 1 }

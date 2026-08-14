@@ -43,6 +43,12 @@ final class AppModel: ObservableObject {
     @Published var scope: VaultScope = .allVaults {
         didSet {
             guard oldValue != scope else { return }
+            // A new scope is a fresh list, so the filter typed for the old one
+            // does not carry into it — the same thing Finder and Mail do when
+            // the sidebar selection changes. Cleared here rather than only in
+            // the view, so the model can never publish the new scope narrowed
+            // by the old scope's query.
+            searchQuery = ""
             rebuildItems()
         }
     }
@@ -212,6 +218,30 @@ final class AppModel: ObservableObject {
     /// `items` in `rebuildItems`, which is the only time the answer can differ.
     @Published private(set) var allOpenItems: [VaultItemProjection] = []
 
+    /// The browser's filter text, already debounced by the view.
+    ///
+    /// The model owns this rather than the view because what it narrows —
+    /// `items` — is owned here, and because the answer has to be computed once
+    /// per change rather than once per body pass. It was a computed property on
+    /// the view, read from `body` and from two `onChange` handlers, so a single
+    /// keystroke ran the whole-corpus filter several times over.
+    @Published var searchQuery = "" {
+        didSet {
+            guard oldValue != searchQuery else { return }
+            rebuildFilteredItems()
+        }
+    }
+
+    /// `items` narrowed by `searchQuery`, in the same order — alphabetical, not
+    /// ranked. Ranking belongs to Quick Search, which is a launcher; a list that
+    /// reorders itself under the user as they type is a different thing, and
+    /// changing that is not what fixing the filter's cost is for.
+    @Published private(set) var filteredItems: [VaultItemProjection] = []
+
+    /// The lowercased haystacks behind `filteredItems`, built once per item set
+    /// in `rebuildItems` rather than once per keystroke.
+    private var searchRows: [ItemSearchRow] = []
+
     private func rebuildItems() {
         let scoped: [VaultItemProjection]
         if case .group(_, let group) = scope {
@@ -228,6 +258,30 @@ final class AppModel: ObservableObject {
             .sorted { lhs, rhs in
                 lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
             }
+        // Beside the item set they describe, so the two can never disagree:
+        // a filter answered from stale haystacks would show rows the list no
+        // longer holds, or hide ones it does.
+        searchRows = items.map(ItemSearchRow.init)
+        rebuildFilteredItems()
+    }
+
+    private func rebuildFilteredItems() {
+        guard let needle = ItemSearchRow.normalize(searchQuery) else {
+            filteredItems = items
+            return
+        }
+        var matched: [VaultItemProjection] = []
+        for row in searchRows where row.matches(needle) {
+            matched.append(row.item)
+        }
+        filteredItems = matched
+    }
+
+    /// Whether an item survives the current filter, without a second pass over
+    /// the corpus. The browser asks this to decide whether a selection is still
+    /// on screen; `filteredItems` is already the answer's domain.
+    func filterShows(_ itemID: VaultItemID) -> Bool {
+        filteredItems.contains { $0.id == itemID }
     }
 
     /// The sync timestamp shown for the current scope: the oldest across the
