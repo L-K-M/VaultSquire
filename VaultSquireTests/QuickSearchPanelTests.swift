@@ -290,6 +290,25 @@ final class QuickSearchPanelTests: XCTestCase {
         XCTAssertEqual(QuickSearchPanelModel.primaryAction(for: item), .show)
     }
 
+    /// The footer's hints and the ⇧↩/⌥↩ key handlers read these two
+    /// predicates, so a row and its hint can never disagree about whether the
+    /// key does anything.
+    @MainActor
+    func testHintEligibilityMatchesWhatTheRowOffers() {
+        XCTAssertTrue(QuickSearchPanelModel.offersUsername(
+            Self.projection(title: "a", username: "someone")
+        ))
+        XCTAssertFalse(QuickSearchPanelModel.offersUsername(Self.projection(title: "b")))
+        XCTAssertFalse(QuickSearchPanelModel.offersUsername(
+            Self.projection(title: "c", username: "")
+        ))
+
+        var withCode = Self.projection(title: "d")
+        XCTAssertFalse(QuickSearchPanelModel.offersOneTimeCode(withCode))
+        withCode.hasOneTimeCode = true
+        XCTAssertTrue(QuickSearchPanelModel.offersOneTimeCode(withCode))
+    }
+
     /// The panel must not go away while the value is still being fetched. Both
     /// CLI providers list without secrets, so Return starts a fetch that can
     /// take seconds; dismissing first would hand focus to another application

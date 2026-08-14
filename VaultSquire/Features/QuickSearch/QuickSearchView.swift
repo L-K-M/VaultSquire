@@ -249,6 +249,10 @@ struct QuickSearchView: View {
             Spacer(minLength: 0)
         }
         .font(.callout)
+        // At extreme text sizes the hints shrink before they may truncate: a
+        // clipped shortcut is a hidden feature.
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 22)
         .frame(minHeight: 38)
@@ -271,7 +275,19 @@ struct QuickSearchView: View {
             Text(label)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(keys) \(label)")
+        .accessibilityLabel("\(Self.spokenKeys(keys)) \(label)")
+    }
+
+    /// The spoken form of a key-cap string: VoiceOver gets "Shift Return"
+    /// rather than raw glyphs, whose Unicode names it may read out literally
+    /// (↩ is "leftwards arrow with hook"), and "Escape" rather than "e-s-c".
+    private static func spokenKeys(_ keys: String) -> String {
+        keys
+            .replacingOccurrences(of: "⇧", with: "Shift ")
+            .replacingOccurrences(of: "⌥", with: "Option ")
+            .replacingOccurrences(of: "⌘", with: "Command ")
+            .replacingOccurrences(of: "↩", with: "Return")
+            .replacingOccurrences(of: "esc", with: "Escape")
     }
 
     /// A key glyph with enough presence to read at a glance.
@@ -289,7 +305,7 @@ struct QuickSearchView: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-            .accessibilityHidden(true)
+            .accessibilityLabel(Self.spokenKeys(keys))
     }
 
     private static func message(
