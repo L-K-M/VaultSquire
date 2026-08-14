@@ -218,36 +218,42 @@ struct QuickSearchView: View {
                 Image(systemName: "exclamationmark.triangle")
                 Text(Self.message(for: value, outcome))
             case .idle:
-                // The primary first, and named. It was previously only on the
-                // highlighted row's accessory, so a panel whose highlight was
-                // on anything but a login never showed the word "Password"
-                // anywhere — which reads as "this cannot copy a password".
-                hint("↩", primaryActionTitle)
-                hint("⇧↩", "Username")
-                hint("⌥↩", "One-time code")
-                if primaryActionTitle != QuickSearchPrimaryAction.show.title {
-                    // Short here, spelled out on the row: four hints and the
-                    // full phrase do not fit the panel's width together.
-                    hint("⌘↩", "Show")
+                // Only what the highlighted row can actually do. The hints
+                // used to be a fixed set, which advertised Username and
+                // One-time code for rows that have neither — pressing the key
+                // then earned an error — and never said the word "Password"
+                // for a row whose Return had fallen back to Show, which read
+                // as "this panel cannot hand out a password at all".
+                if let item = selectedItem {
+                    let primary = QuickSearchPanelModel.primaryAction(for: item)
+                    hint("↩", primary.title)
+                    if let username = item.username, !username.isEmpty {
+                        hint("⇧↩", "Username")
+                    }
+                    if item.hasOneTimeCode {
+                        hint("⌥↩", "One-time code")
+                    }
+                    if primary != .show {
+                        // Short here, spelled out on the row: four hints and
+                        // the full phrase do not fit the panel's width
+                        // together.
+                        hint("⌘↩", "Show")
+                    }
                 }
             }
             Spacer(minLength: 0)
         }
-        .font(.caption)
+        .font(.callout)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 22)
-        .frame(height: 30)
+        .frame(height: 38)
         .accessibilityIdentifier("quick-search-footer")
     }
 
-    /// What Return does to the highlighted row, or a neutral verb when nothing
-    /// is highlighted.
-    private var primaryActionTitle: String {
-        guard let id = model.selection,
-              let item = model.results.first(where: { $0.id == id }) else {
-            return QuickSearchPrimaryAction.show.title
-        }
-        return QuickSearchPanelModel.primaryAction(for: item).title
+    /// The row the keyboard acts on, when there is one.
+    private var selectedItem: VaultItemProjection? {
+        guard let id = model.selection else { return nil }
+        return model.results.first(where: { $0.id == id })
     }
 
     private func hint(_ keys: String, _ label: String) -> some View {
@@ -261,18 +267,19 @@ struct QuickSearchView: View {
 
     /// A key glyph with enough presence to read at a glance.
     ///
-    /// `⇧↩` set as plain caption text is two small symbols against a busy
-    /// background and disappears. This is the same chip the search field's
-    /// `esc` uses, which is legible, so the two now share one shape — one size
-    /// up from the caption beside it, because these are glyphs rather than
-    /// letters and they carry less redundancy to read them by.
+    /// The modifier-and-Return combinations are the whole interface of this
+    /// footer, and at caption-adjacent sizes ⇧ and ⌥ collapse into blobs one
+    /// squint away from each other. The chips are therefore set much larger
+    /// and heavier than the labels beside them — the inverse of the usual
+    /// hierarchy, justified by these being symbols with no surrounding word
+    /// to guess them from. The search field's `esc` shares the shape.
     private func keyCap(_ keys: String) -> some View {
         Text(keys)
-            .font(.system(.footnote, design: .monospaced))
+            .font(.system(size: 18, weight: .semibold, design: .monospaced))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
             .accessibilityHidden(true)
     }
 

@@ -7,7 +7,11 @@ enum QuickSearchPrimaryAction: Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .copyPassword: return "Copy Password"
+        // Verb-less, like the Username and One-time code hints: the same key
+        // types the value into the previous application or copies it to the
+        // clipboard depending on where the panel was summoned from, so
+        // naming a verb would be wrong on one of the two routes.
+        case .copyPassword: return "Password"
         case .show: return "Show in VaultSquire"
         }
     }
