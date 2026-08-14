@@ -7,7 +7,11 @@ enum QuickSearchPrimaryAction: Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .copyPassword: return "Copy Password"
+        // Verb-less, like the Username and One-time code hints: the same key
+        // types the value into the previous application or copies it to the
+        // clipboard depending on where the panel was summoned from, so
+        // naming a verb would be wrong on one of the two routes.
+        case .copyPassword: return "Password"
         case .show: return "Show in VaultSquire"
         }
     }
@@ -46,6 +50,20 @@ final class QuickSearchPanelModel: ObservableObject {
     /// The highlighted row, which Return opens and the arrow keys move. Kept
     /// pointing at a row that still exists after every query change.
     @Published private(set) var selection: VaultItemID?
+
+    /// The highlighted row's projection, or nil when the result list is
+    /// empty. Resolution lives here alone, so the footer's hints and the key
+    /// handlers cannot disagree about which row the keyboard is pointing at —
+    /// and a stale id trips the assert in a debug build rather than silently
+    /// blanking the footer.
+    var selectedProjection: VaultItemProjection? {
+        guard let selection else { return nil }
+        let item = results.first(where: { $0.id == selection })
+        assert(item != nil || results.isEmpty,
+               "Stale selection — the footer hints and the Return keys are silently inactive")
+        return item
+    }
+
     /// Whether the vault is unlocked; drives the locked vs. results content.
     @Published private(set) var isUnlocked = false
     /// Display names for the open vaults, so a merged result can say which
@@ -248,9 +266,22 @@ final class QuickSearchPanelModel: ObservableObject {
         return .copyPassword
     }
 
+    /// Whether ⇧↩ has anything to deliver for this row. The footer's hint and
+    /// the key handler both read this one check, so the two cannot drift
+    /// apart and advertise a key that only earns an error.
+    static func offersUsername(_ item: VaultItemProjection) -> Bool {
+        item.username?.isEmpty == false
+    }
+
+    /// Whether ⌥↩ has anything to deliver for this row — the same pairing as
+    /// `offersUsername`. False for both CLI providers by construction, so
+    /// neither surface offers what their listings cannot produce.
+    static func offersOneTimeCode(_ item: VaultItemProjection) -> Bool {
+        item.hasOneTimeCode
+    }
+
     func perform(_ action: QuickSearchAction) {
-        guard isUnlocked, let id = selection,
-              let item = results.first(where: { $0.id == id }),
+        guard isUnlocked, let item = selectedProjection,
               !isWorking else {
             return
         }
@@ -261,15 +292,13 @@ final class QuickSearchPanelModel: ObservableObject {
             case .show: show(item)
             }
         case .copyUsername:
-            guard let username = item.username, !username.isEmpty else {
+            guard Self.offersUsername(item) else {
                 actionState = .failed(.username, .noSuchValue)
                 return
             }
             copy(.username, of: item)
         case .copyOneTimeCode:
-            // False for both CLI providers by construction, so this offers
-            // nothing their listings cannot produce.
-            guard item.hasOneTimeCode else {
+            guard Self.offersOneTimeCode(item) else {
                 actionState = .failed(.oneTimeCode, .noSuchValue)
                 return
             }

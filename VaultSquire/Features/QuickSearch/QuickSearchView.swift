@@ -6,6 +6,11 @@ struct QuickSearchView: View {
 
     @FocusState private var searchFocused: Bool
 
+    /// The keycap glyph size, scaled with the user's text size so the chips
+    /// keep their lead over the labels rather than clipping against them at
+    /// accessibility sizes.
+    @ScaledMetric(relativeTo: .callout) private var keyCapSize: CGFloat = 18
+
     /// The text colour for the highlighted row. Taken from the system rather
     /// than hardcoded white: the highlight is drawn in the selection colour,
     /// and white on a light or high-contrast accent is unreadable.
@@ -218,36 +223,45 @@ struct QuickSearchView: View {
                 Image(systemName: "exclamationmark.triangle")
                 Text(Self.message(for: value, outcome))
             case .idle:
-                // The primary first, and named. It was previously only on the
-                // highlighted row's accessory, so a panel whose highlight was
-                // on anything but a login never showed the word "Password"
-                // anywhere — which reads as "this cannot copy a password".
-                hint("↩", primaryActionTitle)
-                hint("⇧↩", "Username")
-                hint("⌥↩", "One-time code")
-                if primaryActionTitle != QuickSearchPrimaryAction.show.title {
-                    // Short here, spelled out on the row: four hints and the
-                    // full phrase do not fit the panel's width together.
-                    hint("⌘↩", "Show")
+                // At extreme text sizes the hints shrink before they may
+                // truncate: a clipped shortcut is a hidden feature. Scoped
+                // to the hints — the fetching and failure branches above
+                // keep every line of their messages.
+                Group {
+                    // Only what the highlighted row can actually do. The
+                    // hints used to be a fixed set, which advertised
+                    // Username and One-time code for rows that have neither
+                    // — pressing the key then earned an error — and never
+                    // said the word "Password" for a row whose Return had
+                    // fallen back to Show, which read as "this panel cannot
+                    // hand out a password at all".
+                    if let item = model.selectedProjection {
+                        let primary = QuickSearchPanelModel.primaryAction(for: item)
+                        hint("↩", primary.title)
+                        if QuickSearchPanelModel.offersUsername(item) {
+                            hint("⇧↩", "Username")
+                        }
+                        if QuickSearchPanelModel.offersOneTimeCode(item) {
+                            hint("⌥↩", "One-time code")
+                        }
+                        if primary != .show {
+                            // Short here, spelled out on the row: four hints
+                            // and the full phrase do not fit the panel's
+                            // width together.
+                            hint("⌘↩", "Show")
+                        }
+                    }
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             }
             Spacer(minLength: 0)
         }
-        .font(.caption)
+        .font(.callout)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 22)
-        .frame(height: 30)
+        .frame(minHeight: 38)
         .accessibilityIdentifier("quick-search-footer")
-    }
-
-    /// What Return does to the highlighted row, or a neutral verb when nothing
-    /// is highlighted.
-    private var primaryActionTitle: String {
-        guard let id = model.selection,
-              let item = model.results.first(where: { $0.id == id }) else {
-            return QuickSearchPrimaryAction.show.title
-        }
-        return QuickSearchPanelModel.primaryAction(for: item).title
     }
 
     private func hint(_ keys: String, _ label: String) -> some View {
@@ -256,24 +270,36 @@ struct QuickSearchView: View {
             Text(label)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(keys) \(label)")
+        .accessibilityLabel("\(Self.spokenKeys(keys)) \(label)")
+    }
+
+    /// The spoken form of a key-cap string: VoiceOver gets "Shift Return"
+    /// rather than raw glyphs, whose Unicode names it may read out literally
+    /// (↩ is "leftwards arrow with hook"), and "Escape" rather than "e-s-c".
+    /// Whole keys, not substring replacements, so a future cap can neither be
+    /// mangled by a partial match nor leave a trailing blank.
+    private static func spokenKeys(_ keys: String) -> String {
+        if keys == "esc" { return "Escape" }
+        let names = ["⇧": "Shift", "⌥": "Option", "⌘": "Command", "↩": "Return"]
+        return keys.map { names[String($0)] ?? String($0) }.joined(separator: " ")
     }
 
     /// A key glyph with enough presence to read at a glance.
     ///
-    /// `⇧↩` set as plain caption text is two small symbols against a busy
-    /// background and disappears. This is the same chip the search field's
-    /// `esc` uses, which is legible, so the two now share one shape — one size
-    /// up from the caption beside it, because these are glyphs rather than
-    /// letters and they carry less redundancy to read them by.
+    /// The modifier-and-Return combinations are the whole interface of this
+    /// footer, and at caption-adjacent sizes ⇧ and ⌥ collapse into blobs one
+    /// squint away from each other. The chips are therefore set much larger
+    /// and heavier than the labels beside them — the inverse of the usual
+    /// hierarchy, justified by these being symbols with no surrounding word
+    /// to guess them from. The search field's `esc` shares the shape.
     private func keyCap(_ keys: String) -> some View {
         Text(keys)
-            .font(.system(.footnote, design: .monospaced))
+            .font(.system(size: keyCapSize, weight: .semibold, design: .monospaced))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
-            .accessibilityHidden(true)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            .accessibilityLabel(Self.spokenKeys(keys))
     }
 
     private static func message(

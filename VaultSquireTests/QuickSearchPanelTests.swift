@@ -154,6 +154,27 @@ final class QuickSearchPanelTests: XCTestCase {
         XCTAssertFalse(model.isUnlocked)
     }
 
+    /// A refresh that swaps every item id must re-seat the highlight on a row
+    /// that still exists, never leave it dangling on a gone one: a stale
+    /// selection blanks the footer and silences every key.
+    @MainActor
+    func testARefreshReseatsTheHighlightOnALiveRow() {
+        let model = QuickSearchPanelModel()
+        model.present(
+            items: [Self.projection(title: "one"), Self.projection(title: "two")],
+            isUnlocked: true,
+            onOpen: nil
+        )
+        model.selectLast()
+        XCTAssertEqual(model.selection, model.results.last?.id)
+
+        model.update(items: [Self.projection(title: "three")], isUnlocked: true)
+
+        XCTAssertEqual(model.results.count, 1)
+        XCTAssertEqual(model.selection, model.results.first?.id)
+        XCTAssertNotNil(model.selectedProjection)
+    }
+
     @MainActor
     func testLockedPanelOpensNothing() {
         var opened = 0
@@ -288,6 +309,33 @@ final class QuickSearchPanelTests: XCTestCase {
     func testAProviderWithoutCopySecretFallsBackToShowing() {
         let item = Self.projection(title: "GitHub", category: .login, capabilities: [.viewItems])
         XCTAssertEqual(QuickSearchPanelModel.primaryAction(for: item), .show)
+    }
+
+    /// The footer's hints and the ⇧↩/⌥↩ key handlers read these two
+    /// predicates, so a row and its hint can never disagree about whether the
+    /// key does anything.
+    @MainActor
+    func testHintEligibilityMatchesWhatTheRowOffers() {
+        XCTAssertTrue(QuickSearchPanelModel.offersUsername(
+            Self.projection(title: "a", username: "someone")
+        ))
+        XCTAssertFalse(QuickSearchPanelModel.offersUsername(Self.projection(title: "b")))
+        XCTAssertFalse(QuickSearchPanelModel.offersUsername(
+            Self.projection(title: "c", username: "")
+        ))
+
+        var withCode = Self.projection(title: "d")
+        XCTAssertFalse(QuickSearchPanelModel.offersOneTimeCode(withCode))
+        withCode.hasOneTimeCode = true
+        XCTAssertTrue(QuickSearchPanelModel.offersOneTimeCode(withCode))
+    }
+
+    /// The footer hint and the row accessory both read this string. It stays
+    /// verb-less on purpose — the same key types or copies depending on where
+    /// the panel was summoned from — so pin it rather than let it drift back
+    /// to a verb.
+    func testThePrimaryActionTitleStaysVerbless() {
+        XCTAssertEqual(QuickSearchPrimaryAction.copyPassword.title, "Password")
     }
 
     /// The panel must not go away while the value is still being fetched. Both
