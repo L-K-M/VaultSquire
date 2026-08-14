@@ -633,8 +633,18 @@ struct VaultBrowserView: View {
                     }
                 }
             }
+            // Outside the `if`. An HStack with no flexible child is as wide as
+            // its content, not as wide as the row it was offered, and the
+            // `.contentShape(Rectangle())` below traces whatever that comes
+            // to — so a row without one is clickable on its icon and title and
+            // dead everywhere else.
+            //
+            // Spelled out because the obvious check misses it: arrowing
+            // through a List is NSTableView selecting by row index, which
+            // never consults the content shape, so a row with no hit region
+            // left answers the keyboard perfectly.
+            Spacer(minLength: 4)
             if item.favorite {
-                Spacer(minLength: 4)
                 Image(systemName: "star.fill")
                     .font(.caption2)
                     .foregroundStyle(.yellow)
