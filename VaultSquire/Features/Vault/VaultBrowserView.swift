@@ -653,30 +653,22 @@ struct VaultBrowserView: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        // No double-click-to-open here, deliberately.
+        // No double-click-to-open here, and no SwiftUI tap gesture of any
+        // count: one raced with the row's own selection and made single
+        // clicks land only sometimes. `TapGesture(count: 2)` cannot resolve
+        // until the double-click interval passes without a second tap, so it
+        // holds every single click for that window — and a List row's
+        // selection on macOS is NSTableView's, not a SwiftUI gesture, so
+        // `simultaneousGesture` has nothing to compose with and the
+        // recognizer stays in front of AppKit either way.
         //
-        // It was `.onTapGesture(count: 2)`, which broke single-click
-        // selection outright; `1830ca1` changed it to a simultaneous gesture
-        // because "a gesture on a List row competes with the row's own click
-        // handling". That reduced the damage without ending it: selection
-        // became unreliable rather than broken, which is worse to live with
-        // because it reads as the app randomly ignoring the mouse.
-        //
-        // `simultaneousGesture` composes a gesture with other *SwiftUI*
-        // gestures. A List row's selection on macOS is NSTableView's, which
-        // is not one — so the two never compose, and the recognizer still
-        // sits in front of AppKit. `TapGesture(count: 2)` cannot resolve
-        // until the double-click interval has elapsed without a second tap,
-        // so every single click is held for that window and whether it
-        // survives to reach the table is a race. That is the randomness.
-        //
-        // Opening a website stays on the context menu, which is where the
-        // detail pane's confirmation flow is reached from anyway, so nothing
-        // is lost but the shortcut. Restoring it means detecting the click
-        // count in AppKit rather than in SwiftUI, and the honest version of
-        // that is an NSViewRepresentable per row — which this list, whose
-        // per-row view count is already the thing that made filtering hang,
-        // should not take on for a shortcut.
+        // Opening a website lives on the context menu, which shares the
+        // detail pane's confirmation flow, so only the shortcut is gone.
+        // Bringing it back means AppKit's click count rather than SwiftUI's,
+        // and it does not need a view per row: one representable over the
+        // whole list, reaching the backing table's `doubleAction` and
+        // mapping `clickedRow`, would do it without touching the per-row
+        // view count. Worth trying that way; not worth another gesture here.
     }
 
     // MARK: - Locked vault pane
