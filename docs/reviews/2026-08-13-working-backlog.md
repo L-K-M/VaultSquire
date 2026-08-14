@@ -272,13 +272,14 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
 
   The walk is also not one-shot. `contentColumn` swaps this list out for the
   locked-vault pane and for the no-vault placeholder, so the table that comes
-  back after a lock is a new one with nothing attached to it. Discovery and attachment have to re-run on every
-  `updateNSView`, and dismantling has to take the recognizer back off the
-  table it found. #90's "keep one `List` mounted" does not cover this: that
-  was about the empty-filter state within a live list, and locking still
-  tears the list down. A one-shot attachment would work until the first
-  lock and then be silently gone — the failure this entry already says to
-  avoid, arriving through lifecycle rather than through API drift.
+  back after a lock is a new one with nothing attached to it. Discovery and
+  attachment have to re-run on every `updateNSView`, and dismantling has to
+  take the recognizer back off the table it found. #90's "keep one `List`
+  mounted" does not cover this: that was about the empty-filter state within
+  a live list, and locking still tears the list down. A one-shot attachment
+  would work until the first lock and then be silently gone — the failure
+  this entry already says to avoid, arriving through lifecycle rather than
+  through API drift.
 
   Raised as a Major finding by the GLM 5.3 review of #93 and deferred there:
   it adds an event-intercepting mechanism to the same list whose clicks were
