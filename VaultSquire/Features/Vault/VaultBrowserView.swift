@@ -660,9 +660,10 @@ struct VaultBrowserView: View {
         // there is nothing for it to compose with. That was already tried,
         // and is why the bug outlived a fix.
         //
-        // Opening a website lives on the context menu. Restoring the
-        // double-click means the backing table's `doubleAction`, from one
-        // representable over the list — the working backlog carries the
+        // Opening a website lives on the context menu and the detail pane.
+        // Restoring the double-click (removed in #93) means driving the
+        // backing table's `doubleAction` from one representable over the
+        // list; docs/reviews/2026-08-13-working-backlog.md carries the
         // design and the parts of it that need care.
     }
 
