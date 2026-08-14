@@ -239,47 +239,54 @@ Measure on hardware before acting; none of this has been profiled on a Mac.
   macOS it is the expected affordance in a Finder-shaped browser.
 
   The way back is AppKit's click count, from **one** representable over the
-  list rather than a view per row: find the backing `NSTableView`, drive its
-  `doubleAction`, map `clickedRow` to the item, and stage
-  `URIOpeningPolicy.decision(for:)` into `pendingOpen` exactly as the context
-  menu does. Four things need care, and none were resolvable in the PR that
+  list rather than a view per row: find the backing `NSTableView`, attach an
+  `NSClickGestureRecognizer` with `numberOfClicksRequired = 2`, resolve the
+  row under the click, and stage `URIOpeningPolicy.decision(for:)` into
+  `pendingOpen` exactly as the context menu does.
+
+  A recognizer rather than the table's `doubleAction`, which is the obvious
+  route and the wrong one: setting `target`/`doubleAction` overwrites
+  whatever SwiftUI's own coordinator keeps there, and what it uses them for
+  is undocumented. A recognizer touches neither. Set
+  `delaysPrimaryMouseButtonEvents = false` explicitly rather than relying on
+  the default — it is the AppKit control for the exact behaviour
+  `TapGesture(count: 2)` gave no say over, and holding the first click is
+  what made single-click selection unreliable in the first place.
+
+  Resolve the row from the recognizer's own `location(in:)` through
+  `row(at:)`, not from `clickedRow`: that is only dependable while the table
+  is dispatching its own action, and a recognizer fires outside that window,
+  so it can read stale or `-1`. The failure that buys is a double-click
+  opening the wrong entry's URL, which is the one worth avoiding hardest
+  here.
+
+  Three things then need care, and none were resolvable in the PR that
   raised this:
 
   - A representable placed in the list's `.background` is not reliably inside
     the table's superview chain, so the walk that finds the table can come
     back empty. Where it is attached decides whether this works at all.
-  - Setting `target`/`doubleAction` overwrites whatever SwiftUI's own
-    coordinator has on the table. What it uses them for is undocumented.
-  - Mapping `clickedRow` to an index in `filteredItems` holds only while the
-    list stays flat. A section or a group header breaks it silently.
+  - Mapping a row index onto `filteredItems` holds only while the list stays
+    flat. A section or a group header breaks it silently.
   - The backing table is not API. It needs re-checking per macOS release,
     which argues for failing soft — no double-click — rather than wrong.
 
-  The second of those has a way around it. An `NSClickGestureRecognizer`
-  with `numberOfClicksRequired = 2`, added to the found table from the same
-  representable, fires on the second click without touching `target` or
-  `doubleAction`, so nothing SwiftUI keeps there is disturbed. The property
-  that makes it safe is `delaysPrimaryMouseButtonEvents = false`: it is the
-  AppKit control for the exact behaviour SwiftUI's `TapGesture(count: 2)`
-  gave no say over, and holding the first click is what made single-click
-  selection unreliable in the first place. Set it explicitly rather than
-  relying on the default. The discovery walk and the row mapping are still
-  needed either way, but the mapping changes with the route: `clickedRow` is
-  only dependable while the table is dispatching its own action, and a
-  recognizer fires outside that, so it can read stale or `-1`. Resolve the
-  row from the recognizer's own `location(in:)` through `row(at:)` instead.
-  `clickedRow` belongs to the `doubleAction` sketch this paragraph replaces.
-
-  The walk is also not one-shot. `contentColumn` swaps this list out for the
-  locked-vault pane and for the no-vault placeholder, so the table that comes
-  back after a lock is a new one with nothing attached to it. Discovery and
-  attachment have to re-run on every `updateNSView`, and dismantling has to
-  take the recognizer back off the table it found. #90's "keep one `List`
+  The attachment is not one-shot either. `contentColumn` swaps this list out
+  for the locked-vault pane and for the no-vault placeholder, so the table
+  that comes back after a lock is a new one with nothing on it. Discovery and
+  attachment have to re-run on every `updateNSView` — and idempotently, since
+  that fires on any state change rather than only after a lock, so an
+  unguarded re-run stacks a second recognizer on a table that already has one
+  and opens the item twice. Check for the one already installed, and let
+  dismantling take it back off the table it found. #90's "keep one `List`
   mounted" does not cover this: that was about the empty-filter state within
-  a live list, and locking still tears the list down. A one-shot attachment
-  would work until the first lock and then be silently gone — the failure
-  this entry already says to avoid, arriving through lifecycle rather than
-  through API drift.
+  a live list, and locking still tears the list down.
+
+  Worth re-extracting a shared staging helper while doing it. `VaultBrowserView`
+  and `VaultItemDetailView` each hand-roll the `URIOpeningPolicy.decision(for:)`
+  into `pendingOpen` into `showOpenConfirmation` sequence today, and a third
+  copy for the double-click is where a security-relevant path starts drifting
+  between call sites.
 
   Raised as a Major finding by the GLM 5.3 review of #93 and deferred there:
   it adds an event-intercepting mechanism to the same list whose clicks were
