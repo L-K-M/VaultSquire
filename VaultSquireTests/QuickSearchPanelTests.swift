@@ -309,6 +309,14 @@ final class QuickSearchPanelTests: XCTestCase {
         XCTAssertTrue(QuickSearchPanelModel.offersOneTimeCode(withCode))
     }
 
+    /// The footer hint and the row accessory both read this string. It stays
+    /// verb-less on purpose — the same key types or copies depending on where
+    /// the panel was summoned from — so pin it rather than let it drift back
+    /// to a verb.
+    func testThePrimaryActionTitleStaysVerbless() {
+        XCTAssertEqual(QuickSearchPrimaryAction.copyPassword.title, "Password")
+    }
+
     /// The panel must not go away while the value is still being fetched. Both
     /// CLI providers list without secrets, so Return starts a fetch that can
     /// take seconds; dismissing first would hand focus to another application

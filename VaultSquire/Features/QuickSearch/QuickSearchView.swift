@@ -223,36 +223,41 @@ struct QuickSearchView: View {
                 Image(systemName: "exclamationmark.triangle")
                 Text(Self.message(for: value, outcome))
             case .idle:
-                // Only what the highlighted row can actually do. The hints
-                // used to be a fixed set, which advertised Username and
-                // One-time code for rows that have neither — pressing the key
-                // then earned an error — and never said the word "Password"
-                // for a row whose Return had fallen back to Show, which read
-                // as "this panel cannot hand out a password at all".
-                if let item = selectedItem {
-                    let primary = QuickSearchPanelModel.primaryAction(for: item)
-                    hint("↩", primary.title)
-                    if QuickSearchPanelModel.offersUsername(item) {
-                        hint("⇧↩", "Username")
-                    }
-                    if QuickSearchPanelModel.offersOneTimeCode(item) {
-                        hint("⌥↩", "One-time code")
-                    }
-                    if primary != .show {
-                        // Short here, spelled out on the row: four hints and
-                        // the full phrase do not fit the panel's width
-                        // together.
-                        hint("⌘↩", "Show")
+                // At extreme text sizes the hints shrink before they may
+                // truncate: a clipped shortcut is a hidden feature. Scoped
+                // to the hints — the fetching and failure branches above
+                // keep every line of their messages.
+                Group {
+                    // Only what the highlighted row can actually do. The
+                    // hints used to be a fixed set, which advertised
+                    // Username and One-time code for rows that have neither
+                    // — pressing the key then earned an error — and never
+                    // said the word "Password" for a row whose Return had
+                    // fallen back to Show, which read as "this panel cannot
+                    // hand out a password at all".
+                    if let item = selectedItem {
+                        let primary = QuickSearchPanelModel.primaryAction(for: item)
+                        hint("↩", primary.title)
+                        if QuickSearchPanelModel.offersUsername(item) {
+                            hint("⇧↩", "Username")
+                        }
+                        if QuickSearchPanelModel.offersOneTimeCode(item) {
+                            hint("⌥↩", "One-time code")
+                        }
+                        if primary != .show {
+                            // Short here, spelled out on the row: four hints
+                            // and the full phrase do not fit the panel's
+                            // width together.
+                            hint("⌘↩", "Show")
+                        }
                     }
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             }
             Spacer(minLength: 0)
         }
         .font(.callout)
-        // At extreme text sizes the hints shrink before they may truncate: a
-        // clipped shortcut is a hidden feature.
-        .lineLimit(1)
-        .minimumScaleFactor(0.75)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 22)
         .frame(minHeight: 38)
@@ -261,12 +266,15 @@ struct QuickSearchView: View {
 
     /// The row the keyboard acts on, when there is one. Nil exactly when the
     /// result list is empty — `recomputeResults` re-seats the highlight on
-    /// the first row after every change — so a blank footer only ever
-    /// accompanies the no-matches or locked content, where no key works
-    /// anyway.
+    /// the first row after every change, and the assert keeps that honest in
+    /// debug builds — so a blank footer only ever accompanies the no-matches
+    /// or locked content, where no key works anyway.
     private var selectedItem: VaultItemProjection? {
         guard let id = model.selection else { return nil }
-        return model.results.first(where: { $0.id == id })
+        let item = model.results.first(where: { $0.id == id })
+        assert(item != nil || model.results.isEmpty,
+               "Stale selection — the footer hints and the Return keys are silently inactive")
+        return item
     }
 
     private func hint(_ keys: String, _ label: String) -> some View {
@@ -288,6 +296,9 @@ struct QuickSearchView: View {
             .replacingOccurrences(of: "⌘", with: "Command ")
             .replacingOccurrences(of: "↩", with: "Return")
             .replacingOccurrences(of: "esc", with: "Escape")
+            // A modifier-only cap ("⇧") would otherwise speak with a
+            // trailing blank.
+            .trimmingCharacters(in: .whitespaces)
     }
 
     /// A key glyph with enough presence to read at a glance.
