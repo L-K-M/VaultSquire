@@ -653,28 +653,30 @@ struct VaultBrowserView: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        // The Finder gesture: one click selects, two clicks go. The item's
-        // first website opens behind the same confirmation the context menu
-        // and the detail pane use, so nothing leaves the app unconfirmed.
+        // No double-click-to-open here, deliberately.
         //
-        // Simultaneous rather than `onTapGesture(count: 2)`: a gesture
-        // attached to a List row competes with the row's own click handling,
-        // and selecting by single click is the thing this must not cost.
-        .simultaneousGesture(TapGesture(count: 2).onEnded {
-            openWebsite(of: item)
-        })
-    }
-
-    /// Stages the item's first website for the confirmation dialog and shows
-    /// it. The dialog's presentation is derived from `pendingOpen`, exactly as
-    /// the context menu's Open action stages it.
-    private func openWebsite(of item: VaultItemProjection) {
-        guard let website = item.websites.first,
-              let decision = URIOpeningPolicy.decision(for: website) else {
-            return
-        }
-        pendingOpen = decision
-        showOpenConfirmation = true
+        // It was `.onTapGesture(count: 2)`, which broke single-click
+        // selection outright; `1830ca1` changed it to a simultaneous gesture
+        // because "a gesture on a List row competes with the row's own click
+        // handling". That reduced the damage without ending it: selection
+        // became unreliable rather than broken, which is worse to live with
+        // because it reads as the app randomly ignoring the mouse.
+        //
+        // `simultaneousGesture` composes a gesture with other *SwiftUI*
+        // gestures. A List row's selection on macOS is NSTableView's, which
+        // is not one — so the two never compose, and the recognizer still
+        // sits in front of AppKit. `TapGesture(count: 2)` cannot resolve
+        // until the double-click interval has elapsed without a second tap,
+        // so every single click is held for that window and whether it
+        // survives to reach the table is a race. That is the randomness.
+        //
+        // Opening a website stays on the context menu, which is where the
+        // detail pane's confirmation flow is reached from anyway, so nothing
+        // is lost but the shortcut. Restoring it means detecting the click
+        // count in AppKit rather than in SwiftUI, and the honest version of
+        // that is an NSViewRepresentable per row — which this list, whose
+        // per-row view count is already the thing that made filtering hang,
+        // should not take on for a shortcut.
     }
 
     // MARK: - Locked vault pane
