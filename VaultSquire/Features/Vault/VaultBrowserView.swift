@@ -666,10 +666,11 @@ struct VaultBrowserView: View {
         // and is why the bug outlived a fix.
         //
         // Opening a website lives on the context menu and the detail pane.
-        // Restoring the double-click (removed in #93) means driving the
-        // backing table's `doubleAction` from one representable over the
-        // list; see the "Double-click a row to open its website" entry in
-        // the working backlog for the design and its caveats. By title
+        // Restoring the double-click (removed in #93) means one representable
+        // over the list reading the backing table's click count — by
+        // recognizer, not by `doubleAction`, which overwrites what SwiftUI
+        // keeps there. See the "Double-click a row to open its website" entry
+        // in the working backlog for the design and its caveats. By title
         // rather than by path: those files are dated and roll over.
     }
 
