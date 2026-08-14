@@ -154,6 +154,27 @@ final class QuickSearchPanelTests: XCTestCase {
         XCTAssertFalse(model.isUnlocked)
     }
 
+    /// A refresh that swaps every item id must re-seat the highlight on a row
+    /// that still exists, never leave it dangling on a gone one: a stale
+    /// selection blanks the footer and silences every key.
+    @MainActor
+    func testARefreshReseatsTheHighlightOnALiveRow() {
+        let model = QuickSearchPanelModel()
+        model.present(
+            items: [Self.projection(title: "one"), Self.projection(title: "two")],
+            isUnlocked: true,
+            onOpen: nil
+        )
+        model.selectLast()
+        XCTAssertEqual(model.selection, model.results.last?.id)
+
+        model.update(items: [Self.projection(title: "three")], isUnlocked: true)
+
+        XCTAssertEqual(model.results.count, 1)
+        XCTAssertEqual(model.selection, model.results.first?.id)
+        XCTAssertNotNil(model.selectedProjection)
+    }
+
     @MainActor
     func testLockedPanelOpensNothing() {
         var opened = 0

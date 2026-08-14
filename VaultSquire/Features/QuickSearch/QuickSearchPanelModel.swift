@@ -50,6 +50,20 @@ final class QuickSearchPanelModel: ObservableObject {
     /// The highlighted row, which Return opens and the arrow keys move. Kept
     /// pointing at a row that still exists after every query change.
     @Published private(set) var selection: VaultItemID?
+
+    /// The highlighted row's projection, or nil when the result list is
+    /// empty. Resolution lives here alone, so the footer's hints and the key
+    /// handlers cannot disagree about which row the keyboard is pointing at —
+    /// and a stale id trips the assert in a debug build rather than silently
+    /// blanking the footer.
+    var selectedProjection: VaultItemProjection? {
+        guard let selection else { return nil }
+        let item = results.first(where: { $0.id == selection })
+        assert(item != nil || results.isEmpty,
+               "Stale selection — the footer hints and the Return keys are silently inactive")
+        return item
+    }
+
     /// Whether the vault is unlocked; drives the locked vs. results content.
     @Published private(set) var isUnlocked = false
     /// Display names for the open vaults, so a merged result can say which
@@ -267,8 +281,7 @@ final class QuickSearchPanelModel: ObservableObject {
     }
 
     func perform(_ action: QuickSearchAction) {
-        guard isUnlocked, let id = selection,
-              let item = results.first(where: { $0.id == id }),
+        guard isUnlocked, let item = selectedProjection,
               !isWorking else {
             return
         }

@@ -235,7 +235,7 @@ struct QuickSearchView: View {
                     // said the word "Password" for a row whose Return had
                     // fallen back to Show, which read as "this panel cannot
                     // hand out a password at all".
-                    if let item = selectedItem {
+                    if let item = model.selectedProjection {
                         let primary = QuickSearchPanelModel.primaryAction(for: item)
                         hint("↩", primary.title)
                         if QuickSearchPanelModel.offersUsername(item) {
@@ -264,19 +264,6 @@ struct QuickSearchView: View {
         .accessibilityIdentifier("quick-search-footer")
     }
 
-    /// The row the keyboard acts on, when there is one. Nil exactly when the
-    /// result list is empty — `recomputeResults` re-seats the highlight on
-    /// the first row after every change, and the assert keeps that honest in
-    /// debug builds — so a blank footer only ever accompanies the no-matches
-    /// or locked content, where no key works anyway.
-    private var selectedItem: VaultItemProjection? {
-        guard let id = model.selection else { return nil }
-        let item = model.results.first(where: { $0.id == id })
-        assert(item != nil || model.results.isEmpty,
-               "Stale selection — the footer hints and the Return keys are silently inactive")
-        return item
-    }
-
     private func hint(_ keys: String, _ label: String) -> some View {
         HStack(spacing: 5) {
             keyCap(keys)
@@ -289,16 +276,12 @@ struct QuickSearchView: View {
     /// The spoken form of a key-cap string: VoiceOver gets "Shift Return"
     /// rather than raw glyphs, whose Unicode names it may read out literally
     /// (↩ is "leftwards arrow with hook"), and "Escape" rather than "e-s-c".
+    /// Whole keys, not substring replacements, so a future cap can neither be
+    /// mangled by a partial match nor leave a trailing blank.
     private static func spokenKeys(_ keys: String) -> String {
-        keys
-            .replacingOccurrences(of: "⇧", with: "Shift ")
-            .replacingOccurrences(of: "⌥", with: "Option ")
-            .replacingOccurrences(of: "⌘", with: "Command ")
-            .replacingOccurrences(of: "↩", with: "Return")
-            .replacingOccurrences(of: "esc", with: "Escape")
-            // A modifier-only cap ("⇧") would otherwise speak with a
-            // trailing blank.
-            .trimmingCharacters(in: .whitespaces)
+        if keys == "esc" { return "Escape" }
+        let names = ["⇧": "Shift", "⌥": "Option", "⌘": "Command", "↩": "Return"]
+        return keys.map { names[String($0)] ?? String($0) }.joined(separator: " ")
     }
 
     /// A key glyph with enough presence to read at a glance.
