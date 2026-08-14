@@ -668,8 +668,9 @@ struct VaultBrowserView: View {
         // Opening a website lives on the context menu and the detail pane.
         // Restoring the double-click (removed in #93) means driving the
         // backing table's `doubleAction` from one representable over the
-        // list; docs/reviews/2026-08-13-working-backlog.md carries the
-        // design and the parts of it that need care.
+        // list; see the "Double-click a row to open its website" entry in
+        // the working backlog for the design and its caveats. By title
+        // rather than by path: those files are dated and roll over.
     }
 
     // MARK: - Locked vault pane
