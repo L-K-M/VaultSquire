@@ -652,6 +652,11 @@ struct VaultBrowserView: View {
             }
         }
         .padding(.vertical, 2)
+        // For the `.contextMenu` the list attaches to this row, not for the
+        // gesture below that no longer exists. The Spacer above makes the
+        // HStack fill the row; this makes the empty part of that fill
+        // hit-testable, so a right-click past the title finds the menu
+        // instead of missing it — the same reach the left-click needed.
         .contentShape(Rectangle())
         // No SwiftUI tap gesture on these rows, at any count. One here races
         // the row's own selection and drops single clicks — and reaching for
