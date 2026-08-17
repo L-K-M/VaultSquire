@@ -16,7 +16,9 @@ enum VaultwardenWriteError: Error, Equatable, Sendable {
     /// login path already shows for the same reason; the server's validation
     /// errors name fields, and the field values it was sent are EncStrings, so
     /// echoing them back cannot disclose vault plaintext.
-    case rejected(status: Int, serverMessage: String)
+    /// `serverMessage` is nil when the server said nothing usable, rather than
+    /// carrying a generic restatement of the status the caller already has.
+    case rejected(status: Int, serverMessage: String?)
     /// Refused here, before any request was built or sent — a missing item
     /// identifier, a cipher the snapshot does not hold, one the server marked
     /// read-only, trashed or archived, or a mutation this provider does not
@@ -146,11 +148,20 @@ struct VaultwardenWriteService: Sendable {
             let body = try? JSONDecoder().decode(
                 VaultwardenErrorBody.self, from: response.body
             )
+            let resolved = VaultwardenErrorDecoder.safeMessage(
+                from: body, httpStatus: response.status
+            )
+            // `safeMessage` falls back to a sentence naming the status when the
+            // body carries nothing usable, which the caller already has and
+            // would otherwise render twice. Asking it what it says for no body
+            // at all identifies that fallback without duplicating its wording
+            // here or reimplementing its precedence.
+            let generic = VaultwardenErrorDecoder.safeMessage(
+                from: nil, httpStatus: response.status
+            )
             return .failure(.rejected(
                 status: response.status,
-                serverMessage: VaultwardenErrorDecoder.safeMessage(
-                    from: body, httpStatus: response.status
-                )
+                serverMessage: resolved == generic ? nil : resolved
             ))
         }
         return .success(())

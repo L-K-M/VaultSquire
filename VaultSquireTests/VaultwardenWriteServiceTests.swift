@@ -158,7 +158,7 @@ final class VaultwardenWriteServiceTests: XCTestCase {
     func testEveryRequestKeyIsLowerCamel() throws {
         let body = try makeService().encodeBody(
             draft: VaultItemDraft(
-                title: "GitHub", username: "octocat", password: "pw",
+                title: "GitHub", username: "octocat", password: "VSQ-Canary-hunter2",
                 totp: "JBSWY3DPEHPK3PXP", websites: ["https://github.com"],
                 notes: "a note", favorite: true
             ),
@@ -281,6 +281,18 @@ final class VaultwardenWriteServiceTests: XCTestCase {
             error, .rejected(status: 400, serverMessage: "bad"),
             "a rejection carries the status and the server's own message, or it cannot be diagnosed"
         )
+    }
+
+    /// A body with nothing usable in it carries no message, rather than a
+    /// generic sentence naming the status the caller already has — which would
+    /// otherwise be rendered twice in one alert.
+    func testRejectionWithoutAServerMessageCarriesNone() async throws {
+        StubServer.shared.on("/api/ciphers", respond: .json(500, "{}"))
+        let result = await (try makeService()).createLogin(
+            draft: VaultItemDraft(title: "x"), userKey: userKey, accessToken: "t"
+        )
+        guard case .failure(let error) = result else { return XCTFail("expected failure") }
+        XCTAssertEqual(error, .rejected(status: 500, serverMessage: nil))
     }
 
     /// A revision precondition failure is its own outcome: never a generic

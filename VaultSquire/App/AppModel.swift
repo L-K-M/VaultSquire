@@ -1602,9 +1602,21 @@ final class AppModel: ObservableObject {
             // failure from a malformed body to a server fault read as the same
             // sentence, which told the user nothing and told a bug report
             // less.
-            return "The server rejected the change (\(status)). \(serverMessage)"
+            //
+            // Trimmed and bounded, because the text is the server's and not
+            // ours: it can arrive as blanks, which would leave a sentence
+            // ending in a space, and it has no length of its own that this
+            // alert has to honour.
+            let detail = serverMessage?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(300)
+            guard let detail, !detail.isEmpty else {
+                return "The server rejected the change (\(status))."
+            }
+            return "The server rejected the change (\(status)). \(detail)"
         case .notPermitted:
-            return "VaultSquire can't make that change to this item."
+            // Not "to this item": a refused create has no item to refer to.
+            return "VaultSquire can't make that change."
         case .conflict:
             return "This item changed on the server since your last sync, so the change was not saved. Sync, then make it again."
         }
