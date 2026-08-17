@@ -5,8 +5,27 @@ enum VaultwardenWriteError: Error, Equatable, Sendable {
     case transient
     /// A field could not be encrypted (invalid key material).
     case encryptionFailed
-    /// The server rejected the mutation.
-    case rejected
+    /// The server answered outside the success range, carrying its status and
+    /// its own message.
+    ///
+    /// Both, because without them a rejected write is undiagnosable: every
+    /// status from 400 to 500 arrived as one sentence with no detail, so a
+    /// malformed request body and a server fault and a permission problem
+    /// were indistinguishable to the user and to whoever they reported it to.
+    /// The message comes from `VaultwardenErrorDecoder.safeMessage`, which the
+    /// login path already shows for the same reason; the server's validation
+    /// errors name fields, and the field values it was sent are EncStrings, so
+    /// echoing them back cannot disclose vault plaintext.
+    case rejected(status: Int, serverMessage: String)
+    /// Refused here, before any request was built or sent — a missing item
+    /// identifier, a cipher the snapshot does not hold, one the server marked
+    /// read-only, trashed or archived, or a mutation this provider does not
+    /// support.
+    ///
+    /// Distinct from `rejected` because they were the same case, and so an
+    /// action this app declined locally told the user "the server rejected the
+    /// change" about a server that had never been asked.
+    case notPermitted
     /// The item changed on the server since the client's last sync: the
     /// revision precondition failed. The client must reconcile with an
     /// authoritative read before any retry — a blind retry would overwrite
@@ -120,7 +139,20 @@ struct VaultwardenWriteService: Sendable {
         // A revision-precondition failure surfaces as a conflict, never as a
         // generic rejection the caller might blindly retry.
         if response.status == 409 || response.status == 412 { return .failure(.conflict) }
-        guard (200..<300).contains(response.status) else { return .failure(.rejected) }
+        guard (200..<300).contains(response.status) else {
+            // The server's own account of what was wrong, decoded through the
+            // same shapes the login path reads. A 400 on a cipher write is
+            // almost always the body's shape, and the server names the field.
+            let body = try? JSONDecoder().decode(
+                VaultwardenErrorBody.self, from: response.body
+            )
+            return .failure(.rejected(
+                status: response.status,
+                serverMessage: VaultwardenErrorDecoder.safeMessage(
+                    from: body, httpStatus: response.status
+                )
+            ))
+        }
         return .success(())
     }
 
@@ -215,11 +247,7 @@ struct VaultwardenWriteService: Sendable {
             let name: String?
             let value: String?
 
-            enum CodingKeys: String, CodingKey {
-                case type = "Type"
-                case name = "Name"
-                case value = "Value"
-            }
+            enum CodingKeys: String, CodingKey { case type, name, value }
         }
 
         /// A pass-through password-history entry: the previous password stays
@@ -228,10 +256,7 @@ struct VaultwardenWriteService: Sendable {
             let password: String?
             let lastUsedDate: String?
 
-            enum CodingKeys: String, CodingKey {
-                case password = "Password"
-                case lastUsedDate = "LastUsedDate"
-            }
+            enum CodingKeys: String, CodingKey { case password, lastUsedDate }
         }
 
         struct Login: Encodable {
@@ -243,31 +268,41 @@ struct VaultwardenWriteService: Sendable {
             struct URI: Encodable {
                 let uri: String
 
-                enum CodingKeys: String, CodingKey { case uri = "Uri" }
+                enum CodingKeys: String, CodingKey { case uri }
             }
 
-            enum CodingKeys: String, CodingKey {
-                case username = "Username"
-                case password = "Password"
-                case totp = "Totp"
-                case uris = "Uris"
-            }
+            enum CodingKeys: String, CodingKey { case username, password, totp, uris }
         }
 
+        // lowerCamel, matching what `VaultwardenCipherModel` treats as the
+        // canonical wire form and what it encodes to itself. This used to be
+        // PascalCase throughout, which a camelCase server does not recognise —
+        // so `name` and `type` arrived absent, the required fields were
+        // missing, and every write came back 400. The reader was taught about
+        // camelCase servers when folder and organization membership silently
+        // vanished on one; the writer was never brought along, and its tests
+        // asserted the PascalCase it sent against a fake transport, so nothing
+        // caught the disagreement.
+        //
+        // Spelled out rather than derived, and deliberately so for the two
+        // identifiers: a `CodingKey` taken from the Swift property gives
+        // `folderID` and `organizationID` with a capital D, which is neither
+        // wire form. That is the exact mistake the reader documents having
+        // made.
         enum CodingKeys: String, CodingKey {
-            case type = "Type"
-            case name = "Name"
-            case notes = "Notes"
-            case favorite = "Favorite"
-            case folderID = "FolderId"
-            case organizationID = "OrganizationId"
-            case collectionIds = "CollectionIds"
-            case fields = "Fields"
-            case passwordHistory = "PasswordHistory"
-            case reprompt = "Reprompt"
-            case key = "Key"
+            case type
+            case name
+            case notes
+            case favorite
+            case folderID = "folderId"
+            case organizationID = "organizationId"
+            case collectionIds
+            case fields
+            case passwordHistory
+            case reprompt
+            case key
             case lastKnownRevisionDate
-            case login = "Login"
+            case login
         }
     }
 }

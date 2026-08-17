@@ -1597,8 +1597,14 @@ final class AppModel: ObservableObject {
             return "Couldn't reach the server. The change was not saved."
         case .encryptionFailed:
             return "The item could not be encrypted, so nothing was sent."
-        case .rejected:
-            return "The server rejected the change."
+        case .rejected(let status, let serverMessage):
+            // The server's status and its own words. Without them every
+            // failure from a malformed body to a server fault read as the same
+            // sentence, which told the user nothing and told a bug report
+            // less.
+            return "The server rejected the change (\(status)). \(serverMessage)"
+        case .notPermitted:
+            return "VaultSquire can't make that change to this item."
         case .conflict:
             return "This item changed on the server since your last sync, so the change was not saved. Sync, then make it again."
         }
