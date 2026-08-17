@@ -1607,12 +1607,17 @@ final class AppModel: ObservableObject {
             // ours: it can arrive as blanks, which would leave a sentence
             // ending in a space, and it has no length of its own that this
             // alert has to honour.
-            let detail = serverMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .prefix(300)
-            guard let detail, !detail.isEmpty else {
+            // Interior runs collapse as well as the ends: a server message can
+            // arrive with newlines in it, and this goes into one alert line.
+            let collapsed = (serverMessage ?? "")
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+            guard !collapsed.isEmpty else {
                 return "The server rejected the change (\(status))."
             }
+            let detail = collapsed.count > 300
+                ? String(collapsed.prefix(300)) + "…"
+                : collapsed
             return "The server rejected the change (\(status)). \(detail)"
         case .notPermitted:
             // Not "to this item": a refused create has no item to refer to.

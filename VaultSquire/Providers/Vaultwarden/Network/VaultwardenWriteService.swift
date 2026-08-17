@@ -148,20 +148,14 @@ struct VaultwardenWriteService: Sendable {
             let body = try? JSONDecoder().decode(
                 VaultwardenErrorBody.self, from: response.body
             )
-            let resolved = VaultwardenErrorDecoder.safeMessage(
-                from: body, httpStatus: response.status
-            )
-            // `safeMessage` falls back to a sentence naming the status when the
-            // body carries nothing usable, which the caller already has and
-            // would otherwise render twice. Asking it what it says for no body
-            // at all identifies that fallback without duplicating its wording
-            // here or reimplementing its precedence.
-            let generic = VaultwardenErrorDecoder.safeMessage(
-                from: nil, httpStatus: response.status
-            )
+            // `detail` rather than `safeMessage`: this path reports the status
+            // itself, and `safeMessage` answers a bodyless response with a
+            // sentence naming that same status, which would render it twice.
+            // Asking for the detail states the distinction structurally
+            // instead of inferring it from what the decoder happened to say.
             return .failure(.rejected(
                 status: response.status,
-                serverMessage: resolved == generic ? nil : resolved
+                serverMessage: VaultwardenErrorDecoder.detail(from: body)
             ))
         }
         return .success(())
