@@ -1597,8 +1597,31 @@ final class AppModel: ObservableObject {
             return "Couldn't reach the server. The change was not saved."
         case .encryptionFailed:
             return "The item could not be encrypted, so nothing was sent."
-        case .rejected:
-            return "The server rejected the change."
+        case .rejected(let status, let serverMessage):
+            // The server's status and its own words. Without them every
+            // failure from a malformed body to a server fault read as the same
+            // sentence, which told the user nothing and told a bug report
+            // less.
+            //
+            // Trimmed and bounded, because the text is the server's and not
+            // ours: it can arrive as blanks, which would leave a sentence
+            // ending in a space, and it has no length of its own that this
+            // alert has to honour.
+            // Interior runs collapse as well as the ends: a server message can
+            // arrive with newlines in it, and this goes into one alert line.
+            let collapsed = (serverMessage ?? "")
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+            guard !collapsed.isEmpty else {
+                return "The server rejected the change (\(status))."
+            }
+            let detail = collapsed.count > 300
+                ? String(collapsed.prefix(300)) + "…"
+                : collapsed
+            return "The server rejected the change (\(status)). \(detail)"
+        case .notPermitted:
+            // Not "to this item": a refused create has no item to refer to.
+            return "VaultSquire can't make that change."
         case .conflict:
             return "This item changed on the server since your last sync, so the change was not saved. Sync, then make it again."
         }

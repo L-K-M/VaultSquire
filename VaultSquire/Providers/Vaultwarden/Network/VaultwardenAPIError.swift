@@ -71,10 +71,17 @@ enum VaultwardenErrorDecoder {
         case refresh
     }
 
-    static func safeMessage(
-        from body: VaultwardenErrorBody?,
-        httpStatus: Int
-    ) -> String {
+    /// What the body itself said, or nil when it carried nothing usable.
+    ///
+    /// Separate from `safeMessage` so a caller can tell "the server explained
+    /// itself" from "the server said nothing and here is a sentence about the
+    /// status" — a distinction `safeMessage` alone cannot express, because it
+    /// answers both with a String. The write path needs it: it reports the
+    /// status itself, so the generic fallback would render the status twice.
+    ///
+    /// This is the precedence `safeMessage` has always applied; only the
+    /// fallback stays there.
+    static func detail(from body: VaultwardenErrorBody?) -> String? {
         if let error = body?.error, !error.isEmpty,
            let description = body?.errorDescription, !description.isEmpty {
             return description
@@ -88,8 +95,14 @@ enum VaultwardenErrorDecoder {
         if let flattened = body?.flattenedValidationErrors, !flattened.isEmpty {
             return flattened
         }
+        return nil
+    }
 
-        return "The server returned an error (status \(httpStatus))."
+    static func safeMessage(
+        from body: VaultwardenErrorBody?,
+        httpStatus: Int
+    ) -> String {
+        detail(from: body) ?? "The server returned an error (status \(httpStatus))."
     }
 
     /// Classifies a completed HTTP response into a typed error. 2FA challenge

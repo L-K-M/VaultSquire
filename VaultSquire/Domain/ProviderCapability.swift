@@ -95,6 +95,14 @@ struct CapabilityGate: Sendable {
         capabilities.contains(capability)
     }
 
+    /// Authorizes a mutation, or throws.
+    ///
+    /// The throw is the refusal and never anything else — there is one throw
+    /// site and it fires only when the provider lacks the capability. That is
+    /// what makes `try?` at the call sites correct rather than lossy: there is
+    /// no internal error being swallowed alongside the verdict. Anything added
+    /// here that can fail for another reason has to be reported separately,
+    /// because callers map a throw straight onto "not permitted".
     func authorize(
         _ mutation: VaultItemMutation,
         from entryPoint: ActionEntryPoint

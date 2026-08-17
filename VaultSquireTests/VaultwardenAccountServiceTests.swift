@@ -7,6 +7,29 @@ final class VaultwardenAccountServiceTests: XCTestCase {
     /// plant bytes it will refuse to decode.
     private static let descriptorKey = "ch.lkmc.VaultSquire.account-descriptors.v1"
 
+    /// A refusal decided here, before any request exists, is `.notPermitted`
+    /// and never `.rejected`.
+    ///
+    /// `.rejected` renders as "the server rejected the change", so reporting a
+    /// local refusal through it makes a claim about a server that was never
+    /// contacted — which is what these six guards used to do. An edit with no
+    /// item identifier is the one guard reachable without an authenticated
+    /// transport and a sealed snapshot, so it is the one pinned here; the other
+    /// five sit inside `performWrite` and are recorded as uncovered in #95.
+    func testUpdateWithoutAnItemIdentifierIsNotPermitted() async {
+        let (service, _, _, _) = makeService()
+        let keyring = VaultwardenKeyring(
+            userKey: try! VaultwardenSymmetricKey(keyData: Data((0..<64).map { UInt8($0) }))
+        )
+
+        let result = await service.update(
+            draft: VaultItemDraft(title: "no identifier"), keyring: keyring
+        )
+
+        guard case .failure(let error) = result else { return XCTFail("expected a refusal") }
+        XCTAssertEqual(error, .notPermitted, "a local refusal is not the server's rejection")
+    }
+
     private func makeService() -> (
         service: VaultwardenAccountService,
         descriptors: AccountDescriptorStore,

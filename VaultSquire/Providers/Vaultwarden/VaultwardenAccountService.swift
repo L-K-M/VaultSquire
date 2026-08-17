@@ -295,7 +295,7 @@ struct VaultwardenAccountService: Sendable {
     ) async -> Result<Void, VaultwardenWriteError> {
         let space = VaultSpaceID(account: account, scope: .personal)
         guard (try? capabilityGate.authorize(.createItem(space), from: .menu)) != nil else {
-            return .failure(.rejected)
+            return .failure(.notPermitted)
         }
         return await performWrite { token, transport, apiBase, _ in
             await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
@@ -317,18 +317,18 @@ struct VaultwardenAccountService: Sendable {
         draft: VaultItemDraft,
         keyring: VaultwardenKeyring
     ) async -> Result<Void, VaultwardenWriteError> {
-        guard let itemID = draft.itemID else { return .failure(.rejected) }
+        guard let itemID = draft.itemID else { return .failure(.notPermitted) }
         guard (try? capabilityGate.authorize(.updateItem(itemID), from: .menu)) != nil else {
-            return .failure(.rejected)
+            return .failure(.notPermitted)
         }
         return await performWrite { token, transport, apiBase, snapshot in
             guard let existing = snapshot.ciphers.first(where: { $0.id == itemID.rawValue }) else {
-                return .failure(.rejected)
+                return .failure(.notPermitted)
             }
             // Enforce the server's own restrictions in the use case: no edit
             // on a read-only, trashed, or archived cipher.
             guard existing.edit ?? true, !existing.isTrashed, !existing.isArchived else {
-                return .failure(.rejected)
+                return .failure(.notPermitted)
             }
             guard let writeKey = VaultwardenItemDecryptor.decryptionKey(
                 for: existing, keyring: keyring
@@ -349,7 +349,7 @@ struct VaultwardenAccountService: Sendable {
     /// Archives an item where the server supports it.
     func archive(itemID: VaultItemID) async -> Result<Void, VaultwardenWriteError> {
         guard (try? capabilityGate.authorize(.archiveItem(itemID), from: .menu)) != nil else {
-            return .failure(.rejected)
+            return .failure(.notPermitted)
         }
         return await performWrite { token, transport, apiBase, _ in
             await VaultwardenWriteService(transport: transport, apiBaseURL: apiBase)
