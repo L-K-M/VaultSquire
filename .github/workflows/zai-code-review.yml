@@ -13,6 +13,9 @@ permissions:
   pull-requests: write
   issues: write
 
+# One review per PR at a time; superseded reviews of an outdated diff are
+# worthless, so cancel them. Keyed on the PR number — for pull_request_target
+# github.ref is the base branch, which would collide across PRs.
 concurrency:
   group: zai-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -21,27 +24,9 @@ jobs:
   review:
     name: Review PR with GLM 5.3
     runs-on: ubuntu-latest
-    # Derived from the action's own constants rather than chosen: it retries a
-    # chunk 3x on a 300s request timeout (+1s/2s backoff), so a chunk that
-    # never answers costs ~15.1 min, and it works chunks sequentially with
-    # chunks = ceil(patch chars / 50000).
-    #
-    # A cap below that worst case is not a safety net, it is data loss: a job
-    # killed at the cap discards the chunks that already succeeded, while a run
-    # left to finish still posts findings from every chunk that did. 15 min
-    # cancelled a one-chunk PR exactly that way (#90, against a 15.05 min worst
-    # case). 30 covers one chunk and nothing beyond it, yet this repo has
-    # merged three-chunk diffs (#89, 124k patch chars) and two-chunk ones (#87,
-    # 74k), whose worst cases are 45.2 and 30.1 min.
-    #
-    # 50 covers three chunks plus file-fetch and comment-posting overhead. Past
-    # roughly 150k patch chars the cap can still fire; re-derive it from the
-    # action's retry count, request timeout and chunk size instead of nudging
-    # the number.
-    timeout-minutes: 50
-    # Review non-draft same-repository PRs by default. pull_request_target has secrets
-    # and a write-capable token, so fork PRs are never eligible and the workflow never
-    # checks out or executes PR code.
+    timeout-minutes: 90
+    # pull_request_target exposes repository secrets and a write-capable token.
+    # Never run this privileged job for branches from untrusted forks.
     if: >-
       ${{ github.event.pull_request.draft == false &&
           github.event.pull_request.head.repo.full_name == github.repository }}
@@ -50,6 +35,9 @@ jobs:
     steps:
       - name: Z.ai Code Review
         if: ${{ env.ZAI_API_KEY != '' }}
+        # Pin privileged third-party actions to an immutable commit.
+        # 7d0ce7b = v0.0.9. Verify before bumping:
+        #   git ls-remote https://github.com/L-K-M/zai-code-review refs/tags/v0.0.9
         uses: L-K-M/zai-code-review@7d0ce7b0c226c70eed194615130fa5b632ba4798
         with:
           ZAI_API_KEY: ${{ env.ZAI_API_KEY }}
