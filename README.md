@@ -1,5 +1,8 @@
 # VaultSquire
 
+> [!IMPORTANT]
+> LLM disclosure: This codebase was written with substantial help from large language models: AI coding agents working from the [`AGENTS.md`](AGENTS.md) brief in this repo.
+
 VaultSquire is a native macOS client for self-hosted Vaultwarden instances,
 Proton Pass accounts, and 1Password accounts. The Vaultwarden provider is
 implemented end to end — sign-in with an optional second factor,
