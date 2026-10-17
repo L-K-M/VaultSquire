@@ -59,7 +59,7 @@ codesign \
 "$ROOT/scripts/verify-product.sh" "$app_path" "$REQUESTED_CONFIGURATION"
 
 mkdir -p "$ROOT/dist"
-archive_path="$ROOT/dist/VaultSquire-$REQUESTED_CONFIGURATION-arm64.zip"
+archive_path="$ROOT/dist/VaultSquire-$REQUESTED_CONFIGURATION-macos-arm64.zip"
 temporary_archive="$archive_path.$$.tmp"
 ditto -c -k --sequesterRsrc --keepParent "$app_path" "$temporary_archive"
 mv -f "$temporary_archive" "$archive_path"
