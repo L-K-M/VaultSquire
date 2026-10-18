@@ -296,7 +296,7 @@ jobs:
           mkdir -p "$dist" "$stage" "$mount" "$extract"
           ditto "$APP_PATH" "$stage/$APP_NAME.app"
           ln -s /Applications "$stage/Applications"
-          dmg="$dist/$APP_NAME-$VERSION-arm64.dmg"
+          dmg="$dist/$APP_NAME-$VERSION-macos-arm64.dmg"
           hdiutil create -volname "$APP_NAME $VERSION" -srcfolder "$stage" -ov -format UDZO "$dmg"
           hdiutil verify "$dmg"
           codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"
@@ -322,25 +322,25 @@ jobs:
           xcrun stapler validate "$mount/$APP_NAME.app"
           hdiutil detach "$mount"
           trap - EXIT
-          zip="$dist/$APP_NAME-$VERSION-arm64.zip"
+          zip="$dist/$APP_NAME-$VERSION-macos-arm64.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$zip"
           ditto -x -k "$zip" "$extract"
           ./scripts/verify-signed-product.sh "$extract/$APP_NAME.app" "$APPLE_TEAM_ID" developer-id "$VERSION" "$BUILD"
           xcrun stapler validate "$extract/$APP_NAME.app"
           spctl --assess --type exec --verbose=4 "$extract/$APP_NAME.app"
-          cp "$RUNNER_TEMP/app-notarization.json" "$dist/$APP_NAME-$VERSION-app-notarization.json"
-          cp "$RUNNER_TEMP/app-notarization-log.json" "$dist/$APP_NAME-$VERSION-app-notarization-log.json"
-          cp "$RUNNER_TEMP/dmg-notarization.json" "$dist/$APP_NAME-$VERSION-dmg-notarization.json"
-          cp "$RUNNER_TEMP/dmg-notarization-log.json" "$dist/$APP_NAME-$VERSION-dmg-notarization-log.json"
+          cp "$RUNNER_TEMP/app-notarization.json" "$dist/$APP_NAME-$VERSION-macos-arm64-app-notarization.json"
+          cp "$RUNNER_TEMP/app-notarization-log.json" "$dist/$APP_NAME-$VERSION-macos-arm64-app-notarization-log.json"
+          cp "$RUNNER_TEMP/dmg-notarization.json" "$dist/$APP_NAME-$VERSION-macos-arm64-dmg-notarization.json"
+          cp "$RUNNER_TEMP/dmg-notarization-log.json" "$dist/$APP_NAME-$VERSION-macos-arm64-dmg-notarization-log.json"
           ./scripts/generate-sbom.sh \
             --app "$APP_PATH" \
             --version "$VERSION" \
             --build "$BUILD" \
             --commit "$GITHUB_SHA" \
-            --output "$dist/$APP_NAME-$VERSION.spdx.json"
+            --output "$dist/$APP_NAME-$VERSION-macos-arm64.spdx.json"
           (
             cd "$dist"
-            shasum -a 256 ./*.dmg ./*.zip ./*.json > "$APP_NAME-$VERSION.sha256"
+            shasum -a 256 ./*.dmg ./*.zip ./*.json > "$APP_NAME-$VERSION-macos-arm64.sha256"
           )
           echo "dist=$dist" >> "$GITHUB_OUTPUT"
 
