@@ -112,7 +112,7 @@ if /usr/bin/grep -qE 'uses:[[:space:]]+[^.][^@[:space:]]*@(main|master|v[0-9]+)(
     printf 'Release workflow contains a mutable action reference.\n' >&2
     exit 1
 fi
-if ! /usr/bin/grep -q 'actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373' "$release_workflow"; then
+if ! /usr/bin/grep -q 'actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8' "$release_workflow"; then
     printf 'Release provenance action pin changed without updating repository policy.\n' >&2
     exit 1
 fi
