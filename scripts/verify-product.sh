@@ -136,4 +136,12 @@ if [[ -n "$unexpected_links" ]]; then
     exit 1
 fi
 
+# Every build carries the project's own license text, copied by the "Bundle
+# license notices" build phase. It is a plain resource, not code.
+license_copy="$APP_PATH/Contents/Resources/LICENSE.txt"
+if [[ ! -s "$license_copy" ]] || ! cmp -s "$ROOT/LICENSE" "$license_copy"; then
+    printf 'Bundled license text is missing or differs from LICENSE: %s\n' "$license_copy" >&2
+    exit 1
+fi
+
 printf 'Verified %s product at %s\n' "$CONFIGURATION" "$APP_PATH"

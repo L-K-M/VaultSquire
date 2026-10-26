@@ -233,4 +233,12 @@ while IFS= read -r -d '' file; do
 done < <(/usr/bin/find "$APP_PATH/Contents" -type f -print0)
 [[ -z "$unexpected_macho" ]] || { printf 'Unexpected Mach-O files:\n%s' "$unexpected_macho" >&2; exit 1; }
 
+# Every signed copy (local install, exported app, DMG and ZIP) carries the
+# project's own license text; the checks above accept it as a plain resource.
+license_copy="$APP_PATH/Contents/Resources/LICENSE.txt"
+if [[ ! -s "$license_copy" ]] || ! cmp -s "$ROOT/LICENSE" "$license_copy"; then
+    printf 'Bundled license text is missing or differs from LICENSE: %s\n' "$license_copy" >&2
+    exit 1
+fi
+
 printf 'Verified %s signed product at %s\n' "$SIGNING_MODE" "$APP_PATH"
