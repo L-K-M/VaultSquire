@@ -76,6 +76,14 @@ for file in "${required_files[@]}"; do
     fi
 done
 
+# The README states the project's own license. The app ships the same text as
+# Contents/Resources/LICENSE.txt, which the product verification scripts check.
+if ! /usr/bin/grep -qx '## License' README.md \
+    || ! /usr/bin/grep -qF '[Apache License 2.0](LICENSE)' README.md; then
+    printf 'README.md needs a "## License" section linking the [Apache License 2.0](LICENSE).\n' >&2
+    exit 1
+fi
+
 "$ROOT/scripts/version.sh" --check
 "$ROOT/scripts/check-release-eligibility.sh" --status
 bash -n scripts/*.sh

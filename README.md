@@ -231,6 +231,8 @@ Read the documents in this order:
     the 2026-08 sol review pass in full — status re-derived from
     `905d76d`/`f48084e`, the mid-pass #79 reconciliation, and the plan behind
     the `sol/*` pull requests (subordinate evidence).
+27. [`LICENSE`](LICENSE): the Apache License 2.0 that covers VaultSquire's own
+    code.
 
 If documents appear to conflict, `PLAN.md` controls product scope and sequence,
 `SECURITY_AND_TESTING.md` controls security invariants and release gates, and
@@ -279,3 +281,14 @@ before release.
 
 No affiliation with or endorsement by Vaultwarden, Bitwarden, Keyguard, or
 Proton is implied.
+
+## License
+
+VaultSquire's own code is released under the [Apache License 2.0](LICENSE).
+The app bundles no third-party code or assets: it links only Apple system
+frameworks and the Swift runtime that ship with macOS, and its icon was
+generated at the owner's direction with no third-party artwork, as
+[`ICON_PROVENANCE.md`](ICON_PROVENANCE.md) records. Every build carries the
+license text in `VaultSquire.app/Contents/Resources` as `LICENSE.txt`. A
+dependency adopted under [ADR 0003](docs/adr/0003-dependency-adoption.md)
+keeps its own license, and its notices must ship in the same folder.
