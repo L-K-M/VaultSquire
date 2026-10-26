@@ -287,7 +287,7 @@ Proton is implied.
 VaultSquire's own code is released under the [Apache License 2.0](LICENSE).
 The app bundles no third-party code or assets: it links only Apple system
 frameworks and the Swift runtime that ship with macOS, and its icon was
-generated at the owner's direction without third-party input, as
+generated at the owner's direction with no third-party artwork, as
 [`ICON_PROVENANCE.md`](ICON_PROVENANCE.md) records. Every build carries the
 license text in `VaultSquire.app/Contents/Resources` as `LICENSE.txt`. A
 dependency adopted under [ADR 0003](docs/adr/0003-dependency-adoption.md)
